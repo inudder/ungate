@@ -7,7 +7,7 @@
 		"build:watch": "pnpm run clean && tsc-watch -p tsconfig.build.json --onCompilationComplete \"pnpm run build:postbuild\"",
 		"build:postbuild": "tsc-alias -p tsconfig.build.json --resolve-full-paths",
 		"build:bundle": "tsup",
-		"clean": "rm -rf dist",
+		"clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
 		"lint": "eslint src/",
 		"lint:fix": "eslint src/ --fix",
 		"test": "pnpm run test:unit && pnpm run test:integration",

@@ -1,0 +1,10 @@
+{
+  "enabled": true,
+  "intervalHours": 5,
+  "workStart": "07:00",
+  "workEnd": "22:00",
+  "sendOnStartup": true,
+  "model": "claude-sonnet-4-6",
+  "maxTokens": 10,
+  "pingMessage": "ping"
+}

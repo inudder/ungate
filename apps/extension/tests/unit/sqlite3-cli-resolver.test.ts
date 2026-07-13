@@ -30,6 +30,8 @@ vi.mock('node:fs', async (importOriginal) => {
 import { Sqlite3CliResolver } from '../../src/utils/sqlite3-cli-resolver';
 
 describe('Sqlite3CliResolver', () => {
+	const originalPlatform = process.platform;
+
 	beforeEach(() => {
 		mocks.execFileMock.mockReset();
 		mocks.existsSyncMock.mockReset();
@@ -38,6 +40,7 @@ describe('Sqlite3CliResolver', () => {
 	});
 
 	afterEach(() => {
+		Object.defineProperty(process, 'platform', { value: originalPlatform });
 		vi.unstubAllGlobals();
 	});
 
@@ -53,6 +56,7 @@ describe('Sqlite3CliResolver', () => {
 	});
 
 	it('falls back to sqlite3 from PATH before downloading', async () => {
+		Object.defineProperty(process, 'platform', { value: 'linux' });
 		mocks.existsSyncMock.mockImplementation((target) => String(target) === '/usr/bin/sqlite3');
 		mocks.execFileMock.mockImplementation(
 			(command: string, args: string[], callback: (error: Error | null, result: { stdout: string }) => void) => {
@@ -73,8 +77,6 @@ describe('Sqlite3CliResolver', () => {
 	});
 
 	it('uses where.exe on win32 when searching PATH', async () => {
-		const originalPlatform = process.platform;
-
 		Object.defineProperty(process, 'platform', { value: 'win32' });
 		mocks.existsSyncMock.mockImplementation((target) => String(target) === 'C:\\Tools\\sqlite3.exe');
 		mocks.execFileMock.mockImplementation(
@@ -91,12 +93,11 @@ describe('Sqlite3CliResolver', () => {
 
 		const resolved = await Sqlite3CliResolver.resolve();
 
-		Object.defineProperty(process, 'platform', { value: originalPlatform });
-
 		expect(resolved).toBe('C:\\Tools\\sqlite3.exe');
 	});
 
 	it('downloads sqlite3 into ~/.ungate/bin when nothing is available locally', async () => {
+		Object.defineProperty(process, 'platform', { value: 'linux' });
 		const installedPath = Sqlite3CliResolver.getInstalledPath();
 
 		mocks.existsSyncMock.mockImplementation((target) => {

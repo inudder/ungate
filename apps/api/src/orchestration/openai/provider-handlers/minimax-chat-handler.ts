@@ -16,7 +16,8 @@ export class MiniMaxChatHandler {
 		const { response, context } = await proxyMiniMaxRequest(minimaxBody);
 
 		if (!response.ok) {
-			const errorMessage = CompletionErrorMapper.miniMaxErrorMessage(response, context);
+			const errorPayload = CompletionErrorMapper.miniMaxErrorPayload(response, context);
+			const errorMessage = errorPayload.message;
 			const errorLatencyMs = Date.now() - context.startTime;
 
 			CompletionRequestTelemetry.recordAndApplyProxyHeaders(reply, errorLatencyMs, {
@@ -29,9 +30,9 @@ export class MiniMaxChatHandler {
 				error: errorMessage
 			});
 
-			return reply.code(response.status).send({
-				error: { message: errorMessage, type: 'api_error' }
-			});
+			return reply
+				.code(response.status)
+				.send({ error: { message: errorMessage, type: 'api_error', ...(errorPayload.code && { code: errorPayload.code }) } });
 		}
 
 		if (minimaxBody.stream) {

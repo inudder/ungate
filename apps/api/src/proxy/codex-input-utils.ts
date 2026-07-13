@@ -21,34 +21,60 @@ export class CodexInputUtils {
 	}
 
 	public static normalizeAssistantText(input: Record<string, unknown>[]): Record<string, unknown>[] {
-		return input.map((item) => {
+		const normalizedInput: Record<string, unknown>[] = [];
+
+		for (const item of input) {
 			if (item.type !== 'message' || item.role !== 'assistant') {
-				return item;
+				normalizedInput.push(item);
+				continue;
 			}
 
 			const content = item.content;
 
 			if (!Array.isArray(content)) {
-				return item;
+				normalizedInput.push(item);
+				continue;
 			}
 
-			const normalizedContent = content.map((part) => {
+			const normalizedContent: unknown[] = [];
+
+			for (const part of content) {
 				if (!part || typeof part !== 'object') {
-					return part;
+					normalizedContent.push(part);
+					continue;
 				}
 
 				const contentPart = part as Record<string, unknown>;
 				const contentType = contentPart.type;
 
 				if (contentType === 'input_text' || contentType === 'text') {
-					return { ...contentPart, type: 'output_text' };
+					const rawText = typeof contentPart.text === 'string' ? contentPart.text : '';
+					const text = rawText.trimEnd();
+
+					if (text.trim().length > 0) {
+						normalizedContent.push({ ...contentPart, type: 'output_text', text });
+					}
+					continue;
 				}
 
-				return part;
-			});
+				if (contentType === 'output_text' && typeof contentPart.text === 'string') {
+					const text = contentPart.text.trimEnd();
 
-			return { ...item, content: normalizedContent };
-		});
+					if (text.trim().length > 0) {
+						normalizedContent.push({ ...contentPart, text });
+					}
+					continue;
+				}
+
+				normalizedContent.push(part);
+			}
+
+			if (normalizedContent.length > 0) {
+				normalizedInput.push({ ...item, content: normalizedContent });
+			}
+		}
+
+		return normalizedInput;
 	}
 
 	public static expandInput(input: unknown): Record<string, unknown>[] | null {

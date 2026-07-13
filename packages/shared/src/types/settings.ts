@@ -21,3 +21,13 @@ export interface AppSettings {
 	extraInstruction: string | null;
 	models: ModelMappingConfig[];
 }
+
+export interface ModelValidationResult {
+	ok: boolean;
+	available: boolean;
+	message: string;
+	provider: ModelMappingProvider;
+	upstreamModel: string;
+	statusCode?: number;
+	latencyMs?: number;
+}

@@ -36,6 +36,79 @@ describe('CompletionModelRouting', () => {
 		expect(CompletionModelRouting.buildMiniMaxBody(body as never, null).model).toBe('alias');
 	});
 
+	it('adds MiniMax file-editing guidance after leading system messages when exec_command is available', () => {
+		const body = {
+			model: 'alias',
+			messages: [
+				{ role: 'system', content: 'base instruction' },
+				{ role: 'developer', content: 'project instruction' },
+				{ role: 'user', content: 'edit a file' }
+			],
+			tools: [
+				{
+					type: 'function',
+					function: { name: 'exec_command', parameters: { type: 'object' } }
+				}
+			]
+		} as const;
+
+		const upstream = CompletionModelRouting.buildMiniMaxBody(body as never, null);
+		const instruction = upstream.messages[2];
+		const instructionContent = instruction?.content;
+
+		expect(upstream.messages).toEqual([
+			{ role: 'system', content: 'base instruction' },
+			{ role: 'developer', content: 'project instruction' },
+			expect.objectContaining({ role: 'system', content: expect.any(String) }),
+			{ role: 'user', content: 'edit a file' }
+		]);
+		expect(typeof instructionContent).toBe('string');
+
+		if (typeof instructionContent !== 'string') {
+			throw new Error('MiniMax instruction must be text');
+		}
+
+		expect(instructionContent).toContain('apply_patch custom tool is unavailable');
+		expect(instructionContent).toContain('research and planning are intermediate work, not task completion');
+		expect(instructionContent).toContain('do not return a prose-only message');
+		expect(instructionContent).toContain('inspect the required context, edit through exec_command, run relevant checks');
+		expect(instructionContent).toContain('a user decision is required');
+		expect(body.messages).toHaveLength(3);
+	});
+
+	it('does not add MiniMax file-editing guidance without a compatible exec_command tool', () => {
+		const body = { model: 'alias', messages: [{ role: 'user', content: 'hello' }], tools: [] } as const;
+
+		expect(CompletionModelRouting.buildMiniMaxBody(body as never, null)).toBe(body);
+	});
+
+	it('injects reasoning from model mapping into minimax body when client omits it', () => {
+		const body = { model: 'alias', messages: [], stream: false } as const;
+		const mm = mapping({ provider: 'minimax', upstreamModel: 'upstream-mm', reasoningBudget: 'xhigh' });
+
+		const upstream = CompletionModelRouting.buildMiniMaxBody(body as never, mm);
+
+		expect(upstream.reasoning).toEqual({ effort: 'xhigh' });
+	});
+
+	it('preserves client-provided reasoning over model mapping reasoning budget for minimax', () => {
+		const body = { model: 'alias', messages: [], stream: false, reasoning: { effort: 'low' } } as const;
+		const mm = mapping({ provider: 'minimax', upstreamModel: 'upstream-mm', reasoningBudget: 'xhigh' });
+
+		const upstream = CompletionModelRouting.buildMiniMaxBody(body as never, mm);
+
+		expect(upstream.reasoning).toEqual({ effort: 'low' });
+	});
+
+	it('does not inject reasoning when minimax mapping has no reasoning budget', () => {
+		const body = { model: 'alias', messages: [], stream: false } as const;
+		const mm = mapping({ provider: 'minimax', upstreamModel: 'upstream-mm', reasoningBudget: null });
+
+		const upstream = CompletionModelRouting.buildMiniMaxBody(body as never, mm);
+
+		expect('reasoning' in upstream).toBe(false);
+	});
+
 	it('narrows openai mapping with isOpenAiMapped', () => {
 		const openai = mapping({ provider: 'openai', upstreamModel: 'gpt-up' });
 

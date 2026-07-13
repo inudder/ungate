@@ -1,9 +1,15 @@
 <script lang="ts">
 import { getProviderLabel, sleep } from '@ungate/shared/frontend';
+import IconCheck from 'virtual:icons/lucide/check';
 import IconCopy from 'virtual:icons/lucide/copy';
+import IconLoader from 'virtual:icons/lucide/loader-circle';
+import IconPlay from 'virtual:icons/lucide/play';
 import IconTrash2 from 'virtual:icons/lucide/trash-2';
+import IconX from 'virtual:icons/lucide/x';
 
-import type { ModelMappingConfig, ModelMappingProvider } from '@ungate/shared/frontend';
+import { Api } from '$shared/api';
+
+import type { ModelMappingConfig, ModelMappingProvider, ModelValidationResult } from '@ungate/shared/frontend';
 
 interface VisibleModelItem {
 	model: ModelMappingConfig;
@@ -26,6 +32,8 @@ let copiedId = $state<string | null>(null);
 let confirmDeleteModelId = $state<string | null>(null);
 let confirmDeleteIndex = $state<number | null>(null);
 let activeModelIndex = $state<number | null>(null);
+let validatingIndex = $state<number | null>(null);
+let validationByIndex = $state<Record<number, ModelValidationResult | null>>({});
 
 const reasoningOptions: { label: string; value: ModelMappingConfig['reasoningBudget'] }[] = [
 	{ label: 'None', value: null },
@@ -123,6 +131,7 @@ function selectValue(event: Event): string {
 }
 
 function updateModelAtIndex(index: number, key: keyof ModelMappingConfig, value: string | number | null) {
+	clearValidation(index);
 	commit(
 		models.map((model, modelIndex) => {
 			if (modelIndex !== index) {
@@ -156,6 +165,39 @@ async function copyModelId(id: string) {
 			copiedId = null;
 		}
 	})();
+}
+
+async function testModel(model: ModelMappingConfig, index: number) {
+	if (!model.id.trim() || !model.upstreamModel.trim() || validatingIndex !== null) {
+		return;
+	}
+
+	validatingIndex = index;
+	validationByIndex = { ...validationByIndex, [index]: null };
+
+	try {
+		const result = await Api.validateModel(model);
+		validationByIndex = { ...validationByIndex, [index]: result };
+	} catch (error) {
+		validationByIndex = {
+			...validationByIndex,
+			[index]: {
+				ok: false,
+				available: false,
+				message: error instanceof Error ? error.message : 'Validation request failed.',
+				provider: model.provider,
+				upstreamModel: model.upstreamModel
+			}
+		};
+	} finally {
+		validatingIndex = null;
+	}
+}
+
+function clearValidation(index: number) {
+	if (validationByIndex[index]) {
+		validationByIndex = { ...validationByIndex, [index]: null };
+	}
 }
 
 function requestDelete(id: string, index: number) {
@@ -255,6 +297,19 @@ $effect(() => {
 								{copiedId === model.id ? 'Copied' : 'Copy ID'}
 							</button>
 							<button
+								class="btn btn-sm preset-outlined-surface-700 hover:preset-filled-surface-500"
+								type="button"
+								onclick={() => void testModel(model, index)}
+								disabled={!model.id.trim() || !model.upstreamModel.trim() || validatingIndex !== null}>
+								{#if validatingIndex === index}
+									<IconLoader class="size-4 animate-spin" />
+									Testing
+								{:else}
+									<IconPlay class="size-4" />
+									Test
+								{/if}
+							</button>
+							<button
 								class="btn btn-sm preset-outlined-error-500"
 								type="button"
 								onclick={() => requestDelete(model.id || `#row-${index + 1}`, index)}>
@@ -263,6 +318,26 @@ $effect(() => {
 							</button>
 						</div>
 					</div>
+
+					{#if validatingIndex === index || validationByIndex[index]}
+						{@const result = validationByIndex[index]}
+						{#if validatingIndex === index}
+							<div class="card preset-tonal-warning border border-warning-500/30 flex items-center gap-2 p-3 text-sm">
+								<IconLoader class="size-4 animate-spin" />
+								<span>Testing model availability...</span>
+							</div>
+						{:else if result?.available}
+							<div class="card preset-tonal-success border border-success-500/30 flex items-center gap-2 p-3 text-sm">
+								<IconCheck class="size-4 shrink-0" />
+								<span>Available{result.latencyMs != null ? ` (${result.latencyMs}ms)` : ''}</span>
+							</div>
+						{:else if result}
+							<div class="card preset-tonal-error border border-error-500/30 flex items-start gap-2 p-3 text-sm">
+								<IconX class="size-4 mt-0.5 shrink-0" />
+								<span>{result.message}</span>
+							</div>
+						{/if}
+					{/if}
 
 					<div class="grid grid-cols-1 gap-4 xl:grid-cols-4 md:grid-cols-2">
 						<label class="label">

@@ -136,4 +136,67 @@ describe('openai-to-anthropic', () => {
 
 		expect(result.max_tokens).toBe(777);
 	});
+
+	it('trims assistant message trailing whitespace for Anthropic validation', () => {
+		const result = openaiToAnthropic({
+			model: 'claude-opus-4-6',
+			messages: [
+				{ role: 'user', content: 'continue' },
+				{ role: 'assistant', content: 'partial answer \n' }
+			]
+		});
+
+		expect(result.messages.at(-1)).toEqual({
+			role: 'assistant',
+			content: [{ type: 'text', text: 'partial answer' }]
+		});
+	});
+
+	it.each([
+		['auto', { type: 'auto' }],
+		['required', { type: 'any' }],
+		[
+			{ type: 'function', function: { name: 'read_file' } },
+			{ type: 'tool', name: 'read_file' }
+		]
+	] as const)('maps OpenAI tool choice %j to Anthropic', (toolChoice, expected) => {
+		const result = openaiToAnthropic({
+			model: 'claude-opus-4-6',
+			messages: [{ role: 'user', content: 'hello' }],
+			tools: [
+				{
+					type: 'function',
+					function: {
+						name: 'read_file',
+						description: 'Read file',
+						parameters: { type: 'object' }
+					}
+				}
+			],
+			tool_choice: toolChoice
+		});
+
+		expect(result.tool_choice).toEqual(expected);
+	});
+
+	it('omits tools when OpenAI tool choice is none', () => {
+		const result = openaiToAnthropic({
+			model: 'claude-opus-4-6',
+			messages: [{ role: 'user', content: 'hello' }],
+			tools: [
+				{
+					type: 'function',
+					function: {
+						name: 'read_file',
+						description: 'Read file',
+						parameters: { type: 'object' }
+					}
+				}
+			],
+			tool_choice: 'none'
+		});
+
+		expect(result.tools).toBeUndefined();
+		expect(result.tool_choice).toBeUndefined();
+	});
 });

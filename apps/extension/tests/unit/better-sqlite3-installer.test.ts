@@ -1,3 +1,5 @@
+import * as path from 'node:path';
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const execFileMock = vi.fn();
@@ -161,7 +163,7 @@ describe('BetterSqlite3Installer', () => {
 				return false;
 			}
 
-			if (String(target).endsWith('build/Release/better_sqlite3.node')) {
+			if (String(target).endsWith(path.join('build', 'Release', 'better_sqlite3.node'))) {
 				return true;
 			}
 

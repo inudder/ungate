@@ -5,9 +5,13 @@ import type { FastifyReply } from 'fastify';
 import type { RequestContext } from 'src/types/proxy';
 
 export class CompletionStreamingGateway {
-	static copyUpstreamHeaders(reply: FastifyReply, response: Response): void {
+	static copyUpstreamHeaders(reply: FastifyReply, response: Response, transformedStream = false): void {
 		for (const [key, value] of response.headers.entries()) {
-			if (key.toLowerCase() === 'content-encoding') {
+			const normalizedKey = key.toLowerCase();
+			if (
+				normalizedKey === 'content-encoding' ||
+				(transformedStream && (normalizedKey === 'content-length' || normalizedKey === 'transfer-encoding'))
+			) {
 				continue;
 			}
 
@@ -16,7 +20,7 @@ export class CompletionStreamingGateway {
 	}
 
 	static sendMiniMaxStream(reply: FastifyReply, response: Response, minimaxModel: string, context: RequestContext): FastifyReply {
-		CompletionStreamingGateway.copyUpstreamHeaders(reply, response);
+		CompletionStreamingGateway.copyUpstreamHeaders(reply, response, true);
 		reply.code(response.status);
 
 		const { stream, headers: streamHeaders } = MiniMaxStreamHandler.createStreamResponse(

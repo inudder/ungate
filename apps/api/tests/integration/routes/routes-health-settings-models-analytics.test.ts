@@ -12,11 +12,18 @@ const settingsUpdateMock = vi.fn();
 const analyticsSummaryMock = vi.fn();
 const analyticsRecentMock = vi.fn();
 const analyticsResetMock = vi.fn();
+const validateModelMock = vi.fn();
 
 vi.mock('src/database/app-settings', () => ({
 	Settings: {
 		get: (...args: unknown[]) => settingsGetMock(...args),
 		update: (...args: unknown[]) => settingsUpdateMock(...args)
+	}
+}));
+
+vi.mock('src/services/model-validator', () => ({
+	ModelValidator: {
+		validate: (...args: unknown[]) => validateModelMock(...args)
 	}
 }));
 
@@ -84,6 +91,52 @@ describe('routes: health/settings/models/analytics', () => {
 				{ id: 'm2', object: 'model', created: 1700000000, owned_by: 'openai' }
 			]
 		});
+		await app.close();
+	});
+
+	it('validates a model via ModelValidator', async () => {
+		validateModelMock.mockResolvedValueOnce({
+			ok: true,
+			available: false,
+			message: 'Claude Fable 5 is not available.',
+			provider: 'claude',
+			upstreamModel: 'claude-fable-5',
+			statusCode: 404
+		});
+
+		const app = await withPlugin(modelsPlugin);
+		const response = await app.inject({
+			method: 'POST',
+			url: '/models/validate',
+			payload: {
+				model: {
+					id: 'fable-5',
+					label: 'Fable 5',
+					provider: 'claude',
+					upstreamModel: 'claude-fable-5',
+					sortOrder: 0,
+					reasoningBudget: 'high'
+				}
+			}
+		});
+
+		expect(response.statusCode).toBe(200);
+		expect(response.json().available).toBe(false);
+		expect(response.json().message).toContain('Fable 5');
+		expect(validateModelMock).toHaveBeenCalledTimes(1);
+		await app.close();
+	});
+
+	it('rejects invalid model validate payload', async () => {
+		const app = await withPlugin(modelsPlugin);
+		const response = await app.inject({
+			method: 'POST',
+			url: '/models/validate',
+			payload: { model: { id: 'x', label: 'x', provider: 'invalid', upstreamModel: 'u', sortOrder: 0, reasoningBudget: null } }
+		});
+
+		expect(response.statusCode).toBe(400);
+		expect(response.json().ok).toBe(false);
 		await app.close();
 	});
 

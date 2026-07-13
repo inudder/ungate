@@ -34,8 +34,11 @@ const TOOL_NAME_MAPPING: Record<string, string> = {
 	// Execution
 	execute_bash: 'Bash',
 	execute_command: 'Bash',
+	exec_command: 'Bash',
 	run_terminal_cmd: 'Bash',
 	run_command: 'Bash',
+	shell_command: 'Bash',
+	write_stdin: 'Bash',
 	bash: 'Bash',
 	terminal: 'Bash',
 
@@ -62,6 +65,7 @@ const TOOL_NAME_MAPPING: Record<string, string> = {
 	// Interactive operations
 	ask_user: 'AskUserQuestion',
 	prompt_user: 'AskUserQuestion',
+	request_user_input: 'AskUserQuestion',
 
 	// Browser/UI operations
 	browser_action: 'WebFetch'

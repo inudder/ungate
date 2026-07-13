@@ -1,0 +1,57 @@
+Фрагмент, который нужно вставить в apps/api/src/server.ts.
+
+=== ИМПОРТ (в начало файла) ===
+
+import {
+    loadWakePingConfig,
+    saveWakePingConfig,
+    startWakePingScheduler,
+    stopWakePingScheduler
+} from './wake-ping';
+
+
+=== ВНУТРИ функции startServer(), ПЕРЕД строкой `await app.listen(...)` ===
+
+    // Wake Ping API routes
+    app.get('/wake-ping', async (_request, reply) => {
+        const cfg = loadWakePingConfig();
+        return reply.send({
+            enabled: cfg.enabled,
+            intervalHours: cfg.intervalHours,
+            sendOnStartup: cfg.sendOnStartup,
+            model: cfg.model,
+            maxTokens: cfg.maxTokens,
+            pingMessage: cfg.pingMessage,
+            running: isWakePingRunning()  // или дёрнуть локальную переменную
+        });
+    });
+    app.post('/wake-ping', async (request, reply) => {
+        const body = (request.body || {}) as Partial<{
+            enabled: boolean;
+            intervalHours: number;
+            sendOnStartup: boolean;
+            model: string;
+            maxTokens: number;
+            pingMessage: string;
+        }>;
+        const cfg = loadWakePingConfig();
+        if (typeof body.enabled === 'boolean') cfg.enabled = body.enabled;
+        if (typeof body.intervalHours === 'number' && body.intervalHours >= 1) cfg.intervalHours = body.intervalHours;
+        if (typeof body.sendOnStartup === 'boolean') cfg.sendOnStartup = body.sendOnStartup;
+        if (typeof body.model === 'string' && body.model.length > 0) cfg.model = body.model;
+        if (typeof body.maxTokens === 'number' && body.maxTokens >= 1) cfg.maxTokens = body.maxTokens;
+        if (typeof body.pingMessage === 'string') cfg.pingMessage = body.pingMessage;
+        saveWakePingConfig(cfg);
+        if (cfg.enabled) {
+            stopWakePingScheduler();
+            startWakePingScheduler();
+        } else {
+            stopWakePingScheduler();
+        }
+        return reply.send({ ok: true, enabled: cfg.enabled, running: cfg.enabled });
+    });
+
+
+=== ВНУТРИ функции startServer(), СРАЗУ ПОСЛЕ `globalThis.console.log(\`[ungate] listening on localhost:${config.port}\`);` ===
+
+    startWakePingScheduler();

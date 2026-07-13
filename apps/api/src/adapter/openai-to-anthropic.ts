@@ -86,6 +86,34 @@ function convertContent(content: string | OpenAIContentPart[] | ContentBlock[]):
 	return blocks;
 }
 
+function normalizeAssistantContentBlock(block: ContentBlock): ContentBlock | null {
+	if (block.type !== 'text' || typeof block.text !== 'string') {
+		return block;
+	}
+
+	const text = block.text.trimEnd();
+
+	if (text.trim().length === 0) {
+		return null;
+	}
+
+	return { ...block, text };
+}
+
+function normalizeAssistantContentBlocks(blocks: ContentBlock[]): ContentBlock[] {
+	const normalized: ContentBlock[] = [];
+
+	for (const block of blocks) {
+		const normalizedBlock = normalizeAssistantContentBlock(block);
+
+		if (normalizedBlock) {
+			normalized.push(normalizedBlock);
+		}
+	}
+
+	return normalized;
+}
+
 export function openaiToAnthropic(request: OpenAIChatRequest, override?: AnthropicModelOverride): AnthropicRequest {
 	const messages: AnthropicMessage[] = [];
 	let system: string | ContentBlock[] | undefined;
@@ -103,10 +131,14 @@ export function openaiToAnthropic(request: OpenAIChatRequest, override?: Anthrop
 
 			if (msg.content) {
 				const convertedContent = convertContent(msg.content);
-				if (typeof convertedContent === 'string' && convertedContent.trim().length > 0) {
-					contentBlocks.push({ type: 'text', text: convertedContent });
+				if (typeof convertedContent === 'string') {
+					const text = convertedContent.trimEnd();
+
+					if (text.trim().length > 0) {
+						contentBlocks.push({ type: 'text', text });
+					}
 				} else if (Array.isArray(convertedContent)) {
-					contentBlocks.push(...convertedContent);
+					contentBlocks.push(...normalizeAssistantContentBlocks(convertedContent));
 				}
 			}
 
@@ -193,7 +225,7 @@ export function openaiToAnthropic(request: OpenAIChatRequest, override?: Anthrop
 		stop_sequences: request.stop ? (Array.isArray(request.stop) ? request.stop : [request.stop]) : undefined
 	};
 
-	if (request.tools && request.tools.length > 0) {
+	if (request.tools && request.tools.length > 0 && request.tool_choice !== 'none') {
 		const firstTool = request.tools[0] as unknown as Record<string, unknown>;
 		if (firstTool.type === 'function' && firstTool.function) {
 			result.tools = request.tools.map((tool) => {
@@ -213,8 +245,14 @@ export function openaiToAnthropic(request: OpenAIChatRequest, override?: Anthrop
 		}
 	}
 
-	if (request.tool_choice) {
-		result.tool_choice = request.tool_choice as unknown as typeof result.tool_choice;
+	if (result.tools && request.tool_choice) {
+		if (request.tool_choice === 'auto') {
+			result.tool_choice = { type: 'auto' };
+		} else if (request.tool_choice === 'required') {
+			result.tool_choice = { type: 'any' };
+		} else if (typeof request.tool_choice === 'object') {
+			result.tool_choice = { type: 'tool', name: request.tool_choice.function.name };
+		}
 	}
 
 	if (normalized.reasoningBudget) {

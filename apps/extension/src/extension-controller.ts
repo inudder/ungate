@@ -38,6 +38,12 @@ export class ExtensionController {
 	private runtimeStateSyncDebounce: NodeJS.Timeout | null = null;
 	private lastCommandId: string | null = null;
 	private extensionHostActive = false;
+	private _wakePingEnabled = false;
+	private _wakePingWorkStart = '07:00';
+	private _wakePingWorkEnd = '22:00';
+	private _wakePingNextAt: string | null = null;
+	private _wakePingLastAt: string | null = null;
+	private _wakePingLastError: string | null = null;
 
 	constructor(private readonly context: vscode.ExtensionContext) {}
 
@@ -117,8 +123,11 @@ export class ExtensionController {
 		const toggleKeyFix = vscode.commands.registerCommand(extensionCommands.toggleKeyFix, () => {
 			void this.setKeyFixByUser(!this.keyFix.isEnabled());
 		});
+		const toggleWakePing = vscode.commands.registerCommand(extensionCommands.toggleWakePing, () => {
+			void this.toggleWakePing();
+		});
 
-		this.context.subscriptions.push(openDashboard, copyTunnelUrl, restartTunnel, toggleKeyFix);
+		this.context.subscriptions.push(openDashboard, copyTunnelUrl, restartTunnel, toggleKeyFix, toggleWakePing);
 
 		this.startHeartbeat();
 		this.startRuntimeSync();
@@ -205,9 +214,10 @@ export class ExtensionController {
 		const tunnel = this.currentTunnelState;
 		const tunnelApiUrl = this.getTunnelApiUrl();
 		const keyFixEnabled = this.keyFix?.isEnabled() ?? DEFAULT_KEY_FIX_ENABLED;
+		const wakePingEnabled = this._wakePingEnabled;
 
 		this.statusBar.text = ExtensionStatusBar.barText(apiState, tunnel);
-		this.statusBar.tooltip = ExtensionStatusBar.createTooltip(apiState, tunnel, tunnelApiUrl, keyFixEnabled);
+		this.statusBar.tooltip = ExtensionStatusBar.createTooltip(apiState, tunnel, tunnelApiUrl, keyFixEnabled, wakePingEnabled);
 		this.statusBar.show();
 	}
 
@@ -229,6 +239,10 @@ export class ExtensionController {
 			this.log(`[port] detected: ${port}`);
 			this.dashboard.setPort(port);
 		}
+
+		// Always refresh wake-ping state when the API port is confirmed —
+		// covers initial attach, restart re-attach, and health-check recovery.
+		void this.loadWakePingState();
 
 		if (this.lastApiStatus === 'running') {
 			const tunnelState = this.tunnelManager.getState();
@@ -309,6 +323,14 @@ export class ExtensionController {
 		if (message.type === 'webview-ready') {
 			this.dashboard.sendInitialState(this.tunnelManager.getState());
 			this.dashboard.sendKeyFixState(this.keyFix.isEnabled());
+			this.dashboard.sendWakePingState(
+				this._wakePingEnabled,
+				this._wakePingWorkStart,
+				this._wakePingWorkEnd,
+				this._wakePingNextAt,
+				this._wakePingLastAt,
+				this._wakePingLastError
+			);
 
 			return;
 		}
@@ -343,6 +365,24 @@ export class ExtensionController {
 			return;
 		}
 
+		if (message.type === 'toggle-wake-ping') {
+			void this.toggleWakePing();
+
+			return;
+		}
+
+		if (message.type === 'send-wake-ping') {
+			void this.sendWakePingNow();
+
+			return;
+		}
+
+		if (message.type === 'set-wake-ping-schedule') {
+			void this.setWakePingSchedule(message.start, message.end);
+
+			return;
+		}
+
 		if (message.type === 'clear-logs') {
 			this.dashboard.clearLogs(message.source);
 			this.enqueueCommand('clear-logs', { logSource: message.source });
@@ -369,6 +409,138 @@ export class ExtensionController {
 		}
 
 		void vscode.window.showInformationMessage(message);
+	}
+
+	private async loadWakePingState(): Promise<void> {
+		try {
+			if (!this.currentPort) return;
+			const response = await fetch(`http://localhost:${this.currentPort}/wake-ping`);
+			if (response.ok) {
+				const responseBody = await response.json();
+				const data = responseBody as {
+					enabled: boolean;
+					workStart: string;
+					workEnd: string;
+					nextPingAt: string | null;
+					lastPingAt: string | null;
+					lastPingError: string | null;
+				};
+				this._wakePingEnabled = data.enabled === true;
+				this._wakePingWorkStart = data.workStart ?? '07:00';
+				this._wakePingWorkEnd = data.workEnd ?? '22:00';
+				this._wakePingNextAt = data.nextPingAt ?? null;
+				this._wakePingLastAt = data.lastPingAt ?? null;
+				this._wakePingLastError = data.lastPingError ?? null;
+				this.updateStatusBar();
+				this.dashboard.sendWakePingState(
+					this._wakePingEnabled,
+					this._wakePingWorkStart,
+					this._wakePingWorkEnd,
+					this._wakePingNextAt,
+					this._wakePingLastAt,
+					this._wakePingLastError
+				);
+				this.log(
+					`[wake-ping] State loaded: enabled=${this._wakePingEnabled} workStart=${this._wakePingWorkStart} workEnd=${this._wakePingWorkEnd}`
+				);
+			}
+		} catch (err) {
+			this.log(`[wake-ping] Failed to load state: ${this.formatError(err)}`);
+		}
+	}
+
+	private async toggleWakePing(): Promise<void> {
+		try {
+			const newEnabled = !this._wakePingEnabled;
+			if (!this.currentPort) {
+				void vscode.window.showWarningMessage('Ungate API server is not running');
+
+				return;
+			}
+			const response = await fetch(`http://localhost:${this.currentPort}/wake-ping`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ enabled: newEnabled })
+			});
+			if (response.ok) {
+				const responseBody = await response.json();
+				const data = responseBody as { enabled: boolean };
+				this._wakePingEnabled = data.enabled;
+				this.updateStatusBar();
+				await this.loadWakePingState();
+				const status = data.enabled ? 'enabled' : 'disabled';
+				void vscode.window.showInformationMessage(`Wake Ping ${status}`);
+				this.log(`[wake-ping] Toggled: ${status}`);
+			} else {
+				void vscode.window.showErrorMessage('Failed to toggle Wake Ping');
+			}
+		} catch (err) {
+			void vscode.window.showErrorMessage(`Wake Ping error: ${this.formatError(err)}`);
+			this.log(`[wake-ping] Toggle error: ${this.formatError(err)}`);
+		}
+	}
+
+	private async setWakePingSchedule(workStart: string, workEnd: string): Promise<void> {
+		try {
+			if (!this.currentPort) {
+				void vscode.window.showWarningMessage('Ungate API server is not running');
+
+				return;
+			}
+			const response = await fetch(`http://localhost:${this.currentPort}/wake-ping`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ workStart, workEnd })
+			});
+			if (response.ok) {
+				this._wakePingWorkStart = workStart;
+				this._wakePingWorkEnd = workEnd;
+				await this.loadWakePingState();
+				this.log(`[wake-ping] Schedule updated: ${workStart}\u2013${workEnd}`);
+			} else {
+				const responseBody = await response.json().catch(() => ({}));
+				const errData = responseBody as { error?: string };
+				void vscode.window.showErrorMessage(`Wake Ping schedule error: ${errData.error ?? response.statusText}`);
+			}
+		} catch (err) {
+			void vscode.window.showErrorMessage(`Wake Ping error: ${this.formatError(err)}`);
+			this.log(`[wake-ping] Schedule error: ${this.formatError(err)}`);
+		}
+	}
+
+	private async sendWakePingNow(): Promise<void> {
+		try {
+			if (!this.currentPort) {
+				void vscode.window.showWarningMessage('Ungate API server is not running');
+
+				return;
+			}
+
+			const response = await fetch(`http://localhost:${this.currentPort}/wake-ping/ping`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: '{}'
+			});
+
+			if (response.ok) {
+				const json = await response.json();
+				const data = json as { lastPingError: string | null };
+				await this.loadWakePingState();
+
+				if (data.lastPingError) {
+					void vscode.window.showErrorMessage(`Wake Ping failed: ${data.lastPingError}`);
+				} else {
+					void vscode.window.showInformationMessage('Wake Ping sent');
+				}
+
+				this.log('[wake-ping] Manual ping sent');
+			} else {
+				void vscode.window.showErrorMessage('Failed to send Wake Ping');
+			}
+		} catch (err) {
+			void vscode.window.showErrorMessage(`Wake Ping error: ${this.formatError(err)}`);
+			this.log(`[wake-ping] Manual ping error: ${this.formatError(err)}`);
+		}
 	}
 
 	private handleDashboardStartTunnel(): void {
@@ -471,6 +643,12 @@ export class ExtensionController {
 		this.dashboard.sendTunnelState(this.currentTunnelState);
 		this.dashboard.sendKeyFixState(this.keyFix.isEnabled());
 		this.updateStatusBar();
+
+		// When the API is already running (picked up from runtime state on activation),
+		// refresh wake-ping state so the dashboard shows the next ping time.
+		if (runtimeState.api.status === 'running' && resolvedPort) {
+			void this.loadWakePingState();
+		}
 	}
 
 	private enqueueCommand(action: RuntimeCommandAction, payload: { port?: number; logSource?: 'api' | 'tunnel' } = {}): void {

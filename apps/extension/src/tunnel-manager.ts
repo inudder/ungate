@@ -19,15 +19,12 @@ function getCloudflaredLegacyBinPath(): string {
 	return path.join(CLOUDFLARED_BIN_DIR, 'cloudflared');
 }
 
-function getCloudflaredConfigArg(): string {
-	return process.platform === 'win32' ? 'NUL' : '/dev/null';
-}
-
 export class TunnelManager {
 	private tunnel: Tunnel | null = null;
 	private state: TunnelState = { status: 'stopped', url: null, error: null };
 	private readonly windowId: string;
 	private autoStopTimer: NodeJS.Timeout | null = null;
+	private tunnelHealthCheckTimer: NodeJS.Timeout | null = null;
 
 	constructor(
 		windowId: string,
@@ -42,9 +39,9 @@ export class TunnelManager {
 		return { ...this.state };
 	}
 
-	async start(port: number): Promise<void> {
+	start(port: number): Promise<void> {
 		if (this.state.status === 'running') {
-			return;
+			return Promise.resolve();
 		}
 
 		if (this.tunnel) {
@@ -54,17 +51,16 @@ export class TunnelManager {
 
 		this.setState({ status: 'starting', url: null, error: null });
 
-		await this.ensureBinary();
-
-		if (this.state.status === 'error') {
-			return;
-		}
-
+		// frpc is NSSM-managed — skip cloudflared binary download
 		this.spawnTunnel(port);
 		this.scheduleAutoStop();
+
+		return Promise.resolve();
 	}
 
 	stop(): void {
+		this.stopTunnelHealthCheck();
+
 		if (this.autoStopTimer) {
 			clearInterval(this.autoStopTimer);
 			this.autoStopTimer = null;
@@ -133,48 +129,53 @@ export class TunnelManager {
 		return null;
 	}
 
-	private spawnTunnel(port: number): void {
-		const t = Tunnel.quick(`http://localhost:${port}`, {
-			'--config': getCloudflaredConfigArg(),
-			'--edge-ip-version': '4'
-		});
-		this.tunnel = t;
+	private spawnTunnel(_port: number): void {
+		// frpc tunnel — NSSM-managed, URL is fixed
+		this.tunnel = { stop: () => {} } as unknown as Tunnel;
+		const url = `https://ungate.ahref.cyou`;
+		this.onLog({ timestamp: Date.now(), level: 'info', message: `Tunnel URL: ${url}` });
+		this.setState({ status: 'starting', url, error: null });
+		this.startTunnelHealthCheck(url);
+	}
 
-		t.on('url', (url) => {
-			this.onLog({ timestamp: Date.now(), level: 'info', message: `Tunnel URL: ${url}` });
-			this.setState({ status: 'running', url, error: null });
-			this.scheduleAutoStop();
-		});
+	private startTunnelHealthCheck(url: string): void {
+		this.stopTunnelHealthCheck();
 
-		t.on('stderr', (data) => {
-			const lines = data.split('\n').filter((l) => l.trim());
+		// Initial check immediately
+		void this.checkTunnelHealth(url);
 
-			for (const line of lines) {
-				this.onLog({ timestamp: Date.now(), level: 'info', message: line });
+		this.tunnelHealthCheckTimer = setInterval(() => {
+			void this.checkTunnelHealth(url);
+		}, config.tunnelManager.healthCheckIntervalMs);
+	}
+
+	private stopTunnelHealthCheck(): void {
+		if (this.tunnelHealthCheckTimer) {
+			clearInterval(this.tunnelHealthCheckTimer);
+			this.tunnelHealthCheckTimer = null;
+		}
+	}
+
+	private async checkTunnelHealth(url: string): Promise<void> {
+		try {
+			const response = await fetch(`${url}/health`, {
+				signal: AbortSignal.timeout(config.tunnelManager.healthCheckRequestTimeoutMs)
+			});
+
+			if (response.ok) {
+				if (this.state.status !== 'running') {
+					this.setState({ status: 'running', url, error: null });
+				}
+			} else {
+				if (this.state.status !== 'error') {
+					this.setState({ status: 'error', url, error: `Tunnel endpoint returned ${response.status}` });
+				}
 			}
-		});
-
-		t.on('error', (err) => {
-			const message = err.message;
-			this.onLog({ timestamp: Date.now(), level: 'error', message: `Tunnel error: ${message}` });
-			this.setState({ status: 'error', url: null, error: message });
-		});
-
-		t.on('exit', (code, signal) => {
-			this.onLog({ timestamp: Date.now(), level: 'warn', message: `Tunnel exited code=${code} signal=${signal}` });
-
-			const wasStarting = this.state.status === 'starting';
-
-			if (this.state.status !== 'stopped') {
-				const next: TunnelState = wasStarting
-					? { status: 'error', url: null, error: `Process exited before tunnel was ready (code=${code})` }
-					: { status: 'stopped', url: null, error: null };
-
-				this.setState(next);
+		} catch {
+			if (this.state.status !== 'error') {
+				this.setState({ status: 'error', url, error: 'Tunnel endpoint unreachable' });
 			}
-
-			this.tunnel = null;
-		});
+		}
 	}
 
 	private setState(next: TunnelState): void {

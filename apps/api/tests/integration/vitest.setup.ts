@@ -1,8 +1,8 @@
 import { basename, join } from 'node:path';
 
-import { afterEach, beforeEach, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, vi } from 'vitest';
 
-import { getCurrentDbPath, getDb, getSqlite, schema } from 'src/database';
+import { closeDatabase, getCurrentDbPath, getDb, getSqlite, schema } from 'src/database';
 
 export function resetIntegrationDatabase(): void {
 	const sqlite = getSqlite();
@@ -45,4 +45,8 @@ beforeEach(() => {
 
 afterEach(() => {
 	vi.clearAllMocks();
+});
+
+afterAll(() => {
+	closeDatabase();
 });

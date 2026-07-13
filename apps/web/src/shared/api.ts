@@ -2,6 +2,8 @@ import {
 	sleep,
 	type AnalyticsSummary,
 	type AppSettings,
+	type ModelMappingConfig,
+	type ModelValidationResult,
 	type Period,
 	type RequestRecord,
 	type TokenSeriesPoint
@@ -113,6 +115,10 @@ export class Api {
 
 	static updateSettings(settings: Partial<AppSettings>): Promise<{ ok: boolean }> {
 		return this.post('/settings', settings);
+	}
+
+	static validateModel(model: ModelMappingConfig): Promise<ModelValidationResult> {
+		return this.post('/models/validate', { model });
 	}
 
 	static authStart(): Promise<{ authUrl: string; sessionId: string }> {

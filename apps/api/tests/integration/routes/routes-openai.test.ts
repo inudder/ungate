@@ -83,7 +83,12 @@ describe('routes-openai', () => {
 			method: 'POST',
 			url: '/v1/chat/completions',
 			headers: { 'x-api-key': 'secret' },
-			payload: { model: 'minimax-chat', messages: [{ role: 'user', content: 'hi' }], stream: false }
+			payload: {
+				model: 'minimax-chat',
+				messages: [{ role: 'user', content: 'hi' }],
+				tools: [{ type: 'function', function: { name: 'exec_command', parameters: { type: 'object' } } }],
+				stream: false
+			}
 		});
 
 		expect(response.statusCode).toBe(200);
@@ -91,7 +96,62 @@ describe('routes-openai', () => {
 		expect(response.headers['x-request-id']).toBeTruthy();
 		expect(response.headers['openai-processing-ms']).toBeTruthy();
 		expect(response.headers['openai-version']).toBe('2020-10-01');
+		expect(proxyMiniMaxRequestMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				messages: expect.arrayContaining([
+					expect.objectContaining({
+						role: 'system',
+						content: expect.stringContaining('apply_patch custom tool is unavailable')
+					})
+				])
+			})
+		);
 		expect(requestsRecordMock).toHaveBeenCalled();
+		await app.close();
+	});
+
+	it('accepts chat completion bodies larger than the Fastify 1 MiB default', async () => {
+		resolveForChatCompletionMock.mockReturnValueOnce({ provider: 'minimax', upstreamModel: 'mini-up' });
+		proxyMiniMaxRequestMock.mockResolvedValueOnce({
+			response: new Response(JSON.stringify({ id: 'minimax-large-image' }), {
+				status: 200,
+				headers: { 'content-type': 'application/json' }
+			}),
+			context: {
+				startTime: Date.now(),
+				model: 'mini-up',
+				source: 'minimax',
+				reverseToolMapping: {},
+				inputTokens: 1,
+				outputTokens: 1,
+				bodyJson: { id: 'minimax-large-image' }
+			}
+		});
+
+		const app = await withPlugin(openaiPlugin, { apiKey: 'secret' });
+		const response = await app.inject({
+			method: 'POST',
+			url: '/v1/chat/completions',
+			headers: { 'x-api-key': 'secret' },
+			payload: {
+				model: 'minimax-chat',
+				messages: [
+					{
+						role: 'user',
+						content: [
+							{ type: 'text', text: 'describe' },
+							{
+								type: 'image_url',
+								image_url: { url: `data:image/png;base64,${'a'.repeat(1024 * 1024)}` }
+							}
+						]
+					}
+				]
+			}
+		});
+
+		expect(response.statusCode).toBe(200);
+		expect(proxyMiniMaxRequestMock).toHaveBeenCalledTimes(1);
 		await app.close();
 	});
 
@@ -259,6 +319,37 @@ describe('routes-openai', () => {
 		expect(response.statusCode).toBe(502);
 		expect(response.json().error.message).toBe('HTTP 502');
 		expect(requestsRecordMock).toHaveBeenCalled();
+		await app.close();
+	});
+
+	it('returns the MiniMax semantic error code when upstream returned HTTP 200', async () => {
+		resolveForChatCompletionMock.mockReturnValueOnce({ provider: 'minimax', upstreamModel: 'mini-up' });
+		proxyMiniMaxRequestMock.mockResolvedValueOnce({
+			response: new Response(JSON.stringify({ error: { message: 'MiniMax error 2013: invalid params', type: 'api_error', code: '2013' } }), {
+				status: 502,
+				headers: { 'content-type': 'application/json' }
+			}),
+			context: {
+				startTime: Date.now(),
+				model: 'mini-up',
+				source: 'minimax',
+				reverseToolMapping: {},
+				bodyJson: { error: { message: 'MiniMax error 2013: invalid params', code: '2013' } }
+			}
+		});
+
+		const app = await withPlugin(openaiPlugin, { apiKey: 'secret' });
+		const response = await app.inject({
+			method: 'POST',
+			url: '/v1/chat/completions',
+			headers: { 'x-api-key': 'secret' },
+			payload: { model: 'minimax-chat', messages: [{ role: 'user', content: 'hi' }], stream: true }
+		});
+
+		expect(response.statusCode).toBe(502);
+		expect(response.json()).toEqual({
+			error: { message: 'MiniMax error 2013: invalid params', type: 'api_error', code: '2013' }
+		});
 		await app.close();
 	});
 

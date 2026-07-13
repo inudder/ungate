@@ -1,0 +1,20 @@
+{
+	"command": "ungate.openDashboard",
+	"title": "Ungate: Open Dashboard"
+},
+{
+	"command": "ungate.copyTunnelUrl",
+	"title": "Ungate: Copy Tunnel URL"
+},
+{
+	"command": "ungate.restartTunnel",
+	"title": "Ungate: Restart Tunnel"
+},
+{
+	"command": "ungate.toggleKeyFix",
+	"title": "Ungate: Toggle OpenAI Key Fix"
+},
+-       {
+-               "command": "ungate.toggleWakePing",
+-               "title": "Ungate: Toggle Wake Ping"
+-       }

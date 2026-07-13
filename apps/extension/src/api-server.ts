@@ -1,17 +1,14 @@
-import * as cp from 'node:child_process';
-import * as os from 'node:os';
-import * as path from 'node:path';
-
 import { sleep, type ApiStatus as ServerStatus, type LogEntry } from '@ungate/shared';
 import * as vscode from 'vscode';
 
 import { RuntimeStateStore } from './runtime-state';
 import { config } from './runtime-state/config';
-import { BetterSqlite3Installer } from './utils/better-sqlite3-installer';
-import { NodeResolver } from './utils/node-resolver';
+import { NssmService } from './utils/nssm-service';
+import { UngateSettingsReader } from './utils/ungate-settings-reader';
 
 const HEALTH_CHECK_URL = (port: number) => `http://localhost:${port}/health`;
 const STARTING_STATE_TIMEOUT_MS = 10000;
+const DEFAULT_PORT = 47821;
 
 interface ApiServerCallbacks {
 	onLog(level: LogEntry['level'], message: string): void;
@@ -22,19 +19,24 @@ interface ApiServerCallbacks {
 	getWindowId(): string;
 }
 
+/**
+ * Attach-only API server controller.
+ *
+ * The API process is managed by an NSSM Windows service (`ungate-api` by default).
+ * This class never spawns the process itself — it attaches to the running service
+ * via health-check polling and controls lifecycle through `nssm restart`.
+ *
+ * This mirrors the pattern used by `TunnelManager` for the frpc NSSM service.
+ */
 export class ApiServer {
-	private process: cp.ChildProcess | null = null;
 	private healthCheckTimer: NodeJS.Timeout | null = null;
-	private stdoutBuffer = '';
-	private restartRequested = false;
-	private shutDownDeliberately = false;
 	private lastStatus: ServerStatus | null = null;
 	private port: number | null = null;
-	private runtimePath = '';
-	private noClientsSince: number | null = null;
-	private addressInUsePort: number | null = null;
 	private startPromise: Promise<void> | null = null;
 	private restartInProgress = false;
+	private settingsReader: UngateSettingsReader | null = null;
+	private consecutiveFailures = 0;
+	private healthCheckInFlight = false;
 
 	constructor(
 		private readonly context: vscode.ExtensionContext,
@@ -46,7 +48,7 @@ export class ApiServer {
 			return;
 		}
 
-		if (this.process) {
+		if (this.port !== null) {
 			return;
 		}
 
@@ -70,41 +72,52 @@ export class ApiServer {
 	async restart(): Promise<void> {
 		this.restartInProgress = true;
 		this.port = null;
+		this.stopHealthCheck();
 		await RuntimeStateStore.resetApiForRestart();
-		this.restartRequested = true;
 		await this.setStatus('stopped');
 
-		if (!this.process) {
-			try {
-				await this.start();
-			} finally {
-				this.restartInProgress = false;
-				this.restartRequested = false;
+		try {
+			this.callbacks.onLog('info', `[process] restarting NSSM service ${config.apiServer.nssmServiceName}`);
+			await NssmService.restart(config.apiServer.nssmServiceName);
+
+			const port = await this.resolvePort();
+			const healthy = await this.pollUntilHealthy(port);
+
+			if (!healthy) {
+				await this.recordApiFailure(`[process] service did not become healthy on port ${port} after restart`);
+
+				return;
 			}
 
-			return;
+			this.port = port;
+			this.callbacks.onPortDetected(port);
+			await this.setStatus('running');
+			this.startHealthCheck();
+		} finally {
+			this.restartInProgress = false;
 		}
-
-		this.process.kill();
 	}
 
-	async stop(): Promise<void> {
+	stop(): Promise<void> {
 		this.stopHealthCheck();
-		if (this.process) {
-			this.shutDownDeliberately = true;
-		}
-		this.process?.kill();
-		this.process = null;
-		this.noClientsSince = null;
+		this.port = null;
 
 		if (RuntimeStateStore.isApiStartSuppressed()) {
 			this.lastStatus = 'error';
+			this.callbacks.onStatusChange('error');
 
-			return;
+			return Promise.resolve();
 		}
 
+		// The API process is NSSM-managed and keeps running after the extension
+		// detaches. Do NOT overwrite the shared runtime state with 'stopped' —
+		// that would falsely report a healthy service as stopped on the next
+		// window activation. The real status is re-established by health checks
+		// during the next attach (prepareApiForBootstrap / doStart).
 		this.lastStatus = 'stopped';
-		await this.writeRuntimeState('stopped', null);
+		this.callbacks.onStatusChange('stopped');
+
+		return Promise.resolve();
 	}
 
 	getPort(): number | null {
@@ -118,7 +131,7 @@ export class ApiServer {
 			return;
 		}
 
-		const hasRuntimeTarget = this.process !== null || this.port !== null || this.startPromise !== null;
+		const hasRuntimeTarget = this.port !== null || this.startPromise !== null;
 
 		if (hasRuntimeTarget && !this.healthCheckTimer) {
 			this.startHealthCheck();
@@ -133,6 +146,7 @@ export class ApiServer {
 		const runtimeState = RuntimeStateStore.read();
 		const existingPort = runtimeState.api.port;
 
+		// Fast path: attach to a port already recorded in runtime state.
 		if (existingPort) {
 			const isAlive = await this.checkPortHealth(existingPort);
 
@@ -146,6 +160,7 @@ export class ApiServer {
 			}
 		}
 
+		// Another window is already starting — let it finish (coordinates dashboard state).
 		if (runtimeState.api.status === 'starting' && runtimeState.api.ownerWindowId !== this.callbacks.getWindowId()) {
 			const startingStateAge = Date.now() - runtimeState.api.lastSeenAt;
 
@@ -156,15 +171,22 @@ export class ApiServer {
 
 		await this.setStatus('starting');
 
-		try {
-			await this.ensureNativeDeps();
-			this.spawn();
-		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err);
+		// Resolve the port from app_settings DB (NSSM-managed service port).
+		const port = await this.resolvePort();
 
-			await this.recordApiFailure(message);
-			throw err;
+		// Poll until the NSSM service is healthy on the resolved port.
+		const healthy = await this.pollUntilHealthy(port);
+
+		if (!healthy) {
+			await this.recordApiFailure(`[process] NSSM service not healthy on port ${port}`);
+
+			return;
 		}
+
+		this.port = port;
+		this.callbacks.onPortDetected(port);
+		await this.setStatus('running');
+		this.startHealthCheck();
 	}
 
 	private isAutoStartBlocked(): boolean {
@@ -176,177 +198,48 @@ export class ApiServer {
 	}
 
 	private async recordApiFailure(message: string): Promise<void> {
+		this.consecutiveFailures = 0;
 		this.lastStatus = 'error';
 		await RuntimeStateStore.suppressApiAutoStart(message);
 		this.callbacks.onStatusChange('error');
 	}
 
-	private spawn(): void {
-		if (!this.callbacks.isLeaderWindow() || !this.callbacks.isExtensionHostActive()) {
-			return;
+	/**
+	 * Resolves the API port from the `app_settings` SQLite table.
+	 * Falls back to `DEFAULT_PORT` (47821) if the DB or row is unavailable.
+	 */
+	private async resolvePort(): Promise<number> {
+		if (!this.settingsReader) {
+			this.settingsReader = new UngateSettingsReader((message) => {
+				this.callbacks.onLog('info', message);
+			});
+			await this.settingsReader.init();
 		}
 
-		const cwd = this.getServerCwd();
-		this.stdoutBuffer = '';
+		const port = await this.settingsReader.readPort();
 
-		const isDev = this.context.extensionMode === vscode.ExtensionMode.Development;
-		const runtime = this.runtimePath || this.resolveRuntimePath(NodeResolver.resolve(process.env.UNGATE_NODE_BIN));
-		this.runtimePath = runtime;
-
-		const env: NodeJS.ProcessEnv = {
-			...process.env,
-			UNGATE_BETTER_SQLITE3_NATIVE_BINDING: BetterSqlite3Installer.getInstalledBinaryPath(cwd),
-			...(isDev ? { DB_PATH: path.join(os.homedir(), '.ungate', 'data-dev.db') } : { DRIZZLE_PATH: path.join(cwd, 'drizzle') })
-		};
-
-		const nodeArgs = isDev ? ['-r', 'source-map-support/register', 'dist/main.js'] : ['bundle/main.cjs'];
-
-		this.callbacks.onLog('info', `[process] starting api via ${runtime}`);
-
-		this.process = cp.spawn(runtime, nodeArgs, { cwd, env, stdio: 'pipe', detached: true });
-		this.process.unref();
-		void this.writeRuntimeState('starting', null).catch(() => {});
-
-		this.process.stdout?.on('data', (data: Buffer) => this.onStdout(data));
-		this.process.stderr?.on('data', (data: Buffer) => this.onStderr(data));
-		this.process.on('exit', (code, signal) => this.onExit(code, signal));
-		this.process.on('error', (err) => {
-			void this.onSpawnProcessError(err).catch(() => {});
-		});
-
-		this.startHealthCheck();
+		return port ?? DEFAULT_PORT;
 	}
 
-	private onStdout(data: Buffer): void {
-		const text = data.toString();
-		this.stdoutBuffer += text;
+	/**
+	 * Polls the health endpoint on `port` until it responds OK or the timeout expires.
+	 * Used during initial attach and after `nssm restart`.
+	 */
+	private async pollUntilHealthy(port: number): Promise<boolean> {
+		const deadline = Date.now() + config.apiServer.attachPollTimeoutMs;
+		const interval = config.apiServer.attachPollIntervalMs;
 
-		for (const line of text.split('\n').filter((l) => l.trim())) {
-			this.callbacks.onLog(this.parseLogLevel(line), line);
-		}
+		while (Date.now() < deadline) {
+			const isHealthy = await this.checkPortHealth(port);
 
-		const match = /localhost:(\d+)/.exec(this.stdoutBuffer);
-
-		if (match) {
-			const port = parseInt(match[1], 10);
-
-			if (port !== this.port) {
-				this.port = port;
-				this.callbacks.onPortDetected(port);
-			}
-		}
-	}
-
-	private onStderr(data: Buffer): void {
-		const text = data.toString();
-
-		for (const line of text.split('\n').filter((l) => l.trim())) {
-			if (line.includes('EADDRINUSE')) {
-				const match = /port:\s*(\d+)/.exec(this.stdoutBuffer + text);
-
-				if (match) {
-					this.addressInUsePort = parseInt(match[1], 10);
-				}
+			if (isHealthy) {
+				return true;
 			}
 
-			this.callbacks.onLog('error', line);
-		}
-	}
-
-	private onExit(code: number | null, signal: NodeJS.Signals | null): void {
-		this.process = null;
-		this.noClientsSince = null;
-
-		let level: LogEntry['level'];
-
-		if (this.restartRequested || code === 0) {
-			level = 'info';
-		} else {
-			level = 'error';
+			await sleep(interval);
 		}
 
-		this.callbacks.onLog(level, `[process] exit code=${code} signal=${signal}`);
-
-		if (this.restartRequested) {
-			this.shutDownDeliberately = false;
-			this.lastStatus = 'stopped';
-			void sleep(config.apiServer.restartDelayMs).then(async () => {
-				if (!this.shouldRespawn()) {
-					this.restartInProgress = false;
-					this.restartRequested = false;
-
-					return;
-				}
-
-				try {
-					await this.start();
-				} finally {
-					this.restartInProgress = false;
-					this.restartRequested = false;
-				}
-			});
-
-			return;
-		}
-
-		if (this.shutDownDeliberately) {
-			this.shutDownDeliberately = false;
-
-			return;
-		}
-
-		if (code === 0) {
-			this.lastStatus = 'stopped';
-			void sleep(config.apiServer.restartDelayMs).then(() => {
-				if (!this.shouldRespawn()) {
-					return;
-				}
-
-				this.spawn();
-			});
-
-			return;
-		}
-
-		if (this.addressInUsePort) {
-			const addressInUsePort = this.addressInUsePort;
-			this.addressInUsePort = null;
-			void this.tryAttachToRunningPort(addressInUsePort).catch(() => {});
-
-			return;
-		}
-
-		const message = `[process] exit code=${code} signal=${signal}`;
-
-		void this.recordApiFailure(message).catch(() => {});
-	}
-
-	private shouldRespawn(): boolean {
-		if (!this.restartInProgress && this.isAutoStartBlocked()) {
-			return false;
-		}
-
-		return this.callbacks.isLeaderWindow() && this.callbacks.isExtensionHostActive();
-	}
-
-	private async tryAttachToRunningPort(port: number): Promise<void> {
-		const isAlive = await this.checkPortHealth(port);
-
-		if (!isAlive) {
-			await this.recordApiFailure(`[process] port ${port} is not healthy`);
-
-			return;
-		}
-
-		this.port = port;
-		this.callbacks.onPortDetected(port);
-		await this.setStatus('running');
-		this.startHealthCheck();
-	}
-
-	private async onSpawnProcessError(err: Error): Promise<void> {
-		this.callbacks.onLog('error', `[process] error: ${err.message}`);
-		await this.recordApiFailure(err.message);
+		return false;
 	}
 
 	private startHealthCheck(): void {
@@ -362,32 +255,17 @@ export class ApiServer {
 			return;
 		}
 
-		const runtimeState = RuntimeStateStore.read();
-		const hasLiveClientsOnDisk = RuntimeStateStore.hasLiveClients(runtimeState);
-		const extensionHostAlive = this.callbacks.isExtensionHostActive();
-		const treatAsLiveClients = hasLiveClientsOnDisk || extensionHostAlive;
-		const hasLeaderWindow = this.callbacks.isLeaderWindow();
-
-		if (!treatAsLiveClients && this.lastStatus === 'running') {
-			this.noClientsSince ??= Date.now();
-
-			if (Date.now() - this.noClientsSince >= config.apiServer.noClientsGracePeriodMs) {
-				this.callbacks.onLog('info', '[process] no live windows, stopping api');
-				await this.stop();
-
-				return;
-			}
-		} else {
-			this.noClientsSince = null;
-		}
-
-		if (treatAsLiveClients && this.lastStatus === 'running' && !hasLeaderWindow) {
-			return;
-		}
-
 		if (!this.port) {
 			return;
 		}
+
+		// Skip if a previous health check is still in flight — prevents overlapping
+		// cycles (interval < request timeout) from racing on status transitions.
+		if (this.healthCheckInFlight) {
+			return;
+		}
+
+		this.healthCheckInFlight = true;
 
 		try {
 			const res = await fetch(HEALTH_CHECK_URL(this.port), {
@@ -395,6 +273,7 @@ export class ApiServer {
 			});
 
 			if (res.ok) {
+				this.consecutiveFailures = 0;
 				const wasDown = this.lastStatus !== 'running';
 
 				await this.setStatus('running');
@@ -403,11 +282,27 @@ export class ApiServer {
 					this.callbacks.onPortDetected(this.port);
 				}
 			} else {
-				await this.recordApiFailure(`[process] health check failed with status ${res.status}`);
+				await this.handleHealthCheckFailure(`[process] health check failed with status ${res.status}`);
 			}
 		} catch {
-			await this.recordApiFailure('[process] health check failed');
+			await this.handleHealthCheckFailure('[process] health check failed');
+		} finally {
+			this.healthCheckInFlight = false;
 		}
+	}
+
+	private async handleHealthCheckFailure(message: string): Promise<void> {
+		this.consecutiveFailures++;
+		const threshold = config.apiServer.healthCheckFailureThreshold;
+
+		if (this.consecutiveFailures < threshold) {
+			// Transient failure — don't flip to 'error' yet to avoid status bar flicker.
+			this.callbacks.onLog('info', `${message} (${this.consecutiveFailures}/${threshold})`);
+
+			return;
+		}
+
+		await this.recordApiFailure(message);
 	}
 
 	private stopHealthCheck(): void {
@@ -418,25 +313,30 @@ export class ApiServer {
 	}
 
 	private async setStatus(status: ServerStatus): Promise<void> {
-		this.lastStatus = status;
-		await this.writeRuntimeState(status, null);
-		this.callbacks.onStatusChange(status);
+		const updated = await this.writeRuntimeState(status, null);
+
+		if (updated) {
+			this.lastStatus = status;
+			this.callbacks.onStatusChange(status);
+		}
 	}
 
-	private async writeRuntimeState(status: ServerStatus, errorMessage: string | null): Promise<void> {
+	private async writeRuntimeState(status: ServerStatus, errorMessage: string | null): Promise<boolean> {
+		let updated = false;
+
 		await RuntimeStateStore.mutate((current) => {
-			if (current.api.status === 'error' && status !== 'error' && status !== 'stopped') {
+			// Only protect a *suppressed* error from being overwritten. A non-suppressed
+			// 'error' is a stale/phantom value (e.g. left over from a previous session);
+			// a successful health check transitioning to 'running' must be allowed to
+			// clear it, otherwise the bar flickers running ↔ error forever.
+			if (current.api.status === 'error' && current.api.startSuppressed === true && status !== 'error' && status !== 'stopped') {
 				return current;
 			}
 
 			const now = Date.now();
-			let pid: number | null = null;
 
-			if (this.process?.pid) {
-				pid = this.process.pid;
-			}
-
-			current.api.pid = pid;
+			// pid is null — the process is owned by the NSSM service, not the extension.
+			current.api.pid = null;
 			current.api.port = this.port;
 			current.api.status = status;
 			current.api.lastSeenAt = now;
@@ -448,8 +348,12 @@ export class ApiServer {
 				current.api.ownerWindowId = null;
 			}
 
+			updated = true;
+
 			return current;
 		});
+
+		return updated;
 	}
 
 	private async checkPortHealth(port: number): Promise<boolean> {
@@ -462,55 +366,5 @@ export class ApiServer {
 		} catch {
 			return false;
 		}
-	}
-
-	private getServerCwd(): string {
-		if (this.context.extensionMode === vscode.ExtensionMode.Development) {
-			return path.join(this.context.extensionPath, '..', 'api');
-		}
-
-		return path.join(this.context.extensionPath, 'bundled', 'api');
-	}
-
-	private parseLogLevel(line: string): LogEntry['level'] {
-		const lower = line.toLowerCase();
-
-		if (lower.includes('error') || lower.includes('fatal')) {
-			return 'error';
-		}
-
-		if (lower.includes('warn')) {
-			return 'warn';
-		}
-
-		return 'info';
-	}
-
-	private async ensureNativeDeps(): Promise<void> {
-		const apiDir = this.getServerCwd();
-		const runtime = this.resolveRuntimePath(NodeResolver.resolve(process.env.UNGATE_NODE_BIN));
-		this.runtimePath = runtime;
-
-		await BetterSqlite3Installer.ensureInstalled(apiDir, runtime, {
-			onLog: (level, message) => {
-				this.callbacks.onLog(level, message);
-			}
-		});
-	}
-
-	private resolveRuntimePath(runtime: string): string {
-		const inspected = cp.spawnSync(runtime, ['-p', 'process.execPath'], { encoding: 'utf8' });
-
-		if (inspected.error || inspected.status !== 0) {
-			return runtime;
-		}
-
-		const absolutePath = inspected.stdout.trim();
-
-		if (!absolutePath) {
-			return runtime;
-		}
-
-		return absolutePath;
 	}
 }

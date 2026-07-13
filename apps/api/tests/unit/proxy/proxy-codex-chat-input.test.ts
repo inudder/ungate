@@ -26,13 +26,15 @@ describe('proxy-codex-chat-input', () => {
 			{
 				type: 'message',
 				role: 'assistant',
-				content: [{ type: 'input_text', text: 'hello' }, { type: 'text', text: 'world' }]
+				content: [{ type: 'input_text', text: 'hello ' }, { type: 'text', text: 'world\n' }]
 			}
 		]);
 
 		const content = normalized[0].content as Array<Record<string, unknown>>;
 		expect(content[0].type).toBe('output_text');
+		expect(content[0].text).toBe('hello');
 		expect(content[1].type).toBe('output_text');
+		expect(content[1].text).toBe('world');
 	});
 
 	it('expands mixed body.input items and coerces chat shape', () => {

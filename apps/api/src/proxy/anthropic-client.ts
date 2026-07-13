@@ -14,7 +14,7 @@ type RequestResult =
 	| { success: true; response: Response; source: RequestSource; reverseToolMapping: Record<string, string> }
 	| { success: false; error: string; status: number };
 
-async function makeClaudeCodeRequest(
+export async function makeClaudeCodeRequest(
 	endpoint: string,
 	body: AnthropicRequest,
 	_headers: Record<string, string>

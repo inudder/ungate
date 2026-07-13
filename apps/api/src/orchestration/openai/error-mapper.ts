@@ -6,17 +6,21 @@ interface MiniMaxErrorContext {
 
 export class CompletionErrorMapper {
 	static miniMaxErrorMessage(response: Response, context: MiniMaxErrorContext): string {
+		return this.miniMaxErrorPayload(response, context).message;
+	}
+
+	static miniMaxErrorPayload(response: Response, context: MiniMaxErrorContext): { message: string; code?: string } {
 		if (context.bodyJson && typeof context.bodyJson === 'object') {
-			const err = (context.bodyJson as { error?: { message?: string } }).error;
+			const err = (context.bodyJson as { error?: { message?: string; code?: string } }).error;
 
 			if (err?.message) {
-				return err.message;
+				return { message: err.message, ...(err.code && { code: err.code }) };
 			}
 
-			return openaiChatErrorMessages.unknownUpstream;
+			return { message: openaiChatErrorMessages.unknownUpstream };
 		}
 
-		return `HTTP ${response.status}`;
+		return { message: `HTTP ${response.status}` };
 	}
 
 	static async openAiUpstreamErrorMessage(response: Response): Promise<string> {

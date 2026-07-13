@@ -11,63 +11,47 @@ const {
 	runtimeHasLiveClientsMock,
 	runtimeMutateMock,
 	sleepMock,
-	ensureInstalledMock,
-	spawnSyncMock,
-	spawnMock
+	nssmRestartMock,
+	settingsInitMock,
+	settingsReadPortMock
 } = vi.hoisted(() => {
 	const runtimeReadMock = vi.fn<() => RuntimeState>();
 	const runtimeHasLiveClientsMock = vi.fn<(state: RuntimeState) => boolean>();
 	const runtimeMutateMock = vi.fn<(mutator: (current: RuntimeState) => RuntimeState) => Promise<RuntimeState>>();
-	const sleepMock = vi.fn<(ms: number) => Promise<void>>();
-	const ensureInstalledMock = vi.fn<() => Promise<void>>();
-	const spawnSyncMock = vi.fn();
-	const spawnMock = vi.fn(() => {
-		const handlers = new Map<string, ((value?: unknown) => void)[]>();
-		const child = {
-			stderr: { on: vi.fn() },
-			stdout: { on: vi.fn() },
-			on(event: string, handler: (value?: unknown) => void) {
-				const queue = handlers.get(event) ?? [];
-				queue.push(handler);
-				handlers.set(event, queue);
-
-				return child;
-			},
-			unref: vi.fn(),
-			kill: vi.fn()
-		};
-
-		return child;
-	});
+	const sleepMock = vi.fn<(ms: number) => Promise<void>>().mockResolvedValue(undefined);
+	const nssmRestartMock = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+	const settingsInitMock = vi.fn<() => Promise<string | null>>().mockResolvedValue(null);
+	const settingsReadPortMock = vi.fn<() => Promise<number | null>>().mockResolvedValue(null);
 
 	return {
 		runtimeReadMock,
 		runtimeHasLiveClientsMock,
 		runtimeMutateMock,
 		sleepMock,
-		ensureInstalledMock,
-		spawnSyncMock,
-		spawnMock
+		nssmRestartMock,
+		settingsInitMock,
+		settingsReadPortMock
 	};
 });
 
-vi.mock('node:child_process', async (importOriginal) => {
-	const actual = await importOriginal<typeof import('node:child_process')>();
-
+vi.mock('../../src/utils/nssm-service', () => {
 	return {
-		...actual,
-		spawnSync: (...args: unknown[]) => spawnSyncMock(...args),
-		spawn: (...args: unknown[]) => spawnMock(...args)
+		NssmService: {
+			restart: (...args: unknown[]) => nssmRestartMock(...args)
+		}
 	};
 });
 
-vi.mock('../../src/utils/better-sqlite3-installer', () => {
+vi.mock('../../src/utils/ungate-settings-reader', () => {
 	return {
-		BetterSqlite3Installer: {
-			ensureInstalled: (...args: unknown[]) => ensureInstalledMock(...args),
-			getInstalledBinaryPath: vi.fn(
-				() => '/tmp/ungate-extension/bundled/api/node_modules/better-sqlite3/build/Release/better_sqlite3.installed.node'
-			)
+		UngateSettingsReader: class {
+			init() {
+				return settingsInitMock();
+			}
+
+			readPort() {
+				return settingsReadPortMock();
+			}
 		}
 	};
 });
@@ -106,30 +90,20 @@ vi.mock('../../src/runtime-state', () => {
 
 interface ApiServerInternals {
 	port: number | null;
-	process: null;
 	lastStatus: 'starting' | 'running' | 'stopped' | 'error' | null;
-	restartRequested: boolean;
-	restartInProgress: boolean;
-	shutDownDeliberately: boolean;
 	startPromise: Promise<void> | null;
+	consecutiveFailures: number;
+	healthCheckInFlight: boolean;
 	runHealthCheckCycle(): Promise<void>;
-	onExit(code: number | null, signal: NodeJS.Signals | null): void;
-	spawn(): void;
-	ensureNativeDeps(): Promise<void>;
 	checkPortHealth(port: number): Promise<boolean>;
 	startHealthCheck(): void;
-	shouldRespawn(): boolean;
+	stopHealthCheck(): void;
+	resolvePort(): Promise<number>;
+	pollUntilHealthy(port: number): Promise<boolean>;
 }
 
 function createRuntimeState(): RuntimeState {
-	const runtimeState = TestHelper.createRuntimeState([], 4783);
-
-	return runtimeState;
-}
-
-async function flushPromises(): Promise<void> {
-	await Promise.resolve();
-	await Promise.resolve();
+	return TestHelper.createRuntimeState([], 4783);
 }
 
 function getInternals(server: InstanceType<typeof ApiServer>): ApiServerInternals {
@@ -169,7 +143,7 @@ function createServer(options?: { isLeaderWindow?: boolean; isExtensionHostActiv
 	return { server, onStatusChange, onPortDetected, onLog };
 }
 
-describe('ApiServer.runHealthCheckCycle', () => {
+describe('ApiServer.start (attach-only)', () => {
 	beforeEach(() => {
 		runtimeReadMock.mockReset();
 		runtimeHasLiveClientsMock.mockReset();
@@ -179,440 +153,392 @@ describe('ApiServer.runHealthCheckCycle', () => {
 		suppressApiAutoStartMock.mockReset();
 		resetApiForRestartMock.mockReset();
 		sleepMock.mockReset();
-		ensureInstalledMock.mockReset();
-		spawnSyncMock.mockReset();
-		spawnSyncMock.mockImplementation((runtime, args) => {
-			if (Array.isArray(args) && args[0] === '-p' && typeof args[1] === 'string' && args[1].includes('process.execPath')) {
-				return {
-					error: undefined,
-					status: 0,
-					stdout: '/usr/local/bin/node',
-					stderr: '',
-					pid: 1,
-					output: [null, '/usr/local/bin/node', ''],
-					signal: null
-				};
-			}
-
-			return {
-				error: undefined,
-				status: 0,
-				stdout: 'v24.0.0\n',
-				stderr: '',
-				pid: 1,
-				output: [null, 'v24.0.0\n', ''],
-				signal: null
-			};
-		});
-		ensureInstalledMock.mockResolvedValue(undefined);
+		sleepMock.mockResolvedValue(undefined);
+		nssmRestartMock.mockReset();
+		nssmRestartMock.mockResolvedValue(undefined);
+		settingsInitMock.mockReset();
+		settingsInitMock.mockResolvedValue(null);
+		settingsReadPortMock.mockReset();
+		settingsReadPortMock.mockResolvedValue(null);
 		vi.unstubAllGlobals();
 		vi.useRealTimers();
 	});
 
-	it('does not mark attached running api as stopped after a transient health-check failure', async () => {
-		const runtimeState = createRuntimeState();
-		const { server, onStatusChange } = createServer();
-		const internals = getInternals(server);
-		runtimeReadMock.mockReturnValue(runtimeState);
-		runtimeHasLiveClientsMock.mockReturnValue(false);
-		runtimeMutateMock.mockImplementation((mutator) => {
-			const nextState = mutator(structuredClone(runtimeState));
-
-			return Promise.resolve(nextState);
-		});
-		vi.stubGlobal(
-			'fetch',
-			vi.fn(() => {
-				return Promise.reject(new Error('temporary network failure'));
-			})
-		);
-
-		Object.assign(internals, {
-			port: 4783,
-			lastStatus: 'running',
-			process: null
-		});
-
-		await internals.runHealthCheckCycle();
-
-		expect(onStatusChange).not.toHaveBeenCalledWith('stopped');
-	});
-
-	it('attaches to an existing healthy api without spawning a new process', async () => {
+	it('attaches to an existing healthy api from runtime state without spawning', async () => {
 		const runtimeState = createRuntimeState();
 		const { server, onPortDetected, onStatusChange } = createServer();
-		const internals = getInternals(server);
 		runtimeReadMock.mockReturnValue(runtimeState);
 		runtimeMutateMock.mockImplementation((mutator) => {
-			const nextState = mutator(structuredClone(runtimeState));
-
-			return Promise.resolve(nextState);
+			return Promise.resolve(mutator(structuredClone(runtimeState)));
 		});
-		const spawnSpy = vi.spyOn(internals, 'spawn').mockImplementation(() => {});
-		vi.spyOn(internals, 'checkPortHealth').mockResolvedValue(true);
-		vi.spyOn(internals, 'startHealthCheck').mockImplementation(() => {});
+		vi.spyOn(getInternals(server), 'checkPortHealth').mockResolvedValue(true);
+		vi.spyOn(getInternals(server), 'startHealthCheck').mockImplementation(() => {});
 
 		await server.start();
 
-		expect(spawnSpy).not.toHaveBeenCalled();
 		expect(onPortDetected).toHaveBeenCalledWith(4783);
 		expect(onStatusChange).toHaveBeenCalledWith('running');
 	});
 
-	it('does not spawn a second process when start is called again during local startup', async () => {
+	it('does not start when api start is suppressed', async () => {
+		isApiStartSuppressedMock.mockReturnValue(true);
+		const { server, onStatusChange } = createServer();
+
+		await server.start();
+
+		expect(onStatusChange).not.toHaveBeenCalledWith('running');
+	});
+
+	it('resolves port from app_settings DB when runtime state has no port', async () => {
+		const runtimeState = TestHelper.createRuntimeState([], null);
+		const { server, onPortDetected } = createServer();
+		runtimeReadMock.mockReturnValue(runtimeState);
+		runtimeMutateMock.mockImplementation((mutator) => {
+			return Promise.resolve(mutator(structuredClone(runtimeState)));
+		});
+		settingsReadPortMock.mockResolvedValue(47821);
+		vi.spyOn(getInternals(server), 'checkPortHealth').mockResolvedValue(true);
+		vi.spyOn(getInternals(server), 'startHealthCheck').mockImplementation(() => {});
+
+		await server.start();
+
+		expect(settingsReadPortMock).toHaveBeenCalledTimes(1);
+		expect(onPortDetected).toHaveBeenCalledWith(47821);
+	});
+
+	it('falls back to default port 47821 when DB returns null', async () => {
+		const runtimeState = TestHelper.createRuntimeState([], null);
+		const { server, onPortDetected } = createServer();
+		runtimeReadMock.mockReturnValue(runtimeState);
+		runtimeMutateMock.mockImplementation((mutator) => {
+			return Promise.resolve(mutator(structuredClone(runtimeState)));
+		});
+		settingsReadPortMock.mockResolvedValue(null);
+		vi.spyOn(getInternals(server), 'checkPortHealth').mockResolvedValue(true);
+		vi.spyOn(getInternals(server), 'startHealthCheck').mockImplementation(() => {});
+
+		await server.start();
+
+		expect(onPortDetected).toHaveBeenCalledWith(47821);
+	});
+
+	it('records failure when service never becomes healthy', async () => {
+		const runtimeState = TestHelper.createRuntimeState([], null);
+		const { server, onStatusChange } = createServer();
+		runtimeReadMock.mockReturnValue(runtimeState);
+		runtimeMutateMock.mockImplementation((mutator) => {
+			return Promise.resolve(mutator(structuredClone(runtimeState)));
+		});
+		vi.spyOn(getInternals(server), 'pollUntilHealthy').mockResolvedValue(false);
+
+		await server.start();
+
+		expect(suppressApiAutoStartMock).toHaveBeenCalledTimes(1);
+		expect(onStatusChange).toHaveBeenCalledWith('error');
+	});
+
+	it('deduplicates parallel start calls', async () => {
 		const runtimeState = createRuntimeState();
 		const { server } = createServer();
-		const internals = getInternals(server);
-		runtimeReadMock.mockReturnValue(runtimeState);
-		const spawnSpy = vi.spyOn(internals, 'spawn').mockImplementation(() => {});
-
-		Object.assign(internals, {
-			process: {}
-		});
-
-		await server.start();
-
-		expect(spawnSpy).not.toHaveBeenCalled();
-	});
-
-	it('passes the installed better-sqlite3 binary path to the api process', async () => {
-		const runtimeState = createRuntimeState([], null);
-		const { server } = createServer();
-		const internals = getInternals(server);
 		runtimeReadMock.mockReturnValue(runtimeState);
 		runtimeMutateMock.mockImplementation((mutator) => {
-			const nextState = mutator(structuredClone(runtimeState));
-
-			return Promise.resolve(nextState);
+			return Promise.resolve(mutator(structuredClone(runtimeState)));
 		});
 
-		vi.spyOn(internals, 'startHealthCheck').mockImplementation(() => {});
-
-		await server.start();
-
-		expect(spawnMock).toHaveBeenCalledWith(
-			expect.any(String),
-			expect.any(Array),
-			expect.objectContaining({
-				env: expect.objectContaining({
-					UNGATE_BETTER_SQLITE3_NATIVE_BINDING: expect.stringContaining('better_sqlite3.installed.node')
-				})
-			})
-		);
-	});
-
-	it('retries startup when shared starting state is stale', async () => {
-		const runtimeState = createRuntimeState([], null);
-		const { server } = createServer();
-		const internals = getInternals(server);
-		runtimeState.api.status = 'starting';
-		runtimeState.api.ownerWindowId = 'other-window';
-		runtimeState.api.lastSeenAt = Date.now() - 15000;
-		runtimeReadMock.mockReturnValue(runtimeState);
-		runtimeMutateMock.mockImplementation((mutator) => {
-			const nextState = mutator(structuredClone(runtimeState));
-
-			return Promise.resolve(nextState);
-		});
-		const spawnSpy = vi.spyOn(internals, 'spawn').mockImplementation(() => {});
-
-		await server.start();
-
-		expect(ensureInstalledMock).toHaveBeenCalledTimes(1);
-		expect(spawnSpy).toHaveBeenCalledTimes(1);
-	});
-
-	it('deduplicates parallel start calls while native deps are pending', async () => {
-		const runtimeState = createRuntimeState([], null);
-		const { server } = createServer();
-		const internals = getInternals(server);
-		runtimeReadMock.mockReturnValue(runtimeState);
-		runtimeMutateMock.mockImplementation((mutator) => {
-			const nextState = mutator(structuredClone(runtimeState));
-
-			return Promise.resolve(nextState);
-		});
-
-		let releaseNative: (() => void) | undefined;
-		ensureInstalledMock.mockImplementation(() => {
-			return new Promise<void>((resolve) => {
-				releaseNative = resolve;
+		let releaseHealth: (() => void) | undefined;
+		const checkPortHealthSpy = vi.spyOn(getInternals(server), 'checkPortHealth').mockImplementation(() => {
+			return new Promise<boolean>((resolve) => {
+				releaseHealth = () => resolve(true);
 			});
 		});
-
-		const spawnSpy = vi.spyOn(internals, 'spawn').mockImplementation(() => {});
+		vi.spyOn(getInternals(server), 'startHealthCheck').mockImplementation(() => {});
 
 		const first = server.start();
 		const second = server.start();
 
 		expect(server.isStartupInProgress()).toBe(true);
 
-		await vi.waitFor(() => {
-			expect(ensureInstalledMock).toHaveBeenCalledTimes(1);
-		});
-		expect(spawnSpy).not.toHaveBeenCalled();
-
-		releaseNative?.();
+		releaseHealth?.();
 		await Promise.all([first, second]);
 
-		expect(spawnSpy).toHaveBeenCalledTimes(1);
+		// checkPortHealth called once (deduplicated), not twice
+		expect(checkPortHealthSpy).toHaveBeenCalledTimes(1);
 	});
 
-	it('does not retry start automatically after native dependency installation fails', async () => {
-		const runtimeState = createRuntimeState([], null);
-		const { server } = createServer();
-		runtimeReadMock.mockReturnValue(runtimeState);
-		runtimeMutateMock.mockImplementation((mutator) => {
-			const nextState = mutator(structuredClone(runtimeState));
+	it('does not re-attach when port is already set', async () => {
+		const { server, onPortDetected } = createServer();
+		const internals = getInternals(server);
+		internals.port = 4783;
 
-			return Promise.resolve(nextState);
-		});
-		ensureInstalledMock.mockRejectedValue(new Error('[native] better-sqlite3 prebuilt installation failed'));
-
-		await expect(server.start()).rejects.toThrow('[native] better-sqlite3 prebuilt installation failed');
-		expect(suppressApiAutoStartMock).toHaveBeenCalled();
-		ensureInstalledMock.mockClear();
-		isApiStartSuppressedMock.mockReturnValue(true);
+		const healthSpy = vi.spyOn(internals, 'checkPortHealth');
 
 		await server.start();
 
-		expect(ensureInstalledMock).not.toHaveBeenCalled();
-	});
-
-	it('does not stop api before the no-clients grace period elapses', async () => {
-		vi.useFakeTimers();
-		vi.setSystemTime(0);
-
-		const runtimeState = createRuntimeState();
-		const { server } = createServer({ isExtensionHostActive: false });
-		const internals = getInternals(server);
-		runtimeReadMock.mockReturnValue(runtimeState);
-		runtimeHasLiveClientsMock.mockReturnValue(false);
-		runtimeMutateMock.mockImplementation((mutator) => {
-			const nextState = mutator(structuredClone(runtimeState));
-
-			return Promise.resolve(nextState);
-		});
-		vi.stubGlobal(
-			'fetch',
-			vi.fn(() => {
-				return Promise.resolve({ ok: true });
-			})
-		);
-		const stopSpy = vi.spyOn(server, 'stop').mockResolvedValue(undefined);
-
-		Object.assign(internals, {
-			port: 4783,
-			lastStatus: 'running',
-			process: null
-		});
-
-		await internals.runHealthCheckCycle();
-		vi.setSystemTime(2500);
-		await internals.runHealthCheckCycle();
-
-		expect(stopSpy).not.toHaveBeenCalled();
-	});
-
-	it('stops api after the no-clients grace period elapses', async () => {
-		vi.useFakeTimers();
-		vi.setSystemTime(0);
-
-		const runtimeState = createRuntimeState();
-		const { server } = createServer({ isExtensionHostActive: false });
-		const internals = getInternals(server);
-		runtimeReadMock.mockReturnValue(runtimeState);
-		runtimeHasLiveClientsMock.mockReturnValue(false);
-		runtimeMutateMock.mockImplementation((mutator) => {
-			const nextState = mutator(structuredClone(runtimeState));
-
-			return Promise.resolve(nextState);
-		});
-		vi.stubGlobal(
-			'fetch',
-			vi.fn(() => {
-				return Promise.resolve({ ok: true });
-			})
-		);
-		const stopSpy = vi.spyOn(server, 'stop').mockResolvedValue(undefined);
-
-		Object.assign(internals, {
-			port: 4783,
-			lastStatus: 'running',
-			process: null
-		});
-
-		await internals.runHealthCheckCycle();
-		vi.setSystemTime(3001);
-		await internals.runHealthCheckCycle();
-
-		expect(stopSpy).toHaveBeenCalledTimes(1);
-	});
-
-	it('does not stop api when extension host is still active', async () => {
-		vi.useFakeTimers();
-		vi.setSystemTime(0);
-
-		const runtimeState = createRuntimeState();
-		const { server } = createServer({ isExtensionHostActive: true });
-		const internals = getInternals(server);
-		runtimeReadMock.mockReturnValue(runtimeState);
-		runtimeHasLiveClientsMock.mockReturnValue(false);
-		runtimeMutateMock.mockImplementation((mutator) => {
-			const nextState = mutator(structuredClone(runtimeState));
-
-			return Promise.resolve(nextState);
-		});
-		vi.stubGlobal(
-			'fetch',
-			vi.fn(() => {
-				return Promise.resolve({ ok: true });
-			})
-		);
-		const stopSpy = vi.spyOn(server, 'stop').mockResolvedValue(undefined);
-
-		Object.assign(internals, {
-			port: 4783,
-			lastStatus: 'running',
-			process: null
-		});
-
-		vi.setSystemTime(5000);
-		await internals.runHealthCheckCycle();
-
-		expect(stopSpy).not.toHaveBeenCalled();
+		expect(healthSpy).not.toHaveBeenCalled();
+		expect(onPortDetected).not.toHaveBeenCalled();
 	});
 });
 
-describe('ApiServer.onExit', () => {
+describe('ApiServer.restart (NSSM)', () => {
 	beforeEach(() => {
+		runtimeReadMock.mockReset();
+		runtimeMutateMock.mockReset();
+		runtimeMutateMock.mockImplementation((mutator) => {
+			return Promise.resolve(mutator(createRuntimeState()));
+		});
+		resetApiForRestartMock.mockReset();
+		resetApiForRestartMock.mockResolvedValue(undefined);
+		nssmRestartMock.mockReset();
+		nssmRestartMock.mockResolvedValue(undefined);
+		settingsInitMock.mockReset();
+		settingsInitMock.mockResolvedValue(null);
+		settingsReadPortMock.mockReset();
+		settingsReadPortMock.mockResolvedValue(47821);
 		sleepMock.mockReset();
 		sleepMock.mockResolvedValue(undefined);
-		ensureInstalledMock.mockReset();
-		ensureInstalledMock.mockResolvedValue(undefined);
+	});
+
+	it('calls nssm restart and re-attaches to the service', async () => {
+		const { server, onPortDetected, onStatusChange } = createServer();
+		vi.spyOn(getInternals(server), 'checkPortHealth').mockResolvedValue(true);
+		vi.spyOn(getInternals(server), 'startHealthCheck').mockImplementation(() => {});
+
+		await server.restart();
+
+		expect(nssmRestartMock).toHaveBeenCalledWith('ungate-api');
+		expect(onPortDetected).toHaveBeenCalledWith(47821);
+		expect(onStatusChange).toHaveBeenCalledWith('running');
+	});
+
+	it('records failure when service does not become healthy after restart', async () => {
+		const { server, onStatusChange } = createServer();
+		vi.spyOn(getInternals(server), 'pollUntilHealthy').mockResolvedValue(false);
+
+		await server.restart();
+
+		expect(nssmRestartMock).toHaveBeenCalledWith('ungate-api');
+		expect(suppressApiAutoStartMock).toHaveBeenCalledTimes(1);
+		expect(onStatusChange).toHaveBeenCalledWith('error');
+	});
+});
+
+describe('ApiServer.stop', () => {
+	beforeEach(() => {
+		runtimeReadMock.mockReset();
+		runtimeMutateMock.mockReset();
 		runtimeMutateMock.mockImplementation((mutator) => {
-			const nextState = mutator(createRuntimeState());
-
-			return Promise.resolve(nextState);
+			return Promise.resolve(mutator(createRuntimeState()));
 		});
+		isApiStartSuppressedMock.mockReset();
+		isApiStartSuppressedMock.mockReturnValue(false);
 	});
 
-	it('starts again after a requested restart exit', async () => {
-		const { server } = createServer();
-		const internals = getInternals(server);
-		const startSpy = vi.spyOn(server, 'start').mockResolvedValue(undefined);
-
-		Object.assign(internals, {
-			restartRequested: true,
-			restartInProgress: true,
-			process: null
-		});
-
-		internals.onExit(null, 'SIGTERM');
-		await flushPromises();
-
-		expect(startSpy).toHaveBeenCalledTimes(1);
-		expect(sleepMock).toHaveBeenCalledTimes(1);
-		expect(internals.restartRequested).toBe(false);
-		expect(internals.restartInProgress).toBe(false);
-	});
-
-	it('does not respawn after a deliberate shutdown', () => {
-		const { server } = createServer();
-		const internals = getInternals(server);
-		const spawnSpy = vi.spyOn(internals, 'spawn').mockImplementation(() => {});
-
-		Object.assign(internals, {
-			shutDownDeliberately: true,
-			process: null
-		});
-
-		internals.onExit(0, null);
-
-		expect(spawnSpy).not.toHaveBeenCalled();
-	});
-
-	it('respawns after a clean exit', async () => {
-		const { server } = createServer();
-		const internals = getInternals(server);
-		const spawnSpy = vi.spyOn(internals, 'spawn').mockImplementation(() => {});
-
-		Object.assign(internals, {
-			restartRequested: false,
-			shutDownDeliberately: false,
-			process: null
-		});
-
-		internals.onExit(0, null);
-		await flushPromises();
-
-		expect(spawnSpy).toHaveBeenCalledTimes(1);
-		expect(sleepMock).toHaveBeenCalledTimes(1);
-	});
-
-	it('marks status as error after a non-zero exit', async () => {
-		const runtimeState = createRuntimeState();
+	it('stops health check and detaches without overwriting shared state (NSSM keeps running)', async () => {
 		const { server, onStatusChange } = createServer();
 		const internals = getInternals(server);
+		internals.port = 4783;
+		const stopHealthSpy = vi.spyOn(internals, 'stopHealthCheck').mockImplementation(() => {});
+
+		await server.stop();
+
+		expect(stopHealthSpy).toHaveBeenCalledTimes(1);
+		expect(internals.port).toBeNull();
+		expect(onStatusChange).toHaveBeenCalledWith('stopped');
+		// NSSM-managed service keeps running — detach must not falsify shared state.
+		expect(runtimeMutateMock).not.toHaveBeenCalled();
+	});
+
+	it('sets error status when api start is suppressed', async () => {
+		isApiStartSuppressedMock.mockReturnValue(true);
+		const { server, onStatusChange } = createServer();
+
+		await server.stop();
+
+		expect(onStatusChange).not.toHaveBeenCalledWith('stopped');
+	});
+});
+
+describe('ApiServer.runHealthCheckCycle', () => {
+	beforeEach(() => {
+		runtimeReadMock.mockReset();
+		runtimeHasLiveClientsMock.mockReset();
+		runtimeMutateMock.mockReset();
 		runtimeMutateMock.mockImplementation((mutator) => {
-			const nextState = mutator(structuredClone(runtimeState));
-
-			return Promise.resolve(nextState);
+			return Promise.resolve(mutator(createRuntimeState()));
 		});
+		isApiStartSuppressedMock.mockReset();
+		isApiStartSuppressedMock.mockReturnValue(false);
+		suppressApiAutoStartMock.mockReset();
+		vi.unstubAllGlobals();
+		vi.useRealTimers();
+	});
 
-		Object.assign(internals, {
-			restartRequested: false,
-			shutDownDeliberately: false,
-			process: null
-		});
+	it('marks status as running when health check succeeds', async () => {
+		const { server, onStatusChange } = createServer();
+		const internals = getInternals(server);
+		internals.port = 4783;
+		internals.lastStatus = 'error';
 
-		internals.onExit(1, null);
-		await flushPromises();
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(() => Promise.resolve({ ok: true }))
+		);
 
+		await internals.runHealthCheckCycle();
+
+		expect(onStatusChange).toHaveBeenCalledWith('running');
+	});
+
+	it('marks status as error after threshold consecutive failures (non-ok status)', async () => {
+		const { server, onStatusChange } = createServer();
+		const internals = getInternals(server);
+		internals.port = 4783;
+		internals.lastStatus = 'running';
+
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(() => Promise.resolve({ ok: false, status: 502 }))
+		);
+
+		// Below threshold — no error yet
+		await internals.runHealthCheckCycle();
+		await internals.runHealthCheckCycle();
+		expect(suppressApiAutoStartMock).not.toHaveBeenCalled();
+
+		// Third consecutive failure — now declares error
+		await internals.runHealthCheckCycle();
+		expect(suppressApiAutoStartMock).toHaveBeenCalledTimes(1);
 		expect(onStatusChange).toHaveBeenCalledWith('error');
 	});
 
-	it('does not respawn after a clean exit when extension host is inactive', async () => {
-		const { server } = createServer({ isExtensionHostActive: false });
+	it('marks status as error after threshold consecutive failures (throw)', async () => {
+		const { server, onStatusChange } = createServer();
 		const internals = getInternals(server);
-		const spawnSpy = vi.spyOn(internals, 'spawn').mockImplementation(() => {});
+		internals.port = 4783;
+		internals.lastStatus = 'running';
 
-		Object.assign(internals, {
-			restartRequested: false,
-			shutDownDeliberately: false,
-			process: null
-		});
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(() => Promise.reject(new Error('connection refused')))
+		);
 
-		internals.onExit(0, null);
-		await flushPromises();
+		await internals.runHealthCheckCycle();
+		await internals.runHealthCheckCycle();
+		expect(suppressApiAutoStartMock).not.toHaveBeenCalled();
 
-		expect(spawnSpy).not.toHaveBeenCalled();
+		await internals.runHealthCheckCycle();
+		expect(suppressApiAutoStartMock).toHaveBeenCalledTimes(1);
+		expect(onStatusChange).toHaveBeenCalledWith('error');
 	});
 
-	it('attaches to an already running api after EADDRINUSE instead of staying in error', async () => {
+	it('does not auto-stop api when no live clients remain (NSSM manages lifecycle)', async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(0);
+
 		const runtimeState = createRuntimeState();
-		const { server, onPortDetected, onStatusChange } = createServer();
+		const { server } = createServer({ isExtensionHostActive: false });
 		const internals = getInternals(server);
-		runtimeMutateMock.mockImplementation((mutator) => {
-			const nextState = mutator(structuredClone(runtimeState));
+		runtimeReadMock.mockReturnValue(runtimeState);
+		runtimeHasLiveClientsMock.mockReturnValue(false);
+		internals.port = 4783;
+		internals.lastStatus = 'running';
 
-			return Promise.resolve(nextState);
-		});
-		vi.spyOn(internals, 'checkPortHealth').mockResolvedValue(true);
-		vi.spyOn(internals, 'startHealthCheck').mockImplementation(() => {});
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(() => Promise.resolve({ ok: true }))
+		);
+		const stopSpy = vi.spyOn(server, 'stop').mockResolvedValue(undefined);
 
-		Object.assign(internals, {
-			addressInUsePort: 47821,
-			process: null,
-			restartRequested: false,
-			shutDownDeliberately: false
-		});
+		await internals.runHealthCheckCycle();
+		vi.setSystemTime(10000);
+		await internals.runHealthCheckCycle();
 
-		internals.onExit(1, null);
-		await flushPromises();
+		// NSSM service keeps running — extension must not stop it
+		expect(stopSpy).not.toHaveBeenCalled();
+	});
 
-		expect(onPortDetected).toHaveBeenCalledWith(47821);
+	it('skips health check when not leader window', async () => {
+		const { server } = createServer({ isLeaderWindow: false });
+		const internals = getInternals(server);
+		internals.port = 4783;
+
+		const fetchMock = vi.fn();
+		vi.stubGlobal('fetch', fetchMock);
+
+		await internals.runHealthCheckCycle();
+
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it('skips health check when port is not set', async () => {
+		const { server } = createServer();
+		const internals = getInternals(server);
+		internals.port = null;
+
+		const fetchMock = vi.fn();
+		vi.stubGlobal('fetch', fetchMock);
+
+		await internals.runHealthCheckCycle();
+
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it('resets failure counter on success and does not flicker on transient blips', async () => {
+		const { server, onStatusChange } = createServer();
+		const internals = getInternals(server);
+		internals.port = 4783;
+		internals.lastStatus = 'running';
+
+		let shouldFail = true;
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(() => (shouldFail ? Promise.resolve({ ok: false, status: 502 }) : Promise.resolve({ ok: true })))
+		);
+
+		// Two failures — below threshold, no error
+		await internals.runHealthCheckCycle();
+		await internals.runHealthCheckCycle();
+		expect(suppressApiAutoStartMock).not.toHaveBeenCalled();
+
+		// Success — counter resets
+		shouldFail = false;
+		await internals.runHealthCheckCycle();
 		expect(onStatusChange).toHaveBeenCalledWith('running');
-		expect(onStatusChange).not.toHaveBeenCalledWith('error');
+
+		// Two more failures — still below threshold (counter was reset)
+		shouldFail = true;
+		await internals.runHealthCheckCycle();
+		await internals.runHealthCheckCycle();
+		expect(suppressApiAutoStartMock).not.toHaveBeenCalled();
+	});
+
+	it('skips overlapping health check cycles while one is in flight', async () => {
+		const { server } = createServer();
+		const internals = getInternals(server);
+		internals.port = 4783;
+
+		let releaseFetch: (() => void) | undefined;
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(
+				() =>
+					new Promise((resolve) => {
+						releaseFetch = () => resolve({ ok: true });
+					})
+			)
+		);
+
+		const fetchMock = vi.mocked(fetch);
+
+		// Start first cycle — don't await yet; fetch is pending, inFlight=true
+		const first = internals.runHealthCheckCycle();
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+
+		// Second call while first is in flight — must be skipped (no new fetch)
+		await internals.runHealthCheckCycle();
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+
+		releaseFetch?.();
+		await first;
 	});
 });

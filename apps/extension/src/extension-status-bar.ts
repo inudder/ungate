@@ -40,6 +40,14 @@ export class ExtensionStatusBar {
 		return '$(circle-slash) OpenAI API Key: off';
 	}
 
+	public static formatWakePingTip(wakePingEnabled: boolean): string {
+		if (wakePingEnabled) {
+			return '$(check) Wake Ping: on';
+		}
+
+		return '$(circle-slash) Wake Ping: off';
+	}
+
 	public static tunnelRestartLabel(tunnel: TunnelState): string {
 		if (tunnel.status === 'stopped') {
 			return 'Start tunnel';
@@ -52,7 +60,8 @@ export class ExtensionStatusBar {
 		apiState: ApiBarStatus,
 		tunnel: TunnelState,
 		tunnelApiUrl: string | null,
-		keyFixEnabled: boolean
+		keyFixEnabled: boolean,
+		wakePingEnabled: boolean
 	): vscode.MarkdownString {
 		const tip = new vscode.MarkdownString('', true);
 		tip.isTrusted = true;
@@ -60,6 +69,8 @@ export class ExtensionStatusBar {
 		tip.appendMarkdown(this.formatApiTip(apiState));
 		tip.appendMarkdown('\n\n');
 		tip.appendMarkdown(this.formatKeyFixTip(keyFixEnabled));
+		tip.appendMarkdown('\n\n');
+		tip.appendMarkdown(this.formatWakePingTip(wakePingEnabled));
 		tip.appendMarkdown('\n\n');
 		tip.appendMarkdown(this.formatTunnelTip(tunnel, tunnelApiUrl));
 
@@ -82,6 +93,14 @@ export class ExtensionStatusBar {
 		}
 
 		actions.push(`[$(settings-gear) ${keyFixLabel}](command:${extensionCommands.toggleKeyFix})`);
+
+		let wakePingLabel = 'Turn on Wake Ping';
+
+		if (wakePingEnabled) {
+			wakePingLabel = 'Turn off Wake Ping';
+		}
+
+		actions.push(`[$(pulse) ${wakePingLabel}](command:${extensionCommands.toggleWakePing})`);
 
 		tip.appendMarkdown(actions.join(' · '));
 

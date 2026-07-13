@@ -3,7 +3,6 @@ import { sleep } from '@ungate/shared/frontend';
 import IconCopy from 'virtual:icons/lucide/copy';
 import IconPlay from 'virtual:icons/lucide/play';
 import IconRotateCcw from 'virtual:icons/lucide/rotate-ccw';
-import IconSquare from 'virtual:icons/lucide/square';
 
 import { getTunnelStore } from './tunnel-store.svelte';
 
@@ -11,7 +10,7 @@ const store = getTunnelStore();
 
 const statusLabel: Record<string, string> = {
 	stopped: 'Stopped',
-	installing: 'Downloading cloudflared...',
+	installing: 'Connecting...',
 	starting: 'Starting...',
 	running: 'Running',
 	error: 'Error'
@@ -45,7 +44,7 @@ function handleKeyFixChange(event: Event): void {
 
 <div class="card preset-tonal-surface border border-surface-700/30 p-5 space-y-4">
 	<div class="flex items-center justify-between">
-		<p class="text-sm font-semibold">Cloudflare Tunnel</p>
+		<p class="text-sm font-semibold">FRP Tunnel</p>
 		<div class="flex items-center gap-2">
 			<span class="size-2 rounded-full {statusDotClass[store.tunnel.status] ?? 'bg-surface-400'}"></span>
 			<span class="text-xs text-surface-400">{statusLabel[store.tunnel.status] ?? store.tunnel.status}</span>
@@ -67,7 +66,7 @@ function handleKeyFixChange(event: Event): void {
 			<div class="text-xs text-surface-400 space-y-1">
 				<p>Paste this URL into Cursor Settings → Models → OpenAI API Base URL.</p>
 				<p>In the API Key field paste the key from Server Configuration below (or leave empty if no key is set).</p>
-				<p class="text-surface-500">The URL changes on each restart.</p>
+				<p class="text-surface-500">The URL is managed by frpc (NSSM service).</p>
 			</div>
 		</div>
 	{/if}
@@ -87,30 +86,13 @@ function handleKeyFixChange(event: Event): void {
 				Start tunnel
 			</button>
 		{:else if store.tunnel.status === 'running'}
-			<button
-				class="btn btn-sm preset-outlined-surface-700 hover:preset-filled-surface-500"
-				onclick={() => store.restartTunnel()}>
-				<IconRotateCcw class="size-4" />
-				Restart
-			</button>
-			<button
-				class="btn btn-sm preset-outlined-surface-700 hover:preset-filled-surface-500"
-				onclick={() => store.stopTunnel()}>
-				<IconSquare class="size-4" />
-				Stop
-			</button>
+			<span class="text-xs text-surface-400 py-1">Managed by frpc (NSSM service)</span>
 		{:else}
 			<button
 				class="btn btn-sm preset-tonal-surface"
 				disabled>
 				<IconRotateCcw class="size-4 animate-spin" />
 				{statusLabel[store.tunnel.status] ?? 'Working...'}
-			</button>
-			<button
-				class="btn btn-sm preset-outlined-surface-700 hover:preset-filled-surface-500"
-				onclick={() => store.stopTunnel()}>
-				<IconSquare class="size-4" />
-				Stop
 			</button>
 		{/if}
 	</div>

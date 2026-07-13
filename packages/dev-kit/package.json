@@ -14,7 +14,7 @@
 	],
 	"scripts": {
 		"build": "pnpm run clean && tsc -p tsconfig.build.json",
-		"clean": "rm -rf lib"
+		"clean": "node -e \"require('fs').rmSync('lib',{recursive:true,force:true})\""
 	},
 	"dependencies": {
 		"tslib": "~2.8.1"

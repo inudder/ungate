@@ -1,0 +1,60 @@
+Фрагменты, которые нужно вставить в apps/extension/src/dashboard.ts.
+
+=== 1) В массив/константу MSGS_SIMPLE (или эквивалент) добавить: ===
+
+'toggle-wake-ping',
+'wake-ping-state',
+
+
+=== 2) В класс/объект дашборда добавить метод sendWakePingState: ===
+
+  sendWakePingState(enabled: boolean) {
+    this.panel?.webview.postMessage({ type: 'wake-ping-state', enabled });
+  }
+
+
+=== 3) В обработчик сообщений webview (onDidReceiveMessage) добавить ветки: ===
+
+    if (message.type === 'toggle-wake-ping') {
+      // Здесь вызвать команду ungate.toggleWakePing и обновить состояние
+      // (см. apps/extension/src/extension-commands.ts)
+      // После выполнения команды дашборд получит wake-ping-state и обновит UI
+    }
+    if (message.type === 'wake-ping-state') {
+      wakePingEnabled = message.enabled;
+      const checkbox = document.getElementById('wake-ping-checkbox');
+      if (checkbox) checkbox.checked = wakePingEnabled;
+    }
+
+
+=== 4) В webview HTML (рендеринг карточки) добавить: ===
+
+    let wakePingEnabled = false;
+
+    // (В существующем init/reconcile, после других карточек)
+    if (document.getElementById('wake-ping-checkbox')) return;
+    const wakePingCard = document.createElement('div');
+    wakePingCard.className = 'card preset-tonal-surface border border-surface-700/30 p-3 space-y-2 mb-3';
+    wakePingCard.id = 'wake-ping-card';
+    wakePingCard.innerHTML = `
+      <label class="flex items-start gap-2 cursor-pointer">
+        <input class="checkbox mt-0.5" type="checkbox" id="wake-ping-checkbox"/>
+        <span class="text-sm leading-5 font-semibold">Keep Claude quota active (Wake Ping)</span>
+      </label>
+    `;
+    // Вставить рядом с другой карточкой (например, после keyFix card)
+    card.parentNode.insertBefore(wakePingCard, card.nextSibling);
+
+    const checkbox = wakePingCard.querySelector('#wake-ping-checkbox');
+    checkbox.checked = wakePingEnabled;
+    checkbox.addEventListener('change', () => {
+      vs.postMessage({ type: 'toggle-wake-ping' });
+    });
+
+
+=== Замечание ===
+
+Точные имена переменных (`vs`, `card`, `wakePingEnabled`) и место вставки DOM
+зависят от существующего кода в dashboard.ts. Нужно смотреть контекст в файле
+и адаптировать имена. Логика — взять из `dist/extension.js`, строки 22066-22348
+(секция `// src/dashboard.ts` и далее до `// src/extension-commands.ts`).

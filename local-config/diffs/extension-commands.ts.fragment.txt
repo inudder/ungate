@@ -1,0 +1,29 @@
+Фрагмент, который нужно добавить в apps/extension/src/extension-commands.ts.
+
+=== В объект COMMANDS (или аналогичный) добавить: ===
+
+  toggleWakePing: 'ungate.toggleWakePing',
+
+
+=== В case-обработчик команд (switch по command) добавить: ===
+
+  case 'ungate.toggleWakePing': {
+    // Получить текущее состояние (из runtime-state или из БД прокси GET /wake-ping)
+    // Инвертировать, отправить POST /wake-ping на прокси
+    // Обновить дашборд через sendWakePingState
+    const newState = !currentWakePingState;
+    await fetch(`http://localhost:${proxyPort}/wake-ping`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ enabled: newState })
+    });
+    dashboard?.sendWakePingState(newState);
+    break;
+  }
+
+
+=== Замечание ===
+
+Точные имена (`proxyPort`, `currentWakePingState`, `dashboard`) зависят от
+существующих хелперов в extension-commands.ts. Логика: переключатель шлёт
+POST на /wake-ping прокси и обновляет webview через dashboard.sendWakePingState.

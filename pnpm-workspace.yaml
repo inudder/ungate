@@ -2,6 +2,17 @@ packages:
   - 'apps/*'
   - 'packages/*'
   - 'scripts'
+allowBuilds:
+  '@vscode/vsce-sign': true
+  better-sqlite3: true
+  cloudflared: true
+  esbuild: true
+  keytar: true
+  unrs-resolver: true
 onlyBuiltDependencies:
   - better-sqlite3
   - esbuild
+  - '@vscode/vsce-sign'
+  - cloudflared
+  - keytar
+  - unrs-resolver

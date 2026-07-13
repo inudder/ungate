@@ -2,16 +2,16 @@
 	"name": "@ungate/root",
 	"private": true,
 	"type": "module",
-	"packageManager": "pnpm@10.33.1",
+	"packageManager": "pnpm@11.8.0",
 	"engines": {
 		"node": ">=22.0.0",
 		"pnpm": ">=10.0.0"
 	},
 	"scripts": {
 		"tunnel": "pnpm --filter @ungate/scripts run tunnel",
-		"package:build": "bash scripts/build-package/run.sh",
+		"package:build": "pwsh scripts/build-package/run.ps1",
 		"lint:fix": "pnpm -r --parallel run lint:fix",
-		"test": "pnpm --filter ungate test && pnpm --filter @ungate/api test",
+		"test": "pnpm --filter ungate-local test && pnpm --filter @ungate/api test",
 		"prepare": "husky"
 	},
 	"devDependencies": {

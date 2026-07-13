@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -10,7 +10,15 @@ import { schema } from './schema';
 
 export type DrizzleDb = BetterSQLite3Database<typeof schema>;
 
-const MIGRATIONS_PATH = process.env.DRIZZLE_PATH ?? join(import.meta.dirname, '../../drizzle');
+const moduleDirectory = typeof __dirname !== 'undefined' ? __dirname : import.meta.dirname;
+
+function resolveMigrationsPath(): string {
+	const candidates = [join(moduleDirectory, '../drizzle'), join(moduleDirectory, '../../drizzle')];
+
+	return candidates.find((candidate) => existsSync(join(candidate, 'meta', '_journal.json'))) ?? candidates[0];
+}
+
+const MIGRATIONS_PATH = process.env.DRIZZLE_PATH ?? resolveMigrationsPath();
 
 let _db: DrizzleDb | null = null;
 let _sqlite: DatabaseType | null = null;
@@ -52,6 +60,13 @@ export function getSqlite(): DatabaseType {
 	getDb();
 
 	return _sqlite!;
+}
+
+export function closeDatabase(): void {
+	_sqlite?.close();
+	_db = null;
+	_sqlite = null;
+	_dbPath = null;
 }
 
 export { schema };

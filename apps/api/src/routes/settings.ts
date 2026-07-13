@@ -6,31 +6,27 @@ import { Settings } from '../database/app-settings';
 
 import type { FastifyPluginCallback } from 'fastify';
 
-const ModelMappingUpdateSchema = z
-	.object({
-		id: z.string(),
-		label: z.string(),
-		provider: z.string().refine((value) => isModelMappingProvider(value), {
-			message: 'Model provider must be claude, openai or minimax'
-		}),
-		upstreamModel: z.string(),
-		sortOrder: z.number().int(),
-		reasoningBudget: z.union([
-			z.null(),
-			z.string().refine((value) => isReasoningBudgetTier(value), { message: 'Invalid reasoningBudget' })
-		])
-	})
-	.strict();
+const ModelMappingUpdateSchema = z.object({
+	id: z.string(),
+	label: z.string(),
+	provider: z.string().refine((value) => isModelMappingProvider(value), {
+		message: 'Model provider must be claude, openai or minimax'
+	}),
+	upstreamModel: z.string(),
+	sortOrder: z.number().int(),
+	reasoningBudget: z.union([
+		z.null(),
+		z.string().refine((value) => isReasoningBudgetTier(value), { message: 'Invalid reasoningBudget' })
+	])
+});
 
-const SettingsUpdateSchema = z
-	.object({
-		port: z.number().int().min(1).max(65535).optional(),
-		apiKey: z.union([z.string(), z.null()]).optional(),
-		quiet: z.boolean().optional(),
-		extraInstruction: z.union([z.string(), z.null()]).optional(),
-		models: z.array(ModelMappingUpdateSchema).optional()
-	})
-	.strict();
+const SettingsUpdateSchema = z.object({
+	port: z.number().int().min(1).max(65535).optional(),
+	apiKey: z.union([z.string(), z.null()]).optional(),
+	quiet: z.boolean().optional(),
+	extraInstruction: z.union([z.string(), z.null()]).optional(),
+	models: z.array(ModelMappingUpdateSchema).optional()
+});
 
 function validateSettingsUpdate(payload: unknown): { ok: true; value: Partial<AppSettings> } | { ok: false; error: string } {
 	const result = SettingsUpdateSchema.safeParse(payload);
