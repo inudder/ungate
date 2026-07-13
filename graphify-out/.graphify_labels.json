@@ -172,5 +172,16 @@
   "170": "vite-tsconfig-paths",
   "171": "vitest",
   "172": "@vitest/eslint-plugin",
-  "173": "layerchart"
+  "173": "layerchart",
+  "174": "SettingsStore",
+  "175": "files",
+  "176": "runtime-state-store.test.ts",
+  "177": "frontend.ts",
+  "178": "tsc-alias",
+  "179": "@ungate/dev-kit",
+  "180": "vite-tsconfig-paths",
+  "181": "openai-model-routing.test.ts",
+  "182": "sqlite3-cli-resolver.test.ts",
+  "183": "prettier-plugin-tailwindcss",
+  "184": "completion-streaming-gateway.test.ts"
 }
