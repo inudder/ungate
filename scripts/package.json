@@ -3,6 +3,9 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
+		"bridge:start": "node cliproxy-namespace-bridge.mjs",
+		"bridge:test": "node --test cliproxy-namespace-bridge.test.mjs",
+		"plugin-isolation:test": "pwsh -NoProfile -Command \"$result = Invoke-Pester -Path ./codex-plugin-isolation.Tests.ps1 -Output Detailed -PassThru; if ($result.FailedCount -gt 0) { exit 1 }\"",
 		"tunnel": "tsx tunnel/main.ts",
 		"lint": "eslint .",
 		"lint:fix": "eslint . --fix"

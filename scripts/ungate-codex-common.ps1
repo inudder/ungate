@@ -1,4 +1,4 @@
-# Shared key resolution and token-free preflight for Codex launchers.
+# Shared key resolution and preflight helpers for Codex launchers.
 function Resolve-UngateApiKey {
     param(
         [string]$ApiKey,
@@ -104,6 +104,100 @@ function Test-UngateResponsesBridge {
     }
 
     throw "/v1/responses preflight failed with HTTP ${statusCode}: $text"
+}
+
+function Get-CliProxyHttpErrorDetail {
+    param(
+        [AllowEmptyString()]
+        [string]$Content
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Content)) {
+        return 'empty response body'
+    }
+
+    try {
+        $payload = $Content | ConvertFrom-Json -Depth 20 -ErrorAction Stop
+        if ($payload.error -is [string] -and -not [string]::IsNullOrWhiteSpace($payload.error)) {
+            return [string]$payload.error
+        }
+        if ($payload.error.message) {
+            return [string]$payload.error.message
+        }
+        if ($payload.message) {
+            return [string]$payload.message
+        }
+    }
+    catch {
+        # Fall back to the raw response body below.
+    }
+
+    $trimmed = $Content.Trim()
+    if ($trimmed.Length -gt 500) {
+        return $trimmed.Substring(0, 500) + '...'
+    }
+    return $trimmed
+}
+
+function Test-CliProxyResponsesInference {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Key,
+        [Parameter(Mandatory = $true)]
+        [string]$Model,
+        [Parameter(Mandatory = $true)]
+        [string]$ProxyOpenAiBaseUrl
+    )
+
+    $body = [ordered]@{
+        model = $Model
+        input = 'Reply with exactly OK.'
+        max_output_tokens = 16
+        stream = $false
+        store = $false
+    } | ConvertTo-Json -Compress
+
+    try {
+        $response = Invoke-WebRequest `
+            -Method Post `
+            -Uri "$ProxyOpenAiBaseUrl/responses" `
+            -Headers @{ Authorization = "Bearer $Key" } `
+            -ContentType 'application/json' `
+            -Body $body `
+            -TimeoutSec 15 `
+            -SkipHttpErrorCheck `
+            -ErrorAction Stop
+    }
+    catch {
+        throw "Could not reach CLIProxyAPI /v1/responses: $($_.Exception.Message)"
+    }
+
+    $statusCode = [int]$response.StatusCode
+    if ($statusCode -lt 200 -or $statusCode -ge 300) {
+        $detail = Get-CliProxyHttpErrorDetail -Content ([string]$response.Content)
+        if ($detail -match '(?i)auth_unavailable|no auth available') {
+            throw "CLIProxyAPI has no available xAI authorization for model '$Model'. Re-authenticate xAI in CLIProxyAPI and retry. Upstream: $detail"
+        }
+        throw "CLIProxyAPI /v1/responses inference preflight failed with HTTP ${statusCode}: $detail"
+    }
+
+    try {
+        $payload = ([string]$response.Content) | ConvertFrom-Json -Depth 100 -ErrorAction Stop
+    }
+    catch {
+        throw "CLIProxyAPI /v1/responses returned invalid JSON: $($_.Exception.Message)"
+    }
+
+    $outputText = @(
+        $payload.output |
+            Where-Object { $_.type -eq 'message' } |
+            ForEach-Object { $_.content } |
+            Where-Object { $_.type -eq 'output_text' } |
+            ForEach-Object { [string]$_.text }
+    ) -join ''
+    if ($outputText.Trim() -ne 'OK') {
+        throw "CLIProxyAPI /v1/responses returned unexpected preflight output for model '$Model'."
+    }
 }
 
 function Invoke-UngatePreflight {

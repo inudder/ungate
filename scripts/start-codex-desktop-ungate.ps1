@@ -55,9 +55,21 @@ $CustomModelCatalogPath = Join-Path $CustomCodexHome 'ungate-models.json'
 $CustomGlobalStatePath = Join-Path $CustomCodexHome '.codex-global-state.json'
 $ProxyBaseUrl = 'http://127.0.0.1:47821'
 $ProviderName = 'ungate_proxy'
-$CliProxyBaseUrl = 'http://127.0.0.1:8317'
+$CliProxyUpstreamBaseUrl = 'http://127.0.0.1:8317'
+$CliProxyBaseUrl = 'http://127.0.0.1:8318'
 $CliProxyProviderName = 'cliproxyapi'
 $CliProxyConfigPath = 'J:\Sandbox\CLIProxyAPI\config.yaml'
+$CliProxyBridgePath = Join-Path $PSScriptRoot 'cliproxy-namespace-bridge.mjs'
+$CliProxyBridgeServiceName = 'cliproxy-namespace-bridge'
+$PluginIsolationModulePath = Join-Path $PSScriptRoot 'codex-plugin-isolation.psm1'
+$CodexPackageLaunchHelperPath = Join-Path $PSScriptRoot 'start-codex-beta-package-process.ps1'
+if (-not (Test-Path -LiteralPath $PluginIsolationModulePath -PathType Leaf)) {
+    throw "Codex plugin isolation module not found at $PluginIsolationModulePath."
+}
+if (-not (Test-Path -LiteralPath $CodexPackageLaunchHelperPath -PathType Leaf)) {
+    throw "Codex Beta package launch helper not found at $CodexPackageLaunchHelperPath."
+}
+Import-Module $PluginIsolationModulePath -Force
 $UngateEnvironmentInstruction = @'
 Execution environment: Windows 11 with PowerShell 7.
 
@@ -148,7 +160,7 @@ $UngateModelDefinitions = @(
         # Exact upstream id from CLIProxyAPI /v1/models
         Slug = 'grok-4.5'
         DisplayName = 'Grok 4.5 (CLIProxyAPI)'
-        Description = 'Grok 4.5 through local CLIProxyAPI Responses proxy on port 8317.'
+        Description = 'Grok 4.5 through the local CLIProxyAPI compatibility bridge on port 8318.'
         Identity = ('You are Codex, a coding agent powered by Grok 4.5 through the local CLIProxyAPI proxy. When asked which model you are using, identify it as Grok 4.5 via CLIProxyAPI and do not claim to be a GPT model.' + "`r`n`r`n" + $UngateEnvironmentInstruction)
         DefaultReasoningLevel = 'high'
         Priority = 3
@@ -212,6 +224,179 @@ function Resolve-CliProxyApiKey {
     }
 
     throw "Could not find api-keys in $CliProxyConfigPath. Set CLIPROXYAPI_API_KEY or add api-keys to the config."
+}
+
+function Get-CliProxyBridgeHealth {
+    try {
+        $health = Invoke-RestMethod `
+            -Uri "$CliProxyBaseUrl/_bridge/health" `
+            -TimeoutSec 2 `
+            -ErrorAction Stop
+        return $health
+    }
+    catch {
+        return $null
+    }
+}
+
+function Test-LocalTcpListener {
+    param(
+        [Parameter(Mandatory = $true)]
+        [int]$Port
+    )
+
+    $listeners = [System.Net.NetworkInformation.IPGlobalProperties]::GetIPGlobalProperties().GetActiveTcpListeners()
+    return @($listeners | Where-Object { $_.Port -eq $Port }).Count -gt 0
+}
+
+function Test-CliProxyBridgeProcessIdentity {
+    param(
+        [Parameter(Mandatory = $true)]
+        [int]$ProcessId
+    )
+
+    $process = Get-CimInstance `
+        -ClassName Win32_Process `
+        -Filter "ProcessId = $ProcessId" `
+        -ErrorAction SilentlyContinue
+    if (-not $process -or [string]::IsNullOrWhiteSpace($process.CommandLine)) {
+        return $false
+    }
+
+    $expectedPath = [System.IO.Path]::GetFullPath($CliProxyBridgePath)
+    return $process.CommandLine.IndexOf(
+        $expectedPath,
+        [System.StringComparison]::OrdinalIgnoreCase
+    ) -ge 0
+}
+
+function Ensure-CliProxyBridge {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Key
+    )
+
+    if (-not (Test-Path -LiteralPath $CliProxyBridgePath -PathType Leaf)) {
+        throw "CLIProxy compatibility bridge not found at $CliProxyBridgePath."
+    }
+
+    try {
+        $null = Invoke-RestMethod `
+            -Uri "$CliProxyUpstreamBaseUrl/v1/models" `
+            -Headers @{ Authorization = "Bearer $Key" } `
+            -TimeoutSec 5 `
+            -ErrorAction Stop
+    }
+    catch {
+        throw "CLIProxyAPI upstream at $CliProxyUpstreamBaseUrl is not reachable: $($_.Exception.Message)"
+    }
+    Write-Host "[ungate] CLIProxyAPI upstream healthy at $CliProxyUpstreamBaseUrl." -ForegroundColor Green
+
+    $expectedBuildId = (Get-FileHash -LiteralPath $CliProxyBridgePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $expectedUpstream = $CliProxyUpstreamBaseUrl.TrimEnd('/')
+    $bridgeListening = Test-LocalTcpListener -Port 8318
+    $health = if ($bridgeListening) { Get-CliProxyBridgeHealth } else { $null }
+    $bridgeReady = $false
+
+    if ($health) {
+        if ($health.status -ne 'ok' -or $health.service -ne $CliProxyBridgeServiceName) {
+            throw "Port 8318 is occupied by an unexpected HTTP service. Refusing to stop it."
+        }
+
+        $sameBuild = [string]$health.build_id -eq $expectedBuildId
+        $sameUpstream = ([string]$health.upstream).TrimEnd('/') -eq $expectedUpstream
+        if ($sameBuild -and $sameUpstream) {
+            $bridgeReady = $true
+            Write-Host "[ungate] Reusing CLIProxy compatibility bridge (PID $($health.pid))." -ForegroundColor DarkGray
+        }
+        else {
+            $bridgeProcessId = [int]$health.pid
+            if (-not (Test-CliProxyBridgeProcessIdentity -ProcessId $bridgeProcessId)) {
+                throw "Port 8318 reports a stale bridge, but PID $bridgeProcessId does not run $CliProxyBridgePath. Refusing to stop it."
+            }
+
+            Write-Host "[ungate] Restarting stale CLIProxy compatibility bridge (PID $bridgeProcessId)..." -ForegroundColor Yellow
+            Stop-Process -Id $bridgeProcessId -Force -ErrorAction Stop
+            $stopDeadline = (Get-Date).AddSeconds(5)
+            do {
+                Start-Sleep -Milliseconds 100
+            } while (
+                (Test-LocalTcpListener -Port 8318) -and
+                (Get-Date) -lt $stopDeadline
+            )
+            if (Test-LocalTcpListener -Port 8318) {
+                throw 'The stale CLIProxy compatibility bridge did not release port 8318.'
+            }
+        }
+    }
+    elseif ($bridgeListening) {
+        throw "Port 8318 is occupied, but /_bridge/health did not identify the compatibility bridge. Refusing to stop it."
+    }
+
+    if (-not $bridgeReady) {
+        $nodeCommand = Get-Command node -ErrorAction SilentlyContinue
+        if (-not $nodeCommand -or -not (Test-Path -LiteralPath $nodeCommand.Source -PathType Leaf)) {
+            throw 'node.exe is required to run the CLIProxy compatibility bridge.'
+        }
+
+        $logDirectory = Join-Path $CustomCodexHome 'logs'
+        New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
+        $stdoutPath = Join-Path $logDirectory 'cliproxy-namespace-bridge.out.log'
+        $stderrPath = Join-Path $logDirectory 'cliproxy-namespace-bridge.err.log'
+        Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
+
+        $bridgeEnvironment = @{
+            CLIPROXY_BRIDGE_HOST = '127.0.0.1'
+            CLIPROXY_BRIDGE_PORT = '8318'
+            CLIPROXY_UPSTREAM = $CliProxyUpstreamBaseUrl
+            CLIPROXY_BRIDGE_BUILD_ID = $expectedBuildId
+            CLIPROXY_BRIDGE_MAX_BODY_BYTES = '134217728'
+        }
+        $bridgeProcess = Start-Process `
+            -FilePath ([string]$nodeCommand.Source) `
+            -ArgumentList @("`"$CliProxyBridgePath`"") `
+            -WorkingDirectory $RepoRoot `
+            -WindowStyle Hidden `
+            -Environment $bridgeEnvironment `
+            -RedirectStandardOutput $stdoutPath `
+            -RedirectStandardError $stderrPath `
+            -PassThru
+
+        $startDeadline = (Get-Date).AddSeconds(10)
+        do {
+            Start-Sleep -Milliseconds 200
+            $bridgeProcess.Refresh()
+            if ($bridgeProcess.HasExited) {
+                $bridgeError = Get-Content -LiteralPath $stderrPath -Tail 20 -ErrorAction SilentlyContinue
+                throw "CLIProxy compatibility bridge exited with code $($bridgeProcess.ExitCode). $($bridgeError -join ' ')"
+            }
+            $health = Get-CliProxyBridgeHealth
+        } while (-not $health -and (Get-Date) -lt $startDeadline)
+
+        if (
+            -not $health -or
+            $health.status -ne 'ok' -or
+            $health.service -ne $CliProxyBridgeServiceName -or
+            [string]$health.build_id -ne $expectedBuildId -or
+            ([string]$health.upstream).TrimEnd('/') -ne $expectedUpstream
+        ) {
+            Stop-Process -Id $bridgeProcess.Id -Force -ErrorAction SilentlyContinue
+            throw "CLIProxy compatibility bridge failed its startup health check at $CliProxyBaseUrl."
+        }
+        Write-Host "[ungate] CLIProxy compatibility bridge started at $CliProxyBaseUrl (PID $($health.pid))." -ForegroundColor Green
+    }
+
+    try {
+        $null = Invoke-RestMethod `
+            -Uri "$CliProxyBaseUrl/v1/models" `
+            -Headers @{ Authorization = "Bearer $Key" } `
+            -TimeoutSec 5 `
+            -ErrorAction Stop
+    }
+    catch {
+        throw "CLIProxy compatibility bridge could not proxy /v1/models: $($_.Exception.Message)"
+    }
+    Write-Host '[ungate] CLIProxy compatibility bridge proxy check passed.' -ForegroundColor Green
 }
 
 function Resolve-ModelApiKey {
@@ -775,7 +960,7 @@ function Initialize-CodexWindowsSandbox {
     Write-Host '[ungate] Windows sandbox ready.' -ForegroundColor DarkGray
 }
 
-function Get-CodexBetaExecutable {
+function Get-CodexBetaPackageInfo {
     $package = Get-AppxPackage -Name OpenAI.CodexBeta |
         Sort-Object Version -Descending |
         Select-Object -First 1
@@ -784,21 +969,150 @@ function Get-CodexBetaExecutable {
     }
 
     $manifest = Get-AppxPackageManifest -Package $package
-    $relativeExecutables = @(
-        $manifest.Package.Applications.Application |
-            ForEach-Object { [string]$_.Executable } |
-            Where-Object { $_ }
-    )
-
-    foreach ($relativeExecutable in $relativeExecutables) {
+    foreach ($application in @($manifest.Package.Applications.Application)) {
+        $relativeExecutable = [string]$application.Executable
+        if (-not $relativeExecutable) {
+            continue
+        }
         $normalizedPath = $relativeExecutable.Replace('/', [IO.Path]::DirectorySeparatorChar)
         $executable = Join-Path $package.InstallLocation $normalizedPath
         if (Test-Path -LiteralPath $executable -PathType Leaf) {
-            return $executable
+            $bundledMarketplace = Join-Path `
+                $package.InstallLocation `
+                'app\resources\plugins\openai-bundled'
+            if (-not (Test-Path -LiteralPath $bundledMarketplace -PathType Container)) {
+                throw "Codex Beta bundled plugin marketplace was not found at $bundledMarketplace."
+            }
+
+            return [pscustomobject]@{
+                ExecutablePath = $executable
+                InstallLocation = [string]$package.InstallLocation
+                Version = [string]$package.Version
+                BundledMarketplacePath = $bundledMarketplace
+                PackageFamilyName = [string]$package.PackageFamilyName
+                ApplicationId = [string]$application.Id
+            }
         }
     }
 
     throw "Codex Beta executable from the AppX manifest was not found under $($package.InstallLocation)."
+}
+
+function Start-CodexBetaDesktop {
+    param(
+        [Parameter(Mandatory)][psobject]$PackageInfo,
+        [Parameter(Mandatory)][hashtable]$LaunchEnvironment,
+        [Parameter(Mandatory)][string]$WorkingDirectory
+    )
+
+    try {
+        Start-Process `
+            -FilePath ([string]$PackageInfo.ExecutablePath) `
+            -WorkingDirectory $WorkingDirectory `
+            -Environment $LaunchEnvironment `
+            -ErrorAction Stop
+        return
+    }
+    catch {
+        $directLaunchError = $_.Exception.Message
+    }
+
+    $pipeName = 'ungate-codex-beta-' + [guid]::NewGuid().ToString('N')
+    $pipe = [System.IO.Pipes.NamedPipeServerStream]::new(
+        $pipeName,
+        [System.IO.Pipes.PipeDirection]::InOut,
+        1,
+        [System.IO.Pipes.PipeTransmissionMode]::Byte,
+        [System.IO.Pipes.PipeOptions]::Asynchronous
+    )
+    $job = $null
+    try {
+        $powerShellPath = (Get-Command pwsh -ErrorAction Stop).Source
+        $job = Start-Job -ArgumentList @(
+            [string]$PackageInfo.PackageFamilyName,
+            [string]$PackageInfo.ApplicationId,
+            $powerShellPath,
+            $CodexPackageLaunchHelperPath,
+            $pipeName,
+            [string]$PackageInfo.ExecutablePath,
+            $WorkingDirectory
+        ) -ScriptBlock {
+            param(
+                $PackageFamilyName,
+                $ApplicationId,
+                $PowerShellPath,
+                $HelperPath,
+                $PipeName,
+                $ExecutablePath,
+                $WorkingDirectory
+            )
+
+            $arguments = @(
+                '-NoProfile',
+                '-WindowStyle', 'Hidden',
+                '-File', "`"$HelperPath`"",
+                '-PipeName', "`"$PipeName`"",
+                '-ExecutablePath', "`"$ExecutablePath`"",
+                '-WorkingDirectory', "`"$WorkingDirectory`""
+            ) -join ' '
+            Invoke-CommandInDesktopPackage `
+                -PackageFamilyName $PackageFamilyName `
+                -AppId $ApplicationId `
+                -Command $PowerShellPath `
+                -Args $arguments `
+                -PreventBreakaway `
+                -ErrorAction Stop
+        }
+
+        $connectTask = $pipe.WaitForConnectionAsync()
+        if (-not $connectTask.Wait([TimeSpan]::FromSeconds(20))) {
+            throw 'Timed out waiting for the Codex Beta package launch helper.'
+        }
+        $connectTask.GetAwaiter().GetResult()
+
+        $encoding = [System.Text.UTF8Encoding]::new($false)
+        $reader = [System.IO.StreamReader]::new($pipe, $encoding, $false, 1024, $true)
+        $writer = [System.IO.StreamWriter]::new($pipe, $encoding, 1024, $true)
+        $writer.AutoFlush = $true
+        try {
+            $writer.WriteLine(($LaunchEnvironment | ConvertTo-Json -Compress))
+            $responseTask = $reader.ReadLineAsync()
+            if (-not $responseTask.Wait([TimeSpan]::FromSeconds(20))) {
+                throw 'Timed out while Codex Beta was starting inside its package.'
+            }
+            $response = $responseTask.GetAwaiter().GetResult()
+        }
+        finally {
+            $writer.Dispose()
+            $reader.Dispose()
+        }
+
+        if ($response -notmatch '^OK:(?<processId>\d+)$') {
+            throw "The Codex Beta package launch helper failed: $response"
+        }
+        $completedJob = Wait-Job -Job $job -Timeout 20
+        if (-not $completedJob -or $job.State -ne 'Completed') {
+            $jobReason = $job.ChildJobs[0].JobStateInfo.Reason
+            $reason = if ($jobReason) { $jobReason.Message } else { "job state is $($job.State)" }
+            throw "The Codex Beta package command failed: $reason"
+        }
+
+        Write-Host `
+            "[ungate] Codex Beta started inside its MSIX package (PID $($Matches.processId))." `
+            -ForegroundColor DarkGray
+    }
+    catch {
+        throw "Direct Codex Beta launch failed ($directLaunchError). MSIX package launch also failed: $($_.Exception.Message)"
+    }
+    finally {
+        $pipe.Dispose()
+        if ($job) {
+            if ($job.State -in @('Running', 'NotStarted', 'Blocked')) {
+                Stop-Job -Job $job
+            }
+            Remove-Job -Job $job -Force
+        }
+    }
 }
 
 function Get-CodexBetaProcesses {
@@ -996,9 +1310,9 @@ Write-Host `
     "[ungate] Selected model: $($selectedModelDefinition.DisplayName) [$Model]." `
     -ForegroundColor Cyan
 
-$desktopExecutable = $null
+$codexBeta = Get-CodexBetaPackageInfo
+$desktopExecutable = $codexBeta.ExecutablePath
 if (-not $PrepareOnly) {
-    $desktopExecutable = Get-CodexBetaExecutable
     Stop-CodexBeta -ExecutablePath $desktopExecutable
 }
 
@@ -1015,6 +1329,8 @@ foreach ($provider in (Get-ProviderDefinitions)) {
         -ForegroundColor DarkGray
 }
 
+Ensure-CliProxyBridge -Key $providerKeys[$CliProxyProviderName]
+
 $selectedKey = $providerKeys[$selectedModelDefinition.ProviderName]
 try {
     if ($selectedModelDefinition.RequiresUngate) {
@@ -1024,8 +1340,7 @@ try {
             -ProxyBaseUrl $selectedModelDefinition.ProxyBaseUrl
     }
     else {
-        # CLIProxyAPI has no /health and may hang on empty Responses input.
-        # Validate model listing only; full /v1/responses is exercised at runtime.
+        # CLIProxyAPI has no /health, so validate both discovery and a minimal live inference.
         $models = Invoke-RestMethod `
             -Uri "$($selectedModelDefinition.ProxyBaseUrl)/v1/models" `
             -Headers @{ Authorization = "Bearer $selectedKey" } `
@@ -1037,7 +1352,13 @@ try {
         }
         Write-Host "[ungate] Proxy healthy at $($selectedModelDefinition.ProxyBaseUrl)." -ForegroundColor Green
         Write-Host "[ungate] Model '$Model' available." -ForegroundColor Green
-        Write-Host '[ungate] /v1/responses bridge skipped for non-Ungate provider.' -ForegroundColor DarkGray
+        Test-CliProxyResponsesInference `
+            -Key $selectedKey `
+            -Model $Model `
+            -ProxyOpenAiBaseUrl "$($selectedModelDefinition.ProxyBaseUrl)/v1"
+        Write-Host `
+            "[ungate] Live /v1/responses inference preflight passed for '$Model'." `
+            -ForegroundColor Green
     }
 }
 catch {
@@ -1049,8 +1370,30 @@ catch {
 Initialize-UngateCodexConfig
 Write-UngateModelCatalog
 Ensure-SharedDirectory -Name 'skills'
-Ensure-SharedDirectory -Name 'plugins'
 Sync-CodexAuthentication
+$codexExecutable = Get-CodexCliExecutable
+if (-not $codexExecutable) {
+    throw 'Codex CLI is required to prepare the isolated Codex Beta plugin store.'
+}
+$betaIsRunning = @(Get-CodexBetaProcesses -ExecutablePath $desktopExecutable).Count -gt 0
+$pluginIsolation = Initialize-CodexBetaPluginIsolation `
+    -DefaultCodexHome $DefaultCodexHome `
+    -CustomCodexHome $CustomCodexHome `
+    -CodexExecutable $codexExecutable `
+    -BetaBundledMarketplace $codexBeta.BundledMarketplacePath `
+    -BetaPackageVersion $codexBeta.Version `
+    -BetaIsRunning $betaIsRunning
+if ($pluginIsolation.Changed) {
+    Write-Host `
+        "[ungate] Codex Beta plugins $($pluginIsolation.Action.ToLowerInvariant()) and isolated ($($pluginIsolation.PluginIds.Count) installed)." `
+        -ForegroundColor Green
+}
+else {
+    Write-Host `
+        "[ungate] Isolated Codex Beta plugins verified ($($pluginIsolation.PluginIds.Count) installed)." `
+        -ForegroundColor DarkGray
+}
+Write-Host "[ungate] Browser plugin SHA256: $($pluginIsolation.BrowserSha256)" -ForegroundColor DarkGray
 Assert-UngateCodexConfig -Key $selectedKey -ProviderKeys $providerKeys
 Initialize-CodexWindowsSandbox
 Write-Host "[ungate] Custom CODEX_HOME ready: $CustomCodexHome" -ForegroundColor Green
@@ -1068,7 +1411,7 @@ $launchEnv = @{
 foreach ($provider in (Get-ProviderDefinitions)) {
     $launchEnv[$provider.EnvKey] = $providerKeys[$provider.Name]
 }
-Start-Process `
-    -FilePath ([string]$desktopExecutable) `
-    -WorkingDirectory $RepoRoot `
-    -Environment $launchEnv
+Start-CodexBetaDesktop `
+    -PackageInfo $codexBeta `
+    -LaunchEnvironment $launchEnv `
+    -WorkingDirectory $RepoRoot

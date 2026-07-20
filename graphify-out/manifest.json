@@ -1250,19 +1250,19 @@
     "semantic_hash": "f130b8a7ec9b720473c080ab72de8a62"
   },
   "scripts/eslint.config.mjs": {
-    "mtime": 1781228626.909829,
-    "ast_hash": "a125e3df2ffdcaaf875a846944872e87",
-    "semantic_hash": "a125e3df2ffdcaaf875a846944872e87"
+    "mtime": 1784206355.1878765,
+    "ast_hash": "15deb8591606e835d3092d15e1324e4d",
+    "semantic_hash": ""
   },
   "scripts/package.json": {
-    "mtime": 1781228626.911864,
-    "ast_hash": "d59d0f0b1c62eb0bf3f0892d0b810942",
-    "semantic_hash": "d59d0f0b1c62eb0bf3f0892d0b810942"
+    "mtime": 1784211709.9247043,
+    "ast_hash": "ac402459badd765b36a532f68a0d5d17",
+    "semantic_hash": ""
   },
   "scripts/tsconfig.json": {
-    "mtime": 1781228626.9129074,
-    "ast_hash": "a26ab430cb2a0dd18cc99b6e5a509d36",
-    "semantic_hash": "a26ab430cb2a0dd18cc99b6e5a509d36"
+    "mtime": 1784206312.221512,
+    "ast_hash": "b06f25162c92b7afec3e93013718f04c",
+    "semantic_hash": ""
   },
   "scripts/tunnel/main.ts": {
     "mtime": 1781228626.914483,
@@ -1440,13 +1440,13 @@
     "semantic_hash": ""
   },
   "scripts/start-codex-desktop-ungate.ps1": {
-    "mtime": 1783950760.0286222,
-    "ast_hash": "1093f6a001c81932f647aded2fbcb119",
+    "mtime": 1784452085.9506881,
+    "ast_hash": "040390c01b163cfa5b41a06b02125c75",
     "semantic_hash": ""
   },
   "scripts/ungate-codex-common.ps1": {
-    "mtime": 1783950760.0296092,
-    "ast_hash": "36353e413e50678f3e43c169cae3d8aa",
+    "mtime": 1784452147.617685,
+    "ast_hash": "130d519462ec51fdfcca08afaaf24a8f",
     "semantic_hash": ""
   },
   "apps/api/tests/unit/proxy/minimax-client.test.ts": {
@@ -1462,6 +1462,41 @@
   "apps/api/drizzle/_0006.sql": {
     "mtime": 1783950759.5881674,
     "ast_hash": "e3d7d7b7b531b46356d747190dddf9c9",
+    "semantic_hash": ""
+  },
+  "scripts/cliproxy-namespace-bridge.mjs": {
+    "mtime": 1784206819.5268989,
+    "ast_hash": "6981927cfa46fddeec51485d2a164f0a",
+    "semantic_hash": ""
+  },
+  "scripts/cliproxy-namespace-bridge.test.mjs": {
+    "mtime": 1784206481.6100695,
+    "ast_hash": "a5f67fda2229c95be0b6d6bd79e8a4e8",
+    "semantic_hash": ""
+  },
+  "scripts/codex-plugin-isolation.Tests.ps1": {
+    "mtime": 1784447517.773226,
+    "ast_hash": "3213f8ed142162d8258f5b4e34b4ae45",
+    "semantic_hash": ""
+  },
+  "scripts/codex-plugin-isolation.psm1": {
+    "mtime": 1784447517.771219,
+    "ast_hash": "a0363b642c7ecaf23b171d539bdb34c1",
+    "semantic_hash": ""
+  },
+  "scripts/start-codex-beta-package-process.ps1": {
+    "mtime": 1784448195.4055274,
+    "ast_hash": "d57ed66e6859e7d1b958789b5bb2d935",
+    "semantic_hash": ""
+  },
+  "scripts/ungate-codex-common.Tests.ps1": {
+    "mtime": 1784452085.9506881,
+    "ast_hash": "6eea7488a8140cf45152964f86f7586f",
+    "semantic_hash": ""
+  },
+  "graphify-out/memory/query_20260719_080650_j__dev_ungate_local_scripts_start_codex_desktop_un.md": {
+    "mtime": 1784448410.720484,
+    "ast_hash": "a87376a049ec2cd9bdf716703804b82b",
     "semantic_hash": ""
   }
 }
