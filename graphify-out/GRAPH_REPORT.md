@@ -1,16 +1,16 @@
-# Graph Report - ungate-local  (2026-07-19)
+# Graph Report - ungate-local  (2026-07-20)
 
 ## Corpus Check
-- 293 files · ~101,411 words
+- 294 files · ~102,667 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 2100 nodes · 3766 edges · 176 communities (120 shown, 56 thin omitted)
+- 2105 nodes · 3774 edges · 176 communities (120 shown, 56 thin omitted)
 - Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 38 edges (avg confidence: 0.64)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `47653cde`
+- Built from commit: `70c32f53`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -166,9 +166,8 @@
 - vite-tsconfig-paths
 - vitest
 - @vitest/eslint-plugin
-- SettingsStore
+- @skeletonlabs/skeleton-svelte
 - AnalyticsStore
-- svelte-check
 
 ## God Nodes (most connected - your core abstractions)
 1. `ExtensionController` - 41 edges
@@ -207,8 +206,8 @@ Cohesion: 0.05
 Nodes (44): MINIMAX_BASE_URLS, ExtensionToWebview, WebviewToExtension, isModelMappingProvider(), isReasoningBudgetTier(), detectProviderByModel(), detectProviderBySource(), detectProviderBySourceOrModel() (+36 more)
 
 ### Community 1 - "OpenAI Proxy and SSE Stream Mapper"
-Cohesion: 0.14
-Nodes (11): ResponsesSseProcessor, ResponsesEventRouter, AssistantTextExtractor, StreamDiagnostics, StreamChunkMapper, PendingFunctionCallState, StreamProcessResult, StreamState (+3 more)
+Cohesion: 0.10
+Nodes (12): OpenAiClient, ResponsesSseProcessor, ResponsesEventRouter, AssistantTextExtractor, StreamDiagnostics, StreamChunkMapper, PendingFunctionCallState, StreamProcessResult (+4 more)
 
 ### Community 2 - "VS Code Extension Package Manifest"
 Cohesion: 0.09
@@ -216,15 +215,15 @@ Nodes (21): activationEvents, bugs, url, categories, contributes, commands, desc
 
 ### Community 3 - "Codex Input Normalization"
 Cohesion: 0.06
-Nodes (34): assertSupportedRequest(), ChatReasoningEffort, contentPartToChatText(), contentToChatContent(), functionCallToToolCall(), functionOutputToChatMessage(), imagePartToChatPart(), inputToItems() (+26 more)
+Nodes (37): assertSupportedRequest(), ChatReasoningEffort, contentPartToChatText(), contentToChatContent(), functionCallToToolCall(), functionOutputToChatMessage(), imagePartToChatPart(), inputToItems() (+29 more)
 
 ### Community 4 - "Web UI Logs and Settings Store"
 Cohesion: 0.12
 Nodes (16): name, scripts, build, build:bundle, build:postbuild, build:watch, clean, db:generate (+8 more)
 
 ### Community 5 - "Backend API Server Dependencies"
-Cohesion: 0.08
-Nodes (17): CompletionStreamingGateway, ENV_CHATGPT_INSTRUCTIONS, ProxyOpenAiResult, getPartialTagSuffix(), MiniMaxStreamEvent, MiniMaxStreamHandler, MiniMaxStreamState, MiniMaxToolCallDelta (+9 more)
+Cohesion: 0.09
+Nodes (14): CompletionStreamingGateway, ProxyOpenAiResult, getPartialTagSuffix(), MiniMaxStreamEvent, MiniMaxStreamHandler, MiniMaxStreamState, MiniMaxToolCallDelta, parseMiniMaxDelta() (+6 more)
 
 ### Community 6 - "Anthropic Claude Authentication Provider"
 Cohesion: 0.12
@@ -251,12 +250,12 @@ Cohesion: 0.22
 Nodes (14): completeRestart(), error, extractError(), getSettingsStore(), load(), loading, resetStatus(), restarting (+6 more)
 
 ### Community 12 - "Web Charting and Visualization"
-Cohesion: 0.15
-Nodes (13): closeDatabase(), DrizzleDb, getCurrentDbPath(), getDb(), getSqlite(), resolveDbPath(), ModelMappings, Requests (+5 more)
+Cohesion: 0.12
+Nodes (15): Settings, closeDatabase(), DrizzleDb, getCurrentDbPath(), getDb(), getSqlite(), resolveDbPath(), ModelMappings (+7 more)
 
 ### Community 13 - "Streaming Gateway and Handlers"
-Cohesion: 0.05
-Nodes (47): anthropicOutputItems(), anthropicStopToStatus(), anthropicToolItem(), ChatFinishReason, chatOutputItems(), finishToStatus(), itemId(), mapUsage() (+39 more)
+Cohesion: 0.06
+Nodes (45): anthropicOutputItems(), anthropicStopToStatus(), anthropicToolItem(), ChatFinishReason, chatOutputItems(), finishToStatus(), itemId(), mapUsage() (+37 more)
 
 ### Community 14 - "Web Settings UI and Authentication APIs"
 Cohesion: 0.11
@@ -287,8 +286,8 @@ Cohesion: 0.31
 Nodes (10): apiLogs, clearApi(), clearTunnel(), copyApi(), copyTunnel(), formatLogs(), getLogsStore(), handleMessage() (+2 more)
 
 ### Community 22 - "Community 22"
-Cohesion: 0.13
-Nodes (14): Settings, plugin(), ModelValidateSchema, plugin(), ModelMappingUpdateSchema, plugin(), SettingsUpdateSchema, validateSettingsUpdate() (+6 more)
+Cohesion: 0.16
+Nodes (13): plugin(), ModelValidateSchema, plugin(), ModelMappingUpdateSchema, plugin(), SettingsUpdateSchema, validateSettingsUpdate(), analyticsRecentMock (+5 more)
 
 ### Community 23 - "Community 23"
 Cohesion: 0.18
@@ -296,7 +295,7 @@ Nodes (10): name, private, scripts, build, build:watch, check, lint, lint:fix (+
 
 ### Community 24 - "Community 24"
 Cohesion: 0.13
-Nodes (12): AIProvider, AIProviderName, ClaudeProvider, providers, MiniMaxProvider, OpenAIProvider, StaticTokenProvider, oauthGetAuthStatusMock (+4 more)
+Nodes (11): AIProvider, ClaudeProvider, providers, MiniMaxProvider, OpenAIProvider, StaticTokenProvider, oauthGetAuthStatusMock, oauthGetValidTokenMock (+3 more)
 
 ### Community 25 - "Community 25"
 Cohesion: 0.17
@@ -307,16 +306,16 @@ Cohesion: 0.33
 Nodes (4): Analytics, PERIOD_OFFSETS, plugin(), toPeriod()
 
 ### Community 27 - "Community 27"
-Cohesion: 0.25
-Nodes (6): getAuthStatusMock, makeClaudeCodeRequestMock, openaiAuthStatusMock, providerSettingsGetMock, proxyMiniMaxRequestMock, proxyOpenAIRequestMock
+Cohesion: 0.29
+Nodes (9): AnthropicModelOverride, convertContent(), normalizeAssistantContentBlock(), normalizeAssistantContentBlocks(), normalizeModelName(), openaiToAnthropic(), hasMiniMaxExecCommand(), MINIMAX_FILE_EDITING_INSTRUCTION (+1 more)
 
 ### Community 28 - "SettingsStore"
-Cohesion: 0.08
-Nodes (17): BetterSqlite3Installer, execFile, InstallCallbacks, NodeResolver, RuntimeInfo, copyFileSyncMock, ExecFileCallback, execFileMock (+9 more)
+Cohesion: 0.07
+Nodes (19): BetterSqlite3Installer, execFile, InstallCallbacks, CrossProcessLock, NodeResolver, RuntimeInfo, copyFileSyncMock, ExecFileCallback (+11 more)
 
 ### Community 30 - "Formatter"
-Cohesion: 0.11
-Nodes (12): CursorStateDbReader, execFileAsync, InstallLogger, BIN_DIR, execFileAsync, InstallLogger, Sqlite3CliResolver, execFileAsync (+4 more)
+Cohesion: 0.14
+Nodes (15): PkceSession, TokenExchangeResponse, RequestResult, TOOL_NAME_MAPPING, ToolMapper, VALID_CLAUDE_CODE_TOOLS, ToolNormalizer, TokenRefreshResponse (+7 more)
 
 ### Community 31 - "Community 31"
 Cohesion: 0.10
@@ -327,36 +326,40 @@ Cohesion: 0.15
 Nodes (11): config, Logger, OpenAiKeyState, RuntimeState, ServiceState, StateChangeHandler, baseDir, config (+3 more)
 
 ### Community 33 - "Community 33"
-Cohesion: 0.07
-Nodes (19): OAuth, PkceSession, TokenExchangeResponse, OpenAICallbackServer, OpenAIOAuthClient, OpenAIOAuthService, OpenAIOAuthUtils, OpenAIPkceSessionStore (+11 more)
+Cohesion: 0.11
+Nodes (11): OpenAICallbackServer, OpenAIOAuthClient, OpenAIOAuthService, OpenAIOAuthUtils, OpenAIPkceSessionStore, CodexAuthInfo, PkceSession, Config (+3 more)
 
 ### Community 34 - "Community 34"
 Cohesion: 0.13
-Nodes (11): AnthropicToOpenai, PARAMETER_NAME_MAP, ToolTranslator, AnthropicResponse, OpenAIChatResponse, OpenAIResponseOutputItem, OpenAIResponseOutputText, OpenAIResponseReasoningEffort (+3 more)
+Nodes (10): AnthropicToOpenai, PARAMETER_NAME_MAP, ToolTranslator, AnthropicResponse, OpenAIChatResponse, OpenAIContentPart, OpenAIResponseOutputText, OpenAIStreamChunk (+2 more)
 
 ### Community 35 - "Community 35"
 Cohesion: 0.10
 Nodes (19): compilerOptions, allowJs, emitDecoratorMetadata, esModuleInterop, experimentalDecorators, forceConsistentCasingInFileNames, importHelpers, isolatedModules (+11 more)
 
 ### Community 36 - "Community 36"
-Cohesion: 0.12
-Nodes (19): RequestResult, RequestBuilder, resolveEffort(), VALID_EFFORTS, TOOL_NAME_MAPPING, ToolMapper, VALID_CLAUDE_CODE_TOOLS, AnthropicError (+11 more)
+Cohesion: 0.15
+Nodes (12): RequestBuilder, resolveEffort(), VALID_EFFORTS, AnthropicError, AnthropicMessage, AnthropicRequest, ContentBlock, ImageSource (+4 more)
 
 ### Community 38 - "Community 38"
 Cohesion: 0.19
 Nodes (5): CLOUDFLARED_BIN_DIR, getCloudflaredBinPath(), getCloudflaredLegacyBinPath(), TunnelManager, mocks
+
+### Community 39 - "Community 39"
+Cohesion: 0.11
+Nodes (12): CursorStateDbReader, execFileAsync, InstallLogger, BIN_DIR, execFileAsync, InstallLogger, Sqlite3CliResolver, execFileAsync (+4 more)
 
 ### Community 40 - "Community 40"
 Cohesion: 0.09
 Nodes (22): dependencies, cloudflared, devDependencies, tsx, @types/node, typescript, @ungate/dev-kit, cloudflared (+14 more)
 
 ### Community 41 - "Community 41"
-Cohesion: 0.20
-Nodes (11): AnthropicModelOverride, convertContent(), normalizeAssistantContentBlock(), normalizeAssistantContentBlocks(), normalizeModelName(), openaiToAnthropic(), detectProvider(), proxyOpenAIRequest() (+3 more)
+Cohesion: 0.26
+Nodes (3): OAuth, makeClaudeCodeRequest(), TokenInfo
 
 ### Community 42 - "Community 42"
-Cohesion: 0.20
-Nodes (13): HeadersExtractor, ResponsesRouteDecision, ResponsesRouteTarget, apiKeyAuth(), extractUsage(), proxyRequest(), plugin(), callUpstream() (+5 more)
+Cohesion: 0.25
+Nodes (6): getAuthStatusMock, makeClaudeCodeRequestMock, openaiAuthStatusMock, providerSettingsGetMock, proxyMiniMaxRequestMock, proxyOpenAIRequestMock
 
 ### Community 43 - "Community 43"
 Cohesion: 0.40
@@ -368,7 +371,7 @@ Nodes (27): compilerOptions, baseUrl, noEmit, paths, types, verbatimModuleSyntax
 
 ### Community 45 - "openai.ts"
 Cohesion: 0.10
-Nodes (21): devDependencies, drizzle-kit, esbuild, tsc-alias, tsup, @types/lodash-es, @types/node, @ungate/dev-kit (+13 more)
+Nodes (21): devDependencies, drizzle-kit, esbuild, tsc-alias, tsc-watch, tsup, @types/lodash-es, @ungate/dev-kit (+13 more)
 
 ### Community 46 - "Community 46"
 Cohesion: 0.12
@@ -424,11 +427,11 @@ Nodes (10): compilerOptions, declaration, noEmit, outDir, rootDir, sourceMap, ex
 
 ### Community 60 - "Community 60"
 Cohesion: 0.15
-Nodes (13): devDependencies, @iconify-json/lucide, @skeletonlabs/skeleton-svelte, @sveltejs/vite-plugin-svelte, @tsconfig/svelte, @types/node, unplugin-icons, @types/node (+5 more)
+Nodes (13): devDependencies, @iconify-json/lucide, @sveltejs/vite-plugin-svelte, tailwindcss, @tsconfig/svelte, @types/node, unplugin-icons, @types/node (+5 more)
 
 ### Community 61 - "OpenAiKeyFixInternals"
-Cohesion: 0.14
-Nodes (20): addBareCandidate(), BridgeRequestError, canonicalizeArguments(), cloneFunctionTool(), copyHeaders(), createBridgeServer(), createSseTransform(), flattenResponsesRequest() (+12 more)
+Cohesion: 0.12
+Nodes (22): mapping(), addBareCandidate(), BridgeRequestError, canonicalizeArguments(), cloneFunctionTool(), copyHeaders(), createBridgeServer(), createSseTransform() (+14 more)
 
 ### Community 62 - "RequestBuilder"
 Cohesion: 0.22
@@ -476,15 +479,11 @@ Nodes (3): Ungate Brand Identity, Interlocking Triangle Logo Concept, Ungate Ext
 
 ### Community 75 - "Community 75"
 Cohesion: 0.09
-Nodes (27): Assert-UngateCodexConfig(), Ensure-CliProxyBridge(), Ensure-ModelProvidersInConfig(), Get-CliProxyBridgeHealth(), Get-CodexBetaProcesses(), Get-CodexCliExecutable(), Get-ProviderDefinitions(), Get-ProviderTomlBlock() (+19 more)
-
-### Community 85 - "Community 85"
-Cohesion: 0.23
-Nodes (3): RuntimeStateFileStore, CrossProcessLock, { mkdirSyncMock, writeFileSyncMock, rmSyncMock, rmdirSyncMock, existsSyncMock, readFileSyncMock, sleepMock, killMock }
+Nodes (30): Assert-UngateCodexConfig(), Ensure-CliProxyBridge(), Ensure-ModelProvidersInConfig(), Get-CliProxyBridgeHealth(), Get-CodexBetaProcesses(), Get-CodexCliExecutable(), Get-ProviderDefinitions(), Get-ProviderTomlBlock() (+22 more)
 
 ### Community 87 - "Community 87"
-Cohesion: 0.23
-Nodes (3): OAuthCredentials, ProviderSettings, providerSettings
+Cohesion: 0.25
+Nodes (4): AIProviderName, OAuthCredentials, ProviderSettings, providerSettings
 
 ### Community 88 - "Community 88"
 Cohesion: 0.20
@@ -507,8 +506,8 @@ Cohesion: 0.18
 Nodes (11): 14. Build / Test / Deploy / Update Rules, Build commands, Build order (dependency graph), CI/CD, Deploy/publish, Drift: docs vs artifacts, Generated artifacts (deployed в vsix), Husky / git hooks (+3 more)
 
 ### Community 107 - "routes-responses.test.ts"
-Cohesion: 0.12
-Nodes (11): CompletionRequestTelemetry, CompletionModelRouting, hasMiniMaxExecCommand(), MINIMAX_FILE_EDITING_INSTRUCTION, withMiniMaxFileEditingInstruction(), ClaudeChatHandler, MiniMaxChatHandler, OpenAiMappedChatHandler (+3 more)
+Cohesion: 0.11
+Nodes (20): HeadersExtractor, CompletionRequestTelemetry, CompletionModelRouting, ClaudeChatHandler, MiniMaxChatHandler, OpenAiMappedChatHandler, ResponsesStreamSynthesizer, ResponsesRouteDecision (+12 more)
 
 ### Community 108 - "Community 108"
 Cohesion: 0.20
@@ -535,8 +534,8 @@ Cohesion: 0.33
 Nodes (6): scripts, build, lint, lint:fix, publish, test
 
 ### Community 116 - "routes-health-settings-models-analytics.test.ts"
-Cohesion: 0.21
-Nodes (5): CompletionErrorMapper, MiniMaxErrorContext, openaiChatErrorMessages, errorMessageFor(), mapping()
+Cohesion: 0.14
+Nodes (9): CompletionErrorMapper, MiniMaxErrorContext, openaiChatErrorMessages, detectProvider(), proxyOpenAIRequest(), errorMessageFor(), ModelValidator, probeBody() (+1 more)
 
 ### Community 119 - "Community 119"
 Cohesion: 0.33
@@ -567,8 +566,16 @@ Cohesion: 0.40
 Nodes (5): exports, ./eslint, ./eslint-svelte, ./tsconfig-base, ./vitest
 
 ### Community 133 - "wake-ping.test.ts"
-Cohesion: 0.18
-Nodes (5): createRuntimeState(), createRuntimeState(), TestHelper, createLeaderKeyFix(), mocks
+Cohesion: 0.11
+Nodes (9): createRuntimeState(), isApiStartSuppressedMock, resetApiForRestartMock, {
+	runtimeReadMock,
+	runtimeHasLiveClientsMock,
+	runtimeMutateMock,
+	sleepMock,
+	nssmRestartMock,
+	settingsInitMock,
+	settingsReadPortMock
+}, suppressApiAutoStartMock, createRuntimeState(), TestHelper, createLeaderKeyFix() (+1 more)
 
 ### Community 134 - "minimax-client.ts"
 Cohesion: 0.21
@@ -586,18 +593,6 @@ Nodes (3): loadConfiguredModels(), createAuthStates(), refreshAuthStates()
 Cohesion: 0.67
 Nodes (3): repository, type, url
 
-### Community 147 - "OpenAiKeyFixInternals"
-Cohesion: 0.22
-Nodes (4): isApiStartSuppressedMock, resetApiForRestartMock, {
-	runtimeReadMock,
-	runtimeHasLiveClientsMock,
-	runtimeMutateMock,
-	sleepMock,
-	nssmRestartMock,
-	settingsInitMock,
-	settingsReadPortMock
-}, suppressApiAutoStartMock
-
 ### Community 151 - "constants.ts"
 Cohesion: 0.50
 Nodes (3): DEFAULTS, PERIODS, REQUEST_LIMITS
@@ -614,13 +609,13 @@ _Questions this graph is uniquely positioned to answer:_
   _High betweenness centrality (0.012) - this node is a cross-community bridge._
 - **Why does `Dashboard` connect `tunnel-store.svelte.ts` to `Community 17`, `Community 63`?**
   _High betweenness centrality (0.010) - this node is a cross-community bridge._
-- **Why does `plugin()` connect `Community 42` to `OpenAI Proxy and SSE Stream Mapper`, `Codex Input Normalization`, `minimax-client.ts`, `routes-responses.test.ts`, `Streaming Gateway and Handlers`, `routes-health-settings-models-analytics.test.ts`, `Community 20`, `Community 25`?**
+- **Why does `plugin()` connect `routes-responses.test.ts` to `OpenAI Proxy and SSE Stream Mapper`, `Codex Input Normalization`, `minimax-client.ts`, `Streaming Gateway and Handlers`, `routes-health-settings-models-analytics.test.ts`, `Community 20`, `Community 25`?**
   _High betweenness centrality (0.009) - this node is a cross-community bridge._
 - **What connects `name`, `type`, `start` to the rest of the system?**
   _656 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Shared Schemas and Helpers` be split into smaller, more focused modules?**
   _Cohesion score 0.054098360655737705 - nodes in this community are weakly interconnected._
 - **Should `OpenAI Proxy and SSE Stream Mapper` be split into smaller, more focused modules?**
-  _Cohesion score 0.13742071881606766 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.10324675324675325 - nodes in this community are weakly interconnected._
 - **Should `VS Code Extension Package Manifest` be split into smaller, more focused modules?**
   _Cohesion score 0.09090909090909091 - nodes in this community are weakly interconnected._

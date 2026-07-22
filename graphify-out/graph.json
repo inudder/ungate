@@ -656,8 +656,8 @@
       "source_location": "L34",
       "_origin": "ast",
       "id": "apps_api_package_devdependencies_types_node",
-      "community": 45,
-      "community_name": "openai.ts",
+      "community": 147,
+      "community_name": "OpenAiKeyFixInternals",
       "norm_label": "@types/node"
     },
     {
@@ -667,8 +667,8 @@
       "source_location": "L34",
       "_origin": "ast",
       "id": "apps_api_package_json_types_node",
-      "community": 45,
-      "community_name": "openai.ts",
+      "community": 147,
+      "community_name": "OpenAiKeyFixInternals",
       "norm_label": "@types/node"
     },
     {
@@ -788,8 +788,8 @@
       "source_location": "L40",
       "_origin": "ast",
       "id": "apps_api_package_devdependencies_tsc_watch",
-      "community": 139,
-      "community_name": "model-validator.test.ts",
+      "community": 45,
+      "community_name": "openai.ts",
       "norm_label": "tsc-watch"
     },
     {
@@ -799,8 +799,8 @@
       "source_location": "L40",
       "_origin": "ast",
       "id": "tsc_watch",
-      "community": 139,
-      "community_name": "model-validator.test.ts",
+      "community": 45,
+      "community_name": "openai.ts",
       "norm_label": "tsc-watch"
     },
     {
@@ -986,8 +986,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_api_src_adapter_openai_to_anthropic",
-      "community": 41,
-      "community_name": "Community 41",
+      "community": 27,
+      "community_name": "Community 27",
       "norm_label": "openai-to-anthropic.ts"
     },
     {
@@ -997,8 +997,8 @@
       "source_location": "L9",
       "_origin": "ast",
       "id": "apps_api_src_adapter_openai_to_anthropic_normalizemodelname",
-      "community": 41,
-      "community_name": "Community 41",
+      "community": 27,
+      "community_name": "Community 27",
       "norm_label": "normalizemodelname()"
     },
     {
@@ -1008,8 +1008,8 @@
       "source_location": "L35",
       "_origin": "ast",
       "id": "apps_api_src_adapter_openai_to_anthropic_anthropicmodeloverride",
-      "community": 41,
-      "community_name": "Community 41",
+      "community": 27,
+      "community_name": "Community 27",
       "norm_label": "anthropicmodeloverride"
     },
     {
@@ -1019,8 +1019,8 @@
       "source_location": "L40",
       "_origin": "ast",
       "id": "apps_api_src_adapter_openai_to_anthropic_convertcontent",
-      "community": 41,
-      "community_name": "Community 41",
+      "community": 27,
+      "community_name": "Community 27",
       "norm_label": "convertcontent()"
     },
     {
@@ -1030,8 +1030,8 @@
       "source_location": "L89",
       "_origin": "ast",
       "id": "apps_api_src_adapter_openai_to_anthropic_normalizeassistantcontentblock",
-      "community": 41,
-      "community_name": "Community 41",
+      "community": 27,
+      "community_name": "Community 27",
       "norm_label": "normalizeassistantcontentblock()"
     },
     {
@@ -1041,8 +1041,8 @@
       "source_location": "L103",
       "_origin": "ast",
       "id": "apps_api_src_adapter_openai_to_anthropic_normalizeassistantcontentblocks",
-      "community": 41,
-      "community_name": "Community 41",
+      "community": 27,
+      "community_name": "Community 27",
       "norm_label": "normalizeassistantcontentblocks()"
     },
     {
@@ -1052,8 +1052,8 @@
       "source_location": "L117",
       "_origin": "ast",
       "id": "apps_api_src_adapter_openai_to_anthropic_openaitoanthropic",
-      "community": 41,
-      "community_name": "Community 41",
+      "community": 27,
+      "community_name": "Community 27",
       "norm_label": "openaitoanthropic()"
     },
     {
@@ -1118,8 +1118,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_api_src_auth_base_provider_aiprovidername",
-      "community": 24,
-      "community_name": "Community 24",
+      "community": 87,
+      "community_name": "Community 87",
       "norm_label": "aiprovidername"
     },
     {
@@ -1217,8 +1217,8 @@
       "source_location": "L18",
       "_origin": "ast",
       "id": "apps_api_src_auth_claude_provider_claudeprovider_isauthenticated",
-      "community": 33,
-      "community_name": "Community 33",
+      "community": 30,
+      "community_name": "Formatter",
       "norm_label": ".isauthenticated()"
     },
     {
@@ -1228,8 +1228,8 @@
       "source_location": "L22",
       "_origin": "ast",
       "id": "apps_api_src_auth_claude_provider_claudeprovider_logout",
-      "community": 33,
-      "community_name": "Community 33",
+      "community": 41,
+      "community_name": "Community 41",
       "norm_label": ".logout()"
     },
     {
@@ -1305,8 +1305,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_api_src_auth_oauth",
-      "community": 33,
-      "community_name": "Community 33",
+      "community": 30,
+      "community_name": "Formatter",
       "norm_label": "oauth.ts"
     },
     {
@@ -1316,8 +1316,8 @@
       "source_location": "L12",
       "_origin": "ast",
       "id": "apps_api_src_auth_oauth_pkcesession",
-      "community": 33,
-      "community_name": "Community 33",
+      "community": 30,
+      "community_name": "Formatter",
       "norm_label": "pkcesession"
     },
     {
@@ -1327,8 +1327,8 @@
       "source_location": "L17",
       "_origin": "ast",
       "id": "apps_api_src_auth_oauth_tokenexchangeresponse",
-      "community": 33,
-      "community_name": "Community 33",
+      "community": 30,
+      "community_name": "Formatter",
       "norm_label": "tokenexchangeresponse"
     },
     {
@@ -1338,8 +1338,8 @@
       "source_location": "L21",
       "_origin": "ast",
       "id": "apps_api_src_auth_oauth_oauth",
-      "community": 33,
-      "community_name": "Community 33",
+      "community": 41,
+      "community_name": "Community 41",
       "norm_label": "oauth"
     },
     {
@@ -1349,8 +1349,8 @@
       "source_location": "L37",
       "_origin": "ast",
       "id": "apps_api_src_auth_oauth_oauth_base64urlencode",
-      "community": 33,
-      "community_name": "Community 33",
+      "community": 41,
+      "community_name": "Community 41",
       "norm_label": ".base64urlencode()"
     },
     {
@@ -1360,8 +1360,8 @@
       "source_location": "L41",
       "_origin": "ast",
       "id": "apps_api_src_auth_oauth_oauth_generatepkce",
-      "community": 33,
-      "community_name": "Community 33",
+      "community": 41,
+      "community_name": "Community 41",
       "norm_label": ".generatepkce()"
     },
     {
@@ -1371,8 +1371,8 @@
       "source_location": "L50",
       "_origin": "ast",
       "id": "apps_api_src_auth_oauth_oauth_startlogin",
-      "community": 33,
-      "community_name": "Community 33",
+      "community": 41,
+      "community_name": "Community 41",
       "norm_label": ".startlogin()"
     },
     {
@@ -1393,8 +1393,8 @@
       "source_location": "L140",
       "_origin": "ast",
       "id": "apps_api_src_auth_oauth_oauth_istokenexpired",
-      "community": 33,
-      "community_name": "Community 33",
+      "community": 41,
+      "community_name": "Community 41",
       "norm_label": ".istokenexpired()"
     },
     {
@@ -1404,8 +1404,8 @@
       "source_location": "L146",
       "_origin": "ast",
       "id": "apps_api_src_auth_oauth_oauth_refreshtoken",
-      "community": 33,
-      "community_name": "Community 33",
+      "community": 41,
+      "community_name": "Community 41",
       "norm_label": ".refreshtoken()"
     },
     {
@@ -1415,8 +1415,8 @@
       "source_location": "L193",
       "_origin": "ast",
       "id": "apps_api_src_auth_oauth_oauth_getvalidtoken",
-      "community": 33,
-      "community_name": "Community 33",
+      "community": 41,
+      "community_name": "Community 41",
       "norm_label": ".getvalidtoken()"
     },
     {
@@ -1426,8 +1426,8 @@
       "source_location": "L215",
       "_origin": "ast",
       "id": "apps_api_src_auth_oauth_oauth_clearcachedtoken",
-      "community": 33,
-      "community_name": "Community 33",
+      "community": 41,
+      "community_name": "Community 41",
       "norm_label": ".clearcachedtoken()"
     },
     {
@@ -1437,8 +1437,8 @@
       "source_location": "L217",
       "_origin": "ast",
       "id": "apps_api_src_auth_oauth_oauth_getauthstatus",
-      "community": 33,
-      "community_name": "Community 33",
+      "community": 30,
+      "community_name": "Formatter",
       "norm_label": ".getauthstatus()"
     },
     {
@@ -1448,8 +1448,8 @@
       "source_location": "L227",
       "_origin": "ast",
       "id": "apps_api_src_auth_oauth_oauth_logout",
-      "community": 33,
-      "community_name": "Community 33",
+      "community": 41,
+      "community_name": "Community 41",
       "norm_label": ".logout()"
     },
     {
@@ -1888,8 +1888,8 @@
       "source_location": "L8",
       "_origin": "ast",
       "id": "apps_api_src_auth_static_token_provider_statictokenprovider_constructor",
-      "community": 24,
-      "community_name": "Community 24",
+      "community": 87,
+      "community_name": "Community 87",
       "norm_label": ".constructor()"
     },
     {
@@ -2053,8 +2053,8 @@
       "source_location": "L10",
       "_origin": "ast",
       "id": "apps_api_src_database_app_settings_settings",
-      "community": 22,
-      "community_name": "Community 22",
+      "community": 12,
+      "community_name": "Web Charting and Visualization",
       "norm_label": "settings"
     },
     {
@@ -2064,8 +2064,8 @@
       "source_location": "L11",
       "_origin": "ast",
       "id": "apps_api_src_database_app_settings_settings_generateapikey",
-      "community": 22,
-      "community_name": "Community 22",
+      "community": 12,
+      "community_name": "Web Charting and Visualization",
       "norm_label": ".generateapikey()"
     },
     {
@@ -2075,8 +2075,8 @@
       "source_location": "L15",
       "_origin": "ast",
       "id": "apps_api_src_database_app_settings_settings_get",
-      "community": 22,
-      "community_name": "Community 22",
+      "community": 12,
+      "community_name": "Web Charting and Visualization",
       "norm_label": ".get()"
     },
     {
@@ -2086,8 +2086,8 @@
       "source_location": "L38",
       "_origin": "ast",
       "id": "apps_api_src_database_app_settings_settings_update",
-      "community": 22,
-      "community_name": "Community 22",
+      "community": 12,
+      "community_name": "Web Charting and Visualization",
       "norm_label": ".update()"
     },
     {
@@ -2526,8 +2526,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_api_src_database_settings",
-      "community": 87,
-      "community_name": "Community 87",
+      "community": 12,
+      "community_name": "Web Charting and Visualization",
       "norm_label": "settings.ts"
     },
     {
@@ -2537,8 +2537,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_api_src_handlers_headers_extractor",
-      "community": 42,
-      "community_name": "Community 42",
+      "community": 107,
+      "community_name": "routes-responses.test.ts",
       "norm_label": "headers-extractor.ts"
     },
     {
@@ -2548,8 +2548,8 @@
       "source_location": "L5",
       "_origin": "ast",
       "id": "apps_api_src_handlers_headers_extractor_headersextractor",
-      "community": 42,
-      "community_name": "Community 42",
+      "community": 107,
+      "community_name": "routes-responses.test.ts",
       "norm_label": "headersextractor"
     },
     {
@@ -2559,8 +2559,8 @@
       "source_location": "L6",
       "_origin": "ast",
       "id": "apps_api_src_handlers_headers_extractor_headersextractor_extractanthropicheaders",
-      "community": 42,
-      "community_name": "Community 42",
+      "community": 107,
+      "community_name": "routes-responses.test.ts",
       "norm_label": ".extractanthropicheaders()"
     },
     {
@@ -2570,8 +2570,8 @@
       "source_location": "L23",
       "_origin": "ast",
       "id": "apps_api_src_handlers_headers_extractor_headersextractor_logrequestdetails",
-      "community": 42,
-      "community_name": "Community 42",
+      "community": 107,
+      "community_name": "routes-responses.test.ts",
       "norm_label": ".logrequestdetails()"
     },
     {
@@ -2614,8 +2614,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_api_src_metrics_completion_request_telemetry",
-      "community": 107,
-      "community_name": "routes-responses.test.ts",
+      "community": 12,
+      "community_name": "Web Charting and Visualization",
       "norm_label": "completion-request-telemetry.ts"
     },
     {
@@ -2790,8 +2790,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_api_src_orchestration_openai_model_routing",
-      "community": 107,
-      "community_name": "routes-responses.test.ts",
+      "community": 27,
+      "community_name": "Community 27",
       "norm_label": "model-routing.ts"
     },
     {
@@ -2801,8 +2801,8 @@
       "source_location": "L6",
       "_origin": "ast",
       "id": "apps_api_src_orchestration_openai_model_routing_minimax_file_editing_instruction",
-      "community": 107,
-      "community_name": "routes-responses.test.ts",
+      "community": 27,
+      "community_name": "Community 27",
       "norm_label": "minimax_file_editing_instruction"
     },
     {
@@ -2812,8 +2812,8 @@
       "source_location": "L15",
       "_origin": "ast",
       "id": "apps_api_src_orchestration_openai_model_routing_hasminimaxexeccommand",
-      "community": 107,
-      "community_name": "routes-responses.test.ts",
+      "community": 27,
+      "community_name": "Community 27",
       "norm_label": "hasminimaxexeccommand()"
     },
     {
@@ -2823,8 +2823,8 @@
       "source_location": "L30",
       "_origin": "ast",
       "id": "apps_api_src_orchestration_openai_model_routing_withminimaxfileeditinginstruction",
-      "community": 107,
-      "community_name": "routes-responses.test.ts",
+      "community": 27,
+      "community_name": "Community 27",
       "norm_label": "withminimaxfileeditinginstruction()"
     },
     {
@@ -2911,8 +2911,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_api_src_orchestration_openai_provider_handlers_claude_chat_handler",
-      "community": 42,
-      "community_name": "Community 42",
+      "community": 107,
+      "community_name": "routes-responses.test.ts",
       "norm_label": "claude-chat-handler.ts"
     },
     {
@@ -2988,8 +2988,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_api_src_orchestration_openai_provider_handlers_openai_mapped_chat_handler",
-      "community": 41,
-      "community_name": "Community 41",
+      "community": 116,
+      "community_name": "routes-health-settings-models-analytics.test.ts",
       "norm_label": "openai-mapped-chat-handler.ts"
     },
     {
@@ -3923,8 +3923,8 @@
       "source_location": "L658",
       "_origin": "ast",
       "id": "apps_api_src_orchestration_responses_responses_stream_synthesizer_responsesstreamsynthesizer",
-      "community": 13,
-      "community_name": "Streaming Gateway and Handlers",
+      "community": 107,
+      "community_name": "routes-responses.test.ts",
       "norm_label": "responsesstreamsynthesizer"
     },
     {
@@ -3934,8 +3934,8 @@
       "source_location": "L659",
       "_origin": "ast",
       "id": "apps_api_src_orchestration_responses_responses_stream_synthesizer_responsesstreamsynthesizer_createresponsestream",
-      "community": 5,
-      "community_name": "Backend API Server Dependencies",
+      "community": 107,
+      "community_name": "routes-responses.test.ts",
       "norm_label": ".createresponsestream()"
     },
     {
@@ -3956,8 +3956,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_api_src_orchestration_responses_route_decision",
-      "community": 42,
-      "community_name": "Community 42",
+      "community": 107,
+      "community_name": "routes-responses.test.ts",
       "norm_label": "route-decision.ts"
     },
     {
@@ -3967,8 +3967,8 @@
       "source_location": "L5",
       "_origin": "ast",
       "id": "apps_api_src_orchestration_responses_route_decision_responsesroutetarget",
-      "community": 42,
-      "community_name": "Community 42",
+      "community": 107,
+      "community_name": "routes-responses.test.ts",
       "norm_label": "responsesroutetarget"
     },
     {
@@ -3978,8 +3978,8 @@
       "source_location": "L7",
       "_origin": "ast",
       "id": "apps_api_src_orchestration_responses_route_decision_responsesroutedecision",
-      "community": 42,
-      "community_name": "Community 42",
+      "community": 107,
+      "community_name": "routes-responses.test.ts",
       "norm_label": "responsesroutedecision"
     },
     {
@@ -4000,8 +4000,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_api_src_plugins_auth",
-      "community": 42,
-      "community_name": "Community 42",
+      "community": 107,
+      "community_name": "routes-responses.test.ts",
       "norm_label": "auth.ts"
     },
     {
@@ -4011,8 +4011,8 @@
       "source_location": "L4",
       "_origin": "ast",
       "id": "apps_api_src_plugins_auth_apikeyauth",
-      "community": 42,
-      "community_name": "Community 42",
+      "community": 107,
+      "community_name": "routes-responses.test.ts",
       "norm_label": "apikeyauth()"
     },
     {
@@ -4022,8 +4022,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_api_src_proxy_anthropic_client",
-      "community": 36,
-      "community_name": "Community 36",
+      "community": 30,
+      "community_name": "Formatter",
       "norm_label": "anthropic-client.ts"
     },
     {
@@ -4033,8 +4033,8 @@
       "source_location": "L13",
       "_origin": "ast",
       "id": "apps_api_src_proxy_anthropic_client_requestresult",
-      "community": 36,
-      "community_name": "Community 36",
+      "community": 30,
+      "community_name": "Formatter",
       "norm_label": "requestresult"
     },
     {
@@ -4044,8 +4044,8 @@
       "source_location": "L17",
       "_origin": "ast",
       "id": "apps_api_src_proxy_anthropic_client_makeclaudecoderequest",
-      "community": 33,
-      "community_name": "Community 33",
+      "community": 41,
+      "community_name": "Community 41",
       "norm_label": "makeclaudecoderequest()"
     },
     {
@@ -4055,8 +4055,8 @@
       "source_location": "L176",
       "_origin": "ast",
       "id": "apps_api_src_proxy_anthropic_client_extractusage",
-      "community": 42,
-      "community_name": "Community 42",
+      "community": 107,
+      "community_name": "routes-responses.test.ts",
       "norm_label": "extractusage()"
     },
     {
@@ -4066,8 +4066,8 @@
       "source_location": "L195",
       "_origin": "ast",
       "id": "apps_api_src_proxy_anthropic_client_proxyrequest",
-      "community": 42,
-      "community_name": "Community 42",
+      "community": 107,
+      "community_name": "routes-responses.test.ts",
       "norm_label": "proxyrequest()"
     },
     {
@@ -4077,8 +4077,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_api_src_proxy_codex_input_utils",
-      "community": 3,
-      "community_name": "Codex Input Normalization",
+      "community": 34,
+      "community_name": "Community 34",
       "norm_label": "codex-input-utils.ts"
     },
     {
@@ -4330,8 +4330,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_api_src_proxy_openai_client",
-      "community": 5,
-      "community_name": "Backend API Server Dependencies",
+      "community": 3,
+      "community_name": "Codex Input Normalization",
       "norm_label": "openai-client.ts"
     },
     {
@@ -4341,8 +4341,8 @@
       "source_location": "L18",
       "_origin": "ast",
       "id": "apps_api_src_proxy_openai_client_env_chatgpt_instructions",
-      "community": 5,
-      "community_name": "Backend API Server Dependencies",
+      "community": 3,
+      "community_name": "Codex Input Normalization",
       "norm_label": "env_chatgpt_instructions"
     },
     {
@@ -4363,8 +4363,8 @@
       "source_location": "L25",
       "_origin": "ast",
       "id": "apps_api_src_proxy_openai_client_openaiclient",
-      "community": 39,
-      "community_name": "Community 39",
+      "community": 1,
+      "community_name": "OpenAI Proxy and SSE Stream Mapper",
       "norm_label": "openaiclient"
     },
     {
@@ -4374,8 +4374,8 @@
       "source_location": "L26",
       "_origin": "ast",
       "id": "apps_api_src_proxy_openai_client_openaiclient_proxy",
-      "community": 39,
-      "community_name": "Community 39",
+      "community": 1,
+      "community_name": "OpenAI Proxy and SSE Stream Mapper",
       "norm_label": ".proxy()"
     },
     {
@@ -4385,8 +4385,8 @@
       "source_location": "L52",
       "_origin": "ast",
       "id": "apps_api_src_proxy_openai_client_openaiclient_autherrorresult",
-      "community": 39,
-      "community_name": "Community 39",
+      "community": 1,
+      "community_name": "OpenAI Proxy and SSE Stream Mapper",
       "norm_label": ".autherrorresult()"
     },
     {
@@ -4396,8 +4396,8 @@
       "source_location": "L64",
       "_origin": "ast",
       "id": "apps_api_src_proxy_openai_client_openaiclient_fetchcodexresponses",
-      "community": 39,
-      "community_name": "Community 39",
+      "community": 1,
+      "community_name": "OpenAI Proxy and SSE Stream Mapper",
       "norm_label": ".fetchcodexresponses()"
     },
     {
@@ -4407,8 +4407,8 @@
       "source_location": "L100",
       "_origin": "ast",
       "id": "apps_api_src_proxy_openai_client_openaiclient_upstreamerrorresult",
-      "community": 39,
-      "community_name": "Community 39",
+      "community": 1,
+      "community_name": "OpenAI Proxy and SSE Stream Mapper",
       "norm_label": ".upstreamerrorresult()"
     },
     {
@@ -4418,8 +4418,8 @@
       "source_location": "L115",
       "_origin": "ast",
       "id": "apps_api_src_proxy_openai_client_openaiclient_parseupstreamerror",
-      "community": 39,
-      "community_name": "Community 39",
+      "community": 1,
+      "community_name": "OpenAI Proxy and SSE Stream Mapper",
       "norm_label": ".parseupstreamerror()"
     },
     {
@@ -4429,8 +4429,8 @@
       "source_location": "L141",
       "_origin": "ast",
       "id": "apps_api_src_proxy_openai_client_openaiclient_successresult",
-      "community": 39,
-      "community_name": "Community 39",
+      "community": 1,
+      "community_name": "OpenAI Proxy and SSE Stream Mapper",
       "norm_label": ".successresult()"
     },
     {
@@ -4440,8 +4440,8 @@
       "source_location": "L168",
       "_origin": "ast",
       "id": "apps_api_src_proxy_openai_client_openaiclient_streamresponse",
-      "community": 39,
-      "community_name": "Community 39",
+      "community": 1,
+      "community_name": "OpenAI Proxy and SSE Stream Mapper",
       "norm_label": ".streamresponse()"
     },
     {
@@ -4451,8 +4451,8 @@
       "source_location": "L205",
       "_origin": "ast",
       "id": "apps_api_src_proxy_openai_client_openaiclient_bufferedresponse",
-      "community": 39,
-      "community_name": "Community 39",
+      "community": 1,
+      "community_name": "OpenAI Proxy and SSE Stream Mapper",
       "norm_label": ".bufferedresponse()"
     },
     {
@@ -4462,8 +4462,8 @@
       "source_location": "L266",
       "_origin": "ast",
       "id": "apps_api_src_proxy_openai_client_openaiclient_errorcontext",
-      "community": 39,
-      "community_name": "Community 39",
+      "community": 1,
+      "community_name": "OpenAI Proxy and SSE Stream Mapper",
       "norm_label": ".errorcontext()"
     },
     {
@@ -4473,8 +4473,8 @@
       "source_location": "L270",
       "_origin": "ast",
       "id": "apps_api_src_proxy_openai_client_openaiclient_openaicontext",
-      "community": 39,
-      "community_name": "Community 39",
+      "community": 1,
+      "community_name": "OpenAI Proxy and SSE Stream Mapper",
       "norm_label": ".openaicontext()"
     },
     {
@@ -4484,8 +4484,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_api_src_proxy_proxy_client",
-      "community": 41,
-      "community_name": "Community 41",
+      "community": 116,
+      "community_name": "routes-health-settings-models-analytics.test.ts",
       "norm_label": "proxy-client.ts"
     },
     {
@@ -4495,8 +4495,8 @@
       "source_location": "L14",
       "_origin": "ast",
       "id": "apps_api_src_proxy_proxy_client_detectprovider",
-      "community": 41,
-      "community_name": "Community 41",
+      "community": 116,
+      "community_name": "routes-health-settings-models-analytics.test.ts",
       "norm_label": "detectprovider()"
     },
     {
@@ -4506,8 +4506,8 @@
       "source_location": "L18",
       "_origin": "ast",
       "id": "apps_api_src_proxy_proxy_client_proxyrequest",
-      "community": 41,
-      "community_name": "Community 41",
+      "community": 116,
+      "community_name": "routes-health-settings-models-analytics.test.ts",
       "norm_label": "proxyrequest()"
     },
     {
@@ -4517,8 +4517,8 @@
       "source_location": "L26",
       "_origin": "ast",
       "id": "apps_api_src_proxy_proxy_client_proxyopenairequest",
-      "community": 41,
-      "community_name": "Community 41",
+      "community": 116,
+      "community_name": "routes-health-settings-models-analytics.test.ts",
       "norm_label": "proxyopenairequest()"
     },
     {
@@ -5375,8 +5375,8 @@
       "source_location": "L29",
       "_origin": "ast",
       "id": "apps_api_src_proxy_responses_stream_mapper_stream_state_streamstatefactory",
-      "community": 39,
-      "community_name": "Community 39",
+      "community": 1,
+      "community_name": "OpenAI Proxy and SSE Stream Mapper",
       "norm_label": "streamstatefactory"
     },
     {
@@ -5386,8 +5386,8 @@
       "source_location": "L30",
       "_origin": "ast",
       "id": "apps_api_src_proxy_responses_stream_mapper_stream_state_streamstatefactory_create",
-      "community": 39,
-      "community_name": "Community 39",
+      "community": 1,
+      "community_name": "OpenAI Proxy and SSE Stream Mapper",
       "norm_label": ".create()"
     },
     {
@@ -5397,8 +5397,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_api_src_proxy_tool_mapper",
-      "community": 36,
-      "community_name": "Community 36",
+      "community": 30,
+      "community_name": "Formatter",
       "norm_label": "tool-mapper.ts"
     },
     {
@@ -5408,8 +5408,8 @@
       "source_location": "L6",
       "_origin": "ast",
       "id": "apps_api_src_proxy_tool_mapper_tool_name_mapping",
-      "community": 36,
-      "community_name": "Community 36",
+      "community": 30,
+      "community_name": "Formatter",
       "norm_label": "tool_name_mapping"
     },
     {
@@ -5419,8 +5419,8 @@
       "source_location": "L74",
       "_origin": "ast",
       "id": "apps_api_src_proxy_tool_mapper_valid_claude_code_tools",
-      "community": 36,
-      "community_name": "Community 36",
+      "community": 30,
+      "community_name": "Formatter",
       "norm_label": "valid_claude_code_tools"
     },
     {
@@ -5430,8 +5430,8 @@
       "source_location": "L98",
       "_origin": "ast",
       "id": "apps_api_src_proxy_tool_mapper_toolmapper",
-      "community": 36,
-      "community_name": "Community 36",
+      "community": 30,
+      "community_name": "Formatter",
       "norm_label": "toolmapper"
     },
     {
@@ -5441,8 +5441,8 @@
       "source_location": "L99",
       "_origin": "ast",
       "id": "apps_api_src_proxy_tool_mapper_toolmapper_map",
-      "community": 36,
-      "community_name": "Community 36",
+      "community": 30,
+      "community_name": "Formatter",
       "norm_label": ".map()"
     },
     {
@@ -5496,8 +5496,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_api_src_routes_anthropic",
-      "community": 42,
-      "community_name": "Community 42",
+      "community": 107,
+      "community_name": "routes-responses.test.ts",
       "norm_label": "anthropic.ts"
     },
     {
@@ -5507,8 +5507,8 @@
       "source_location": "L10",
       "_origin": "ast",
       "id": "apps_api_src_routes_anthropic_plugin",
-      "community": 42,
-      "community_name": "Community 42",
+      "community": 107,
+      "community_name": "routes-responses.test.ts",
       "norm_label": "plugin()"
     },
     {
@@ -5628,8 +5628,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_api_src_routes_responses",
-      "community": 42,
-      "community_name": "Community 42",
+      "community": 107,
+      "community_name": "routes-responses.test.ts",
       "norm_label": "responses.ts"
     },
     {
@@ -5650,8 +5650,8 @@
       "source_location": "L44",
       "_origin": "ast",
       "id": "apps_api_src_routes_responses_recorderror",
-      "community": 42,
-      "community_name": "Community 42",
+      "community": 107,
+      "community_name": "routes-responses.test.ts",
       "norm_label": "recorderror()"
     },
     {
@@ -5661,8 +5661,8 @@
       "source_location": "L58",
       "_origin": "ast",
       "id": "apps_api_src_routes_responses_callupstream",
-      "community": 42,
-      "community_name": "Community 42",
+      "community": 107,
+      "community_name": "routes-responses.test.ts",
       "norm_label": "callupstream()"
     },
     {
@@ -5672,8 +5672,8 @@
       "source_location": "L84",
       "_origin": "ast",
       "id": "apps_api_src_routes_responses_sendresponsesstream",
-      "community": 42,
-      "community_name": "Community 42",
+      "community": 107,
+      "community_name": "routes-responses.test.ts",
       "norm_label": "sendresponsesstream()"
     },
     {
@@ -5683,8 +5683,8 @@
       "source_location": "L110",
       "_origin": "ast",
       "id": "apps_api_src_routes_responses_sendresponsesjson",
-      "community": 42,
-      "community_name": "Community 42",
+      "community": 107,
+      "community_name": "routes-responses.test.ts",
       "norm_label": "sendresponsesjson()"
     },
     {
@@ -5694,8 +5694,8 @@
       "source_location": "L177",
       "_origin": "ast",
       "id": "apps_api_src_routes_responses_plugin",
-      "community": 42,
-      "community_name": "Community 42",
+      "community": 107,
+      "community_name": "routes-responses.test.ts",
       "norm_label": "plugin()"
     },
     {
@@ -5782,8 +5782,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_api_src_services_model_validator",
-      "community": 41,
-      "community_name": "Community 41",
+      "community": 116,
+      "community_name": "routes-health-settings-models-analytics.test.ts",
       "norm_label": "model-validator.ts"
     },
     {
@@ -5793,8 +5793,8 @@
       "source_location": "L13",
       "_origin": "ast",
       "id": "apps_api_src_services_model_validator_probebody",
-      "community": 41,
-      "community_name": "Community 41",
+      "community": 116,
+      "community_name": "routes-health-settings-models-analytics.test.ts",
       "norm_label": "probebody()"
     },
     {
@@ -5804,8 +5804,8 @@
       "source_location": "L22",
       "_origin": "ast",
       "id": "apps_api_src_services_model_validator_readerrormessage",
-      "community": 41,
-      "community_name": "Community 41",
+      "community": 116,
+      "community_name": "routes-health-settings-models-analytics.test.ts",
       "norm_label": "readerrormessage()"
     },
     {
@@ -5815,8 +5815,8 @@
       "source_location": "L32",
       "_origin": "ast",
       "id": "apps_api_src_services_model_validator_modelvalidator",
-      "community": 41,
-      "community_name": "Community 41",
+      "community": 116,
+      "community_name": "routes-health-settings-models-analytics.test.ts",
       "norm_label": "modelvalidator"
     },
     {
@@ -5826,8 +5826,8 @@
       "source_location": "L33",
       "_origin": "ast",
       "id": "apps_api_src_services_model_validator_modelvalidator_validate",
-      "community": 41,
-      "community_name": "Community 41",
+      "community": 116,
+      "community_name": "routes-health-settings-models-analytics.test.ts",
       "norm_label": ".validate()"
     },
     {
@@ -5837,8 +5837,8 @@
       "source_location": "L57",
       "_origin": "ast",
       "id": "apps_api_src_services_model_validator_modelvalidator_validateclaude",
-      "community": 41,
-      "community_name": "Community 41",
+      "community": 116,
+      "community_name": "routes-health-settings-models-analytics.test.ts",
       "norm_label": ".validateclaude()"
     },
     {
@@ -5848,8 +5848,8 @@
       "source_location": "L107",
       "_origin": "ast",
       "id": "apps_api_src_services_model_validator_modelvalidator_validateminimax",
-      "community": 41,
-      "community_name": "Community 41",
+      "community": 116,
+      "community_name": "routes-health-settings-models-analytics.test.ts",
       "norm_label": ".validateminimax()"
     },
     {
@@ -5859,8 +5859,8 @@
       "source_location": "L136",
       "_origin": "ast",
       "id": "apps_api_src_services_model_validator_modelvalidator_validateopenai",
-      "community": 41,
-      "community_name": "Community 41",
+      "community": 116,
+      "community_name": "routes-health-settings-models-analytics.test.ts",
       "norm_label": ".validateopenai()"
     },
     {
@@ -5991,8 +5991,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_api_src_streaming_openai_stream_handler",
-      "community": 5,
-      "community_name": "Backend API Server Dependencies",
+      "community": 30,
+      "community_name": "Formatter",
       "norm_label": "openai-stream-handler.ts"
     },
     {
@@ -6046,8 +6046,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_api_src_tools_normalizer",
-      "community": 5,
-      "community_name": "Backend API Server Dependencies",
+      "community": 30,
+      "community_name": "Formatter",
       "norm_label": "normalizer.ts"
     },
     {
@@ -6057,8 +6057,8 @@
       "source_location": "L5",
       "_origin": "ast",
       "id": "apps_api_src_tools_normalizer_toolnormalizer",
-      "community": 5,
-      "community_name": "Backend API Server Dependencies",
+      "community": 30,
+      "community_name": "Formatter",
       "norm_label": "toolnormalizer"
     },
     {
@@ -6068,8 +6068,8 @@
       "source_location": "L6",
       "_origin": "ast",
       "id": "apps_api_src_tools_normalizer_toolnormalizer_normalize",
-      "community": 5,
-      "community_name": "Backend API Server Dependencies",
+      "community": 30,
+      "community_name": "Formatter",
       "norm_label": ".normalize()"
     },
     {
@@ -6079,8 +6079,8 @@
       "source_location": "L137",
       "_origin": "ast",
       "id": "apps_api_src_tools_normalizer_toolnormalizer_haschanged",
-      "community": 5,
-      "community_name": "Backend API Server Dependencies",
+      "community": 30,
+      "community_name": "Formatter",
       "norm_label": ".haschanged()"
     },
     {
@@ -6255,8 +6255,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_api_src_types_anthropic_tokeninfo",
-      "community": 33,
-      "community_name": "Community 33",
+      "community": 41,
+      "community_name": "Community 41",
       "norm_label": "tokeninfo"
     },
     {
@@ -6266,8 +6266,8 @@
       "source_location": "L8",
       "_origin": "ast",
       "id": "apps_api_src_types_anthropic_tokenrefreshresponse",
-      "community": 33,
-      "community_name": "Community 33",
+      "community": 30,
+      "community_name": "Formatter",
       "norm_label": "tokenrefreshresponse"
     },
     {
@@ -6354,8 +6354,8 @@
       "source_location": "L69",
       "_origin": "ast",
       "id": "apps_api_src_types_anthropic_tool",
-      "community": 36,
-      "community_name": "Community 36",
+      "community": 30,
+      "community_name": "Formatter",
       "norm_label": "tool"
     },
     {
@@ -6398,8 +6398,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_api_src_types_auth",
-      "community": 33,
-      "community_name": "Community 33",
+      "community": 30,
+      "community_name": "Formatter",
       "norm_label": "auth.ts"
     },
     {
@@ -6409,8 +6409,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_api_src_types_auth_authstatus",
-      "community": 33,
-      "community_name": "Community 33",
+      "community": 30,
+      "community_name": "Formatter",
       "norm_label": "authstatus"
     },
     {
@@ -6420,8 +6420,8 @@
       "source_location": "L6",
       "_origin": "ast",
       "id": "apps_api_src_types_auth_loginstart",
-      "community": 33,
-      "community_name": "Community 33",
+      "community": 30,
+      "community_name": "Formatter",
       "norm_label": "loginstart"
     },
     {
@@ -6431,8 +6431,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_api_src_types_index",
-      "community": 36,
-      "community_name": "Community 36",
+      "community": 30,
+      "community_name": "Formatter",
       "norm_label": "index.ts"
     },
     {
@@ -6475,8 +6475,8 @@
       "source_location": "L9",
       "_origin": "ast",
       "id": "apps_api_src_types_openai_openaicontentpart",
-      "community": 3,
-      "community_name": "Codex Input Normalization",
+      "community": 34,
+      "community_name": "Community 34",
       "norm_label": "openaicontentpart"
     },
     {
@@ -6497,8 +6497,8 @@
       "source_location": "L28",
       "_origin": "ast",
       "id": "apps_api_src_types_openai_openaitoolcall",
-      "community": 3,
-      "community_name": "Codex Input Normalization",
+      "community": 34,
+      "community_name": "Community 34",
       "norm_label": "openaitoolcall"
     },
     {
@@ -6541,8 +6541,8 @@
       "source_location": "L90",
       "_origin": "ast",
       "id": "apps_api_src_types_openai_openairesponsereasoningeffort",
-      "community": 34,
-      "community_name": "Community 34",
+      "community": 3,
+      "community_name": "Codex Input Normalization",
       "norm_label": "openairesponsereasoningeffort"
     },
     {
@@ -6552,8 +6552,8 @@
       "source_location": "L92",
       "_origin": "ast",
       "id": "apps_api_src_types_openai_openairesponsesfunctiontool",
-      "community": 34,
-      "community_name": "Community 34",
+      "community": 3,
+      "community_name": "Codex Input Normalization",
       "norm_label": "openairesponsesfunctiontool"
     },
     {
@@ -6618,8 +6618,8 @@
       "source_location": "L149",
       "_origin": "ast",
       "id": "apps_api_src_types_openai_openairesponseoutputitem",
-      "community": 34,
-      "community_name": "Community 34",
+      "community": 13,
+      "community_name": "Streaming Gateway and Handlers",
       "norm_label": "openairesponseoutputitem"
     },
     {
@@ -6673,8 +6673,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_api_src_types_proxy",
-      "community": 36,
-      "community_name": "Community 36",
+      "community": 30,
+      "community_name": "Formatter",
       "norm_label": "proxy.ts"
     },
     {
@@ -6695,8 +6695,8 @@
       "source_location": "L13",
       "_origin": "ast",
       "id": "apps_api_src_types_proxy_proxyresult",
-      "community": 36,
-      "community_name": "Community 36",
+      "community": 30,
+      "community_name": "Formatter",
       "norm_label": "proxyresult"
     },
     {
@@ -6706,8 +6706,8 @@
       "source_location": "L18",
       "_origin": "ast",
       "id": "apps_api_src_types_proxy_toolmapresult",
-      "community": 36,
-      "community_name": "Community 36",
+      "community": 30,
+      "community_name": "Formatter",
       "norm_label": "toolmapresult"
     },
     {
@@ -6728,8 +6728,8 @@
       "source_location": "L28",
       "_origin": "ast",
       "id": "apps_api_src_types_proxy_tooluseblock",
-      "community": 5,
-      "community_name": "Backend API Server Dependencies",
+      "community": 30,
+      "community_name": "Formatter",
       "norm_label": "tooluseblock"
     },
     {
@@ -6783,8 +6783,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_api_src_utils_logger",
-      "community": 42,
-      "community_name": "Community 42",
+      "community": 30,
+      "community_name": "Formatter",
       "norm_label": "logger.ts"
     },
     {
@@ -6805,8 +6805,8 @@
       "source_location": "L7",
       "_origin": "ast",
       "id": "apps_api_src_utils_logger_logger",
-      "community": 42,
-      "community_name": "Community 42",
+      "community": 30,
+      "community_name": "Formatter",
       "norm_label": "logger"
     },
     {
@@ -7718,8 +7718,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_api_tests_unit_adapter_adapter_openai_to_anthropic_test",
-      "community": 41,
-      "community_name": "Community 41",
+      "community": 27,
+      "community_name": "Community 27",
       "norm_label": "adapter-openai-to-anthropic.test.ts"
     },
     {
@@ -7828,8 +7828,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_api_tests_unit_handlers_handlers_headers_extractor_test",
-      "community": 42,
-      "community_name": "Community 42",
+      "community": 107,
+      "community_name": "routes-responses.test.ts",
       "norm_label": "handlers-headers-extractor.test.ts"
     },
     {
@@ -7839,8 +7839,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_api_tests_unit_metrics_completion_request_telemetry_test",
-      "community": 107,
-      "community_name": "routes-responses.test.ts",
+      "community": 12,
+      "community_name": "Web Charting and Visualization",
       "norm_label": "completion-request-telemetry.test.ts"
     },
     {
@@ -7850,8 +7850,8 @@
       "source_location": "L3",
       "_origin": "ast",
       "id": "apps_api_tests_unit_metrics_completion_request_telemetry_test_requestrecordmock",
-      "community": 107,
-      "community_name": "routes-responses.test.ts",
+      "community": 12,
+      "community_name": "Web Charting and Visualization",
       "norm_label": "requestrecordmock"
     },
     {
@@ -7905,8 +7905,8 @@
       "source_location": "L7",
       "_origin": "ast",
       "id": "apps_api_tests_unit_orchestration_openai_model_routing_test_mapping",
-      "community": 116,
-      "community_name": "routes-health-settings-models-analytics.test.ts",
+      "community": 61,
+      "community_name": "OpenAiKeyFixInternals",
       "norm_label": "mapping()"
     },
     {
@@ -7938,8 +7938,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_api_tests_unit_orchestration_responses_synthesizer_test",
-      "community": 13,
-      "community_name": "Streaming Gateway and Handlers",
+      "community": 3,
+      "community_name": "Codex Input Normalization",
       "norm_label": "responses-synthesizer.test.ts"
     },
     {
@@ -7949,8 +7949,8 @@
       "source_location": "L5",
       "_origin": "ast",
       "id": "apps_api_tests_unit_orchestration_responses_synthesizer_test_requestsrecordmock",
-      "community": 13,
-      "community_name": "Streaming Gateway and Handlers",
+      "community": 3,
+      "community_name": "Codex Input Normalization",
       "norm_label": "requestsrecordmock"
     },
     {
@@ -7960,8 +7960,8 @@
       "source_location": "L13",
       "_origin": "ast",
       "id": "apps_api_tests_unit_orchestration_responses_synthesizer_test_sseresponse",
-      "community": 13,
-      "community_name": "Streaming Gateway and Handlers",
+      "community": 3,
+      "community_name": "Codex Input Normalization",
       "norm_label": "sseresponse()"
     },
     {
@@ -7971,8 +7971,8 @@
       "source_location": "L25",
       "_origin": "ast",
       "id": "apps_api_tests_unit_orchestration_responses_synthesizer_test_context",
-      "community": 13,
-      "community_name": "Streaming Gateway and Handlers",
+      "community": 3,
+      "community_name": "Codex Input Normalization",
       "norm_label": "context()"
     },
     {
@@ -7982,8 +7982,8 @@
       "source_location": "L34",
       "_origin": "ast",
       "id": "apps_api_tests_unit_orchestration_responses_synthesizer_test_readbody",
-      "community": 13,
-      "community_name": "Streaming Gateway and Handlers",
+      "community": 3,
+      "community_name": "Codex Input Normalization",
       "norm_label": "readbody()"
     },
     {
@@ -8081,8 +8081,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_api_tests_unit_proxy_proxy_tool_mapper_test",
-      "community": 36,
-      "community_name": "Community 36",
+      "community": 30,
+      "community_name": "Formatter",
       "norm_label": "proxy-tool-mapper.test.ts"
     },
     {
@@ -8125,8 +8125,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_api_tests_unit_services_model_validator_test",
-      "community": 27,
-      "community_name": "Community 27",
+      "community": 42,
+      "community_name": "Community 42",
       "norm_label": "model-validator.test.ts"
     },
     {
@@ -8136,8 +8136,8 @@
       "source_location": "L5",
       "_origin": "ast",
       "id": "apps_api_tests_unit_services_model_validator_test_getauthstatusmock",
-      "community": 27,
-      "community_name": "Community 27",
+      "community": 42,
+      "community_name": "Community 42",
       "norm_label": "getauthstatusmock"
     },
     {
@@ -8147,8 +8147,8 @@
       "source_location": "L6",
       "_origin": "ast",
       "id": "apps_api_tests_unit_services_model_validator_test_makeclaudecoderequestmock",
-      "community": 27,
-      "community_name": "Community 27",
+      "community": 42,
+      "community_name": "Community 42",
       "norm_label": "makeclaudecoderequestmock"
     },
     {
@@ -8158,8 +8158,8 @@
       "source_location": "L7",
       "_origin": "ast",
       "id": "apps_api_tests_unit_services_model_validator_test_proxyminimaxrequestmock",
-      "community": 27,
-      "community_name": "Community 27",
+      "community": 42,
+      "community_name": "Community 42",
       "norm_label": "proxyminimaxrequestmock"
     },
     {
@@ -8169,8 +8169,8 @@
       "source_location": "L8",
       "_origin": "ast",
       "id": "apps_api_tests_unit_services_model_validator_test_proxyopenairequestmock",
-      "community": 27,
-      "community_name": "Community 27",
+      "community": 42,
+      "community_name": "Community 42",
       "norm_label": "proxyopenairequestmock"
     },
     {
@@ -8180,8 +8180,8 @@
       "source_location": "L9",
       "_origin": "ast",
       "id": "apps_api_tests_unit_services_model_validator_test_providersettingsgetmock",
-      "community": 27,
-      "community_name": "Community 27",
+      "community": 42,
+      "community_name": "Community 42",
       "norm_label": "providersettingsgetmock"
     },
     {
@@ -8191,8 +8191,8 @@
       "source_location": "L10",
       "_origin": "ast",
       "id": "apps_api_tests_unit_services_model_validator_test_openaiauthstatusmock",
-      "community": 27,
-      "community_name": "Community 27",
+      "community": 42,
+      "community_name": "Community 42",
       "norm_label": "openaiauthstatusmock"
     },
     {
@@ -8202,8 +8202,8 @@
       "source_location": "L38",
       "_origin": "ast",
       "id": "apps_api_tests_unit_services_model_validator_test_model",
-      "community": 27,
-      "community_name": "Community 27",
+      "community": 42,
+      "community_name": "Community 42",
       "norm_label": "model()"
     },
     {
@@ -8213,8 +8213,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_api_tests_unit_tools_tools_normalizer_test",
-      "community": 5,
-      "community_name": "Backend API Server Dependencies",
+      "community": 30,
+      "community_name": "Formatter",
       "norm_label": "tools-normalizer.test.ts"
     },
     {
@@ -10446,8 +10446,8 @@
       "source_location": "L7",
       "_origin": "ast",
       "id": "apps_extension_src_extension_status_bar_extensionstatusbar",
-      "community": 68,
-      "community_name": "minimax-stream-handler.ts",
+      "community": 139,
+      "community_name": "model-validator.test.ts",
       "norm_label": "extensionstatusbar"
     },
     {
@@ -10457,8 +10457,8 @@
       "source_location": "L8",
       "_origin": "ast",
       "id": "apps_extension_src_extension_status_bar_extensionstatusbar_formatapitip",
-      "community": 68,
-      "community_name": "minimax-stream-handler.ts",
+      "community": 139,
+      "community_name": "model-validator.test.ts",
       "norm_label": ".formatapitip()"
     },
     {
@@ -10468,8 +10468,8 @@
       "source_location": "L19",
       "_origin": "ast",
       "id": "apps_extension_src_extension_status_bar_extensionstatusbar_formattunneltip",
-      "community": 68,
-      "community_name": "minimax-stream-handler.ts",
+      "community": 139,
+      "community_name": "model-validator.test.ts",
       "norm_label": ".formattunneltip()"
     },
     {
@@ -10479,8 +10479,8 @@
       "source_location": "L35",
       "_origin": "ast",
       "id": "apps_extension_src_extension_status_bar_extensionstatusbar_formatkeyfixtip",
-      "community": 68,
-      "community_name": "minimax-stream-handler.ts",
+      "community": 139,
+      "community_name": "model-validator.test.ts",
       "norm_label": ".formatkeyfixtip()"
     },
     {
@@ -10490,8 +10490,8 @@
       "source_location": "L43",
       "_origin": "ast",
       "id": "apps_extension_src_extension_status_bar_extensionstatusbar_formatwakepingtip",
-      "community": 68,
-      "community_name": "minimax-stream-handler.ts",
+      "community": 139,
+      "community_name": "model-validator.test.ts",
       "norm_label": ".formatwakepingtip()"
     },
     {
@@ -10501,8 +10501,8 @@
       "source_location": "L51",
       "_origin": "ast",
       "id": "apps_extension_src_extension_status_bar_extensionstatusbar_tunnelrestartlabel",
-      "community": 68,
-      "community_name": "minimax-stream-handler.ts",
+      "community": 139,
+      "community_name": "model-validator.test.ts",
       "norm_label": ".tunnelrestartlabel()"
     },
     {
@@ -10512,8 +10512,8 @@
       "source_location": "L59",
       "_origin": "ast",
       "id": "apps_extension_src_extension_status_bar_extensionstatusbar_createtooltip",
-      "community": 68,
-      "community_name": "minimax-stream-handler.ts",
+      "community": 139,
+      "community_name": "model-validator.test.ts",
       "norm_label": ".createtooltip()"
     },
     {
@@ -10523,8 +10523,8 @@
       "source_location": "L110",
       "_origin": "ast",
       "id": "apps_extension_src_extension_status_bar_extensionstatusbar_bartext",
-      "community": 68,
-      "community_name": "minimax-stream-handler.ts",
+      "community": 139,
+      "community_name": "model-validator.test.ts",
       "norm_label": ".bartext()"
     },
     {
@@ -11832,8 +11832,8 @@
       "source_location": "L10",
       "_origin": "ast",
       "id": "apps_extension_src_utils_cross_process_lock_crossprocesslock",
-      "community": 85,
-      "community_name": "Community 85",
+      "community": 28,
+      "community_name": "SettingsStore",
       "norm_label": "crossprocesslock"
     },
     {
@@ -11843,8 +11843,8 @@
       "source_location": "L11",
       "_origin": "ast",
       "id": "apps_extension_src_utils_cross_process_lock_crossprocesslock_acquire",
-      "community": 85,
-      "community_name": "Community 85",
+      "community": 28,
+      "community_name": "SettingsStore",
       "norm_label": ".acquire()"
     },
     {
@@ -11854,8 +11854,8 @@
       "source_location": "L42",
       "_origin": "ast",
       "id": "apps_extension_src_utils_cross_process_lock_crossprocesslock_release",
-      "community": 85,
-      "community_name": "Community 85",
+      "community": 28,
+      "community_name": "SettingsStore",
       "norm_label": ".release()"
     },
     {
@@ -11865,8 +11865,8 @@
       "source_location": "L49",
       "_origin": "ast",
       "id": "apps_extension_src_utils_cross_process_lock_crossprocesslock_islockholderalive",
-      "community": 85,
-      "community_name": "Community 85",
+      "community": 28,
+      "community_name": "SettingsStore",
       "norm_label": ".islockholderalive()"
     },
     {
@@ -11876,8 +11876,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_extension_src_utils_cursor_state_db_reader",
-      "community": 30,
-      "community_name": "Formatter",
+      "community": 39,
+      "community_name": "Community 39",
       "norm_label": "cursor-state-db-reader.ts"
     },
     {
@@ -11887,8 +11887,8 @@
       "source_location": "L6",
       "_origin": "ast",
       "id": "apps_extension_src_utils_cursor_state_db_reader_execfileasync",
-      "community": 30,
-      "community_name": "Formatter",
+      "community": 39,
+      "community_name": "Community 39",
       "norm_label": "execfileasync"
     },
     {
@@ -11898,8 +11898,8 @@
       "source_location": "L10",
       "_origin": "ast",
       "id": "apps_extension_src_utils_cursor_state_db_reader_installlogger",
-      "community": 30,
-      "community_name": "Formatter",
+      "community": 39,
+      "community_name": "Community 39",
       "norm_label": "installlogger"
     },
     {
@@ -11909,8 +11909,8 @@
       "source_location": "L12",
       "_origin": "ast",
       "id": "apps_extension_src_utils_cursor_state_db_reader_cursorstatedbreader",
-      "community": 30,
-      "community_name": "Formatter",
+      "community": 39,
+      "community_name": "Community 39",
       "norm_label": "cursorstatedbreader"
     },
     {
@@ -11920,8 +11920,8 @@
       "source_location": "L16",
       "_origin": "ast",
       "id": "apps_extension_src_utils_cursor_state_db_reader_cursorstatedbreader_constructor",
-      "community": 30,
-      "community_name": "Formatter",
+      "community": 39,
+      "community_name": "Community 39",
       "norm_label": ".constructor()"
     },
     {
@@ -11931,8 +11931,8 @@
       "source_location": "L18",
       "_origin": "ast",
       "id": "apps_extension_src_utils_cursor_state_db_reader_cursorstatedbreader_init",
-      "community": 30,
-      "community_name": "Formatter",
+      "community": 39,
+      "community_name": "Community 39",
       "norm_label": ".init()"
     },
     {
@@ -11942,8 +11942,8 @@
       "source_location": "L29",
       "_origin": "ast",
       "id": "apps_extension_src_utils_cursor_state_db_reader_cursorstatedbreader_readitemtablevalue",
-      "community": 30,
-      "community_name": "Formatter",
+      "community": 39,
+      "community_name": "Community 39",
       "norm_label": ".readitemtablevalue()"
     },
     {
@@ -12206,8 +12206,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_extension_src_utils_sqlite3_cli_resolver",
-      "community": 30,
-      "community_name": "Formatter",
+      "community": 39,
+      "community_name": "Community 39",
       "norm_label": "sqlite3-cli-resolver.ts"
     },
     {
@@ -12217,8 +12217,8 @@
       "source_location": "L7",
       "_origin": "ast",
       "id": "apps_extension_src_utils_sqlite3_cli_resolver_execfileasync",
-      "community": 30,
-      "community_name": "Formatter",
+      "community": 39,
+      "community_name": "Community 39",
       "norm_label": "execfileasync"
     },
     {
@@ -12228,8 +12228,8 @@
       "source_location": "L9",
       "_origin": "ast",
       "id": "apps_extension_src_utils_sqlite3_cli_resolver_bin_dir",
-      "community": 30,
-      "community_name": "Formatter",
+      "community": 39,
+      "community_name": "Community 39",
       "norm_label": "bin_dir"
     },
     {
@@ -12239,8 +12239,8 @@
       "source_location": "L13",
       "_origin": "ast",
       "id": "apps_extension_src_utils_sqlite3_cli_resolver_installlogger",
-      "community": 30,
-      "community_name": "Formatter",
+      "community": 39,
+      "community_name": "Community 39",
       "norm_label": "installlogger"
     },
     {
@@ -12250,8 +12250,8 @@
       "source_location": "L15",
       "_origin": "ast",
       "id": "apps_extension_src_utils_sqlite3_cli_resolver_sqlite3cliresolver",
-      "community": 30,
-      "community_name": "Formatter",
+      "community": 39,
+      "community_name": "Community 39",
       "norm_label": "sqlite3cliresolver"
     },
     {
@@ -12261,8 +12261,8 @@
       "source_location": "L16",
       "_origin": "ast",
       "id": "apps_extension_src_utils_sqlite3_cli_resolver_sqlite3cliresolver_resolve",
-      "community": 30,
-      "community_name": "Formatter",
+      "community": 39,
+      "community_name": "Community 39",
       "norm_label": ".resolve()"
     },
     {
@@ -12272,8 +12272,8 @@
       "source_location": "L32",
       "_origin": "ast",
       "id": "apps_extension_src_utils_sqlite3_cli_resolver_sqlite3cliresolver_getbinaryname",
-      "community": 30,
-      "community_name": "Formatter",
+      "community": 39,
+      "community_name": "Community 39",
       "norm_label": ".getbinaryname()"
     },
     {
@@ -12283,8 +12283,8 @@
       "source_location": "L36",
       "_origin": "ast",
       "id": "apps_extension_src_utils_sqlite3_cli_resolver_sqlite3cliresolver_getinstalledpath",
-      "community": 30,
-      "community_name": "Formatter",
+      "community": 39,
+      "community_name": "Community 39",
       "norm_label": ".getinstalledpath()"
     },
     {
@@ -12294,8 +12294,8 @@
       "source_location": "L40",
       "_origin": "ast",
       "id": "apps_extension_src_utils_sqlite3_cli_resolver_sqlite3cliresolver_findonpath",
-      "community": 30,
-      "community_name": "Formatter",
+      "community": 39,
+      "community_name": "Community 39",
       "norm_label": ".findonpath()"
     },
     {
@@ -12305,8 +12305,8 @@
       "source_location": "L65",
       "_origin": "ast",
       "id": "apps_extension_src_utils_sqlite3_cli_resolver_sqlite3cliresolver_getdownloadurl",
-      "community": 30,
-      "community_name": "Formatter",
+      "community": 39,
+      "community_name": "Community 39",
       "norm_label": ".getdownloadurl()"
     },
     {
@@ -12316,8 +12316,8 @@
       "source_location": "L91",
       "_origin": "ast",
       "id": "apps_extension_src_utils_sqlite3_cli_resolver_sqlite3cliresolver_downloadandinstall",
-      "community": 30,
-      "community_name": "Formatter",
+      "community": 39,
+      "community_name": "Community 39",
       "norm_label": ".downloadandinstall()"
     },
     {
@@ -12327,8 +12327,8 @@
       "source_location": "L145",
       "_origin": "ast",
       "id": "apps_extension_src_utils_sqlite3_cli_resolver_sqlite3cliresolver_extractzip",
-      "community": 30,
-      "community_name": "Formatter",
+      "community": 39,
+      "community_name": "Community 39",
       "norm_label": ".extractzip()"
     },
     {
@@ -12338,8 +12338,8 @@
       "source_location": "L159",
       "_origin": "ast",
       "id": "apps_extension_src_utils_sqlite3_cli_resolver_sqlite3cliresolver_findextractedbinary",
-      "community": 30,
-      "community_name": "Formatter",
+      "community": 39,
+      "community_name": "Community 39",
       "norm_label": ".findextractedbinary()"
     },
     {
@@ -12349,8 +12349,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_extension_src_utils_ungate_settings_reader",
-      "community": 30,
-      "community_name": "Formatter",
+      "community": 39,
+      "community_name": "Community 39",
       "norm_label": "ungate-settings-reader.ts"
     },
     {
@@ -12360,8 +12360,8 @@
       "source_location": "L8",
       "_origin": "ast",
       "id": "apps_extension_src_utils_ungate_settings_reader_execfileasync",
-      "community": 30,
-      "community_name": "Formatter",
+      "community": 39,
+      "community_name": "Community 39",
       "norm_label": "execfileasync"
     },
     {
@@ -12371,8 +12371,8 @@
       "source_location": "L10",
       "_origin": "ast",
       "id": "apps_extension_src_utils_ungate_settings_reader_installlogger",
-      "community": 30,
-      "community_name": "Formatter",
+      "community": 39,
+      "community_name": "Community 39",
       "norm_label": "installlogger"
     },
     {
@@ -12382,8 +12382,8 @@
       "source_location": "L21",
       "_origin": "ast",
       "id": "apps_extension_src_utils_ungate_settings_reader_ungatesettingsreader",
-      "community": 30,
-      "community_name": "Formatter",
+      "community": 39,
+      "community_name": "Community 39",
       "norm_label": "ungatesettingsreader"
     },
     {
@@ -12393,8 +12393,8 @@
       "source_location": "L25",
       "_origin": "ast",
       "id": "apps_extension_src_utils_ungate_settings_reader_ungatesettingsreader_constructor",
-      "community": 30,
-      "community_name": "Formatter",
+      "community": 39,
+      "community_name": "Community 39",
       "norm_label": ".constructor()"
     },
     {
@@ -12404,8 +12404,8 @@
       "source_location": "L27",
       "_origin": "ast",
       "id": "apps_extension_src_utils_ungate_settings_reader_ungatesettingsreader_init",
-      "community": 30,
-      "community_name": "Formatter",
+      "community": 39,
+      "community_name": "Community 39",
       "norm_label": ".init()"
     },
     {
@@ -12415,8 +12415,8 @@
       "source_location": "L42",
       "_origin": "ast",
       "id": "apps_extension_src_utils_ungate_settings_reader_ungatesettingsreader_readport",
-      "community": 30,
-      "community_name": "Formatter",
+      "community": 39,
+      "community_name": "Community 39",
       "norm_label": ".readport()"
     },
     {
@@ -12426,8 +12426,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_extension_tests_unit_api_server_health_check_test",
-      "community": 147,
-      "community_name": "OpenAiKeyFixInternals",
+      "community": 133,
+      "community_name": "wake-ping.test.ts",
       "norm_label": "api-server-health-check.test.ts"
     },
     {
@@ -12437,8 +12437,8 @@
       "source_location": "L9",
       "_origin": "ast",
       "id": "apps_extension_tests_unit_api_server_health_check_test_runtimereadmock_runtimehasliveclientsmock_runtimemutatemock_sleepmock_nssmrestartmock_settingsinitmock_settingsreadportmock",
-      "community": 147,
-      "community_name": "OpenAiKeyFixInternals",
+      "community": 133,
+      "community_name": "wake-ping.test.ts",
       "norm_label": "{\n\truntimereadmock,\n\truntimehasliveclientsmock,\n\truntimemutatemock,\n\tsleepmock,\n\tnssmrestartmock,\n\tsettingsinitmock,\n\tsettingsreadportmock\n}"
     },
     {
@@ -12448,8 +12448,8 @@
       "source_location": "L48",
       "_origin": "ast",
       "id": "apps_extension_tests_unit_api_server_health_check_test_init",
-      "community": 147,
-      "community_name": "OpenAiKeyFixInternals",
+      "community": 133,
+      "community_name": "wake-ping.test.ts",
       "norm_label": "init()"
     },
     {
@@ -12459,8 +12459,8 @@
       "source_location": "L52",
       "_origin": "ast",
       "id": "apps_extension_tests_unit_api_server_health_check_test_readport",
-      "community": 147,
-      "community_name": "OpenAiKeyFixInternals",
+      "community": 133,
+      "community_name": "wake-ping.test.ts",
       "norm_label": "readport()"
     },
     {
@@ -12470,8 +12470,8 @@
       "source_location": "L74",
       "_origin": "ast",
       "id": "apps_extension_tests_unit_api_server_health_check_test_isapistartsuppressedmock",
-      "community": 147,
-      "community_name": "OpenAiKeyFixInternals",
+      "community": 133,
+      "community_name": "wake-ping.test.ts",
       "norm_label": "isapistartsuppressedmock"
     },
     {
@@ -12481,8 +12481,8 @@
       "source_location": "L75",
       "_origin": "ast",
       "id": "apps_extension_tests_unit_api_server_health_check_test_suppressapiautostartmock",
-      "community": 147,
-      "community_name": "OpenAiKeyFixInternals",
+      "community": 133,
+      "community_name": "wake-ping.test.ts",
       "norm_label": "suppressapiautostartmock"
     },
     {
@@ -12492,8 +12492,8 @@
       "source_location": "L76",
       "_origin": "ast",
       "id": "apps_extension_tests_unit_api_server_health_check_test_resetapiforrestartmock",
-      "community": 147,
-      "community_name": "OpenAiKeyFixInternals",
+      "community": 133,
+      "community_name": "wake-ping.test.ts",
       "norm_label": "resetapiforrestartmock"
     },
     {
@@ -12591,8 +12591,8 @@
       "source_location": "L109",
       "_origin": "ast",
       "id": "apps_extension_tests_unit_api_server_health_check_test_getinternals",
-      "community": 147,
-      "community_name": "OpenAiKeyFixInternals",
+      "community": 133,
+      "community_name": "wake-ping.test.ts",
       "norm_label": "getinternals()"
     },
     {
@@ -12602,8 +12602,8 @@
       "source_location": "L113",
       "_origin": "ast",
       "id": "apps_extension_tests_unit_api_server_health_check_test_createserver",
-      "community": 147,
-      "community_name": "OpenAiKeyFixInternals",
+      "community": 133,
+      "community_name": "wake-ping.test.ts",
       "norm_label": "createserver()"
     },
     {
@@ -12756,8 +12756,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_extension_tests_unit_cross_process_lock_test",
-      "community": 85,
-      "community_name": "Community 85",
+      "community": 28,
+      "community_name": "SettingsStore",
       "norm_label": "cross-process-lock.test.ts"
     },
     {
@@ -12767,8 +12767,8 @@
       "source_location": "L3",
       "_origin": "ast",
       "id": "apps_extension_tests_unit_cross_process_lock_test_mkdirsyncmock_writefilesyncmock_rmsyncmock_rmdirsyncmock_existssyncmock_readfilesyncmock_sleepmock_killmock",
-      "community": 85,
-      "community_name": "Community 85",
+      "community": 28,
+      "community_name": "SettingsStore",
       "norm_label": "{ mkdirsyncmock, writefilesyncmock, rmsyncmock, rmdirsyncmock, existssyncmock, readfilesyncmock, sleepmock, killmock }"
     },
     {
@@ -12778,8 +12778,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_extension_tests_unit_cursor_state_db_reader_test",
-      "community": 30,
-      "community_name": "Formatter",
+      "community": 39,
+      "community_name": "Community 39",
       "norm_label": "cursor-state-db-reader.test.ts"
     },
     {
@@ -12789,8 +12789,8 @@
       "source_location": "L3",
       "_origin": "ast",
       "id": "apps_extension_tests_unit_cursor_state_db_reader_test_mocks",
-      "community": 30,
-      "community_name": "Formatter",
+      "community": 39,
+      "community_name": "Community 39",
       "norm_label": "mocks"
     },
     {
@@ -13592,8 +13592,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_extension_tests_unit_sqlite3_cli_resolver_test",
-      "community": 30,
-      "community_name": "Formatter",
+      "community": 39,
+      "community_name": "Community 39",
       "norm_label": "sqlite3-cli-resolver.test.ts"
     },
     {
@@ -13603,8 +13603,8 @@
       "source_location": "L7",
       "_origin": "ast",
       "id": "apps_extension_tests_unit_sqlite3_cli_resolver_test_mocks",
-      "community": 30,
-      "community_name": "Formatter",
+      "community": 39,
+      "community_name": "Community 39",
       "norm_label": "mocks"
     },
     {
@@ -14252,8 +14252,8 @@
       "source_location": "L22",
       "_origin": "ast",
       "id": "apps_web_package_devdependencies_skeletonlabs_skeleton_svelte",
-      "community": 60,
-      "community_name": "Community 60",
+      "community": 175,
+      "community_name": "@skeletonlabs/skeleton-svelte",
       "norm_label": "@skeletonlabs/skeleton-svelte"
     },
     {
@@ -14263,8 +14263,8 @@
       "source_location": "L22",
       "_origin": "ast",
       "id": "skeletonlabs_skeleton_svelte",
-      "community": 60,
-      "community_name": "Community 60",
+      "community": 175,
+      "community_name": "@skeletonlabs/skeleton-svelte",
       "norm_label": "@skeletonlabs/skeleton-svelte"
     },
     {
@@ -14428,8 +14428,8 @@
       "source_location": "L30",
       "_origin": "ast",
       "id": "apps_web_package_devdependencies_svelte_check",
-      "community": 178,
-      "community_name": "svelte-check",
+      "community": 102,
+      "community_name": "Community 102",
       "norm_label": "svelte-check"
     },
     {
@@ -14439,8 +14439,8 @@
       "source_location": "L30",
       "_origin": "ast",
       "id": "svelte_check",
-      "community": 178,
-      "community_name": "svelte-check",
+      "community": 102,
+      "community_name": "Community 102",
       "norm_label": "svelte-check"
     },
     {
@@ -14450,8 +14450,8 @@
       "source_location": "L31",
       "_origin": "ast",
       "id": "apps_web_package_devdependencies_tailwindcss",
-      "community": 102,
-      "community_name": "Community 102",
+      "community": 60,
+      "community_name": "Community 60",
       "norm_label": "tailwindcss"
     },
     {
@@ -14461,8 +14461,8 @@
       "source_location": "L31",
       "_origin": "ast",
       "id": "tailwindcss",
-      "community": 102,
-      "community_name": "Community 102",
+      "community": 60,
+      "community_name": "Community 60",
       "norm_label": "tailwindcss"
     },
     {
@@ -15555,8 +15555,8 @@
       "source_location": "L6",
       "_origin": "ast",
       "id": "apps_web_src_features_settings_settings_store_svelte_settingsstore",
-      "community": 174,
-      "community_name": "SettingsStore",
+      "community": 68,
+      "community_name": "minimax-stream-handler.ts",
       "norm_label": "settingsstore"
     },
     {
@@ -15566,8 +15566,8 @@
       "source_location": "L14",
       "_origin": "ast",
       "id": "apps_web_src_features_settings_settings_store_svelte_settingsstore_load",
-      "community": 174,
-      "community_name": "SettingsStore",
+      "community": 68,
+      "community_name": "minimax-stream-handler.ts",
       "norm_label": ".load()"
     },
     {
@@ -15577,8 +15577,8 @@
       "source_location": "L15",
       "_origin": "ast",
       "id": "apps_web_src_features_settings_settings_store_svelte_settingsstore_save",
-      "community": 174,
-      "community_name": "SettingsStore",
+      "community": 68,
+      "community_name": "minimax-stream-handler.ts",
       "norm_label": ".save()"
     },
     {
@@ -15588,8 +15588,8 @@
       "source_location": "L16",
       "_origin": "ast",
       "id": "apps_web_src_features_settings_settings_store_svelte_settingsstore_saveandrestart",
-      "community": 174,
-      "community_name": "SettingsStore",
+      "community": 68,
+      "community_name": "minimax-stream-handler.ts",
       "norm_label": ".saveandrestart()"
     },
     {
@@ -15599,8 +15599,8 @@
       "source_location": "L17",
       "_origin": "ast",
       "id": "apps_web_src_features_settings_settings_store_svelte_settingsstore_resetstatus",
-      "community": 174,
-      "community_name": "SettingsStore",
+      "community": 68,
+      "community_name": "minimax-stream-handler.ts",
       "norm_label": ".resetstatus()"
     },
     {
@@ -15610,8 +15610,8 @@
       "source_location": "L18",
       "_origin": "ast",
       "id": "apps_web_src_features_settings_settings_store_svelte_settingsstore_completerestart",
-      "community": 174,
-      "community_name": "SettingsStore",
+      "community": 68,
+      "community_name": "minimax-stream-handler.ts",
       "norm_label": ".completerestart()"
     },
     {
@@ -20513,8 +20513,8 @@
       "source_location": "L39",
       "_origin": "ast",
       "id": "scripts_cliproxy_namespace_bridge_test_readrequestbody",
-      "community": 1,
-      "community_name": "OpenAI Proxy and SSE Stream Mapper",
+      "community": 61,
+      "community_name": "OpenAiKeyFixInternals",
       "norm_label": "readrequestbody()"
     },
     {
@@ -21123,6 +21123,17 @@
       "norm_label": "start-codex-beta-package-process.ps1"
     },
     {
+      "label": "start-codex-desktop-ungate.Tests.ps1",
+      "file_type": "code",
+      "source_file": "scripts/start-codex-desktop-ungate.Tests.ps1",
+      "source_location": "L1",
+      "_origin": "ast",
+      "id": "scripts_start_codex_desktop_ungate_tests",
+      "community": 150,
+      "community_name": "start-codex-desktop-ungate.Tests.ps1",
+      "norm_label": "start-codex-desktop-ungate.tests.ps1"
+    },
+    {
       "label": "start-codex-desktop-ungate.ps1",
       "file_type": "code",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
@@ -21137,7 +21148,7 @@
       "label": "Get-ProviderDefinitions()",
       "file_type": "code",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L180",
+      "source_location": "L170",
       "_origin": "ast",
       "id": "scripts_start_codex_desktop_ungate_get_providerdefinitions",
       "community": 75,
@@ -21148,7 +21159,7 @@
       "label": "Resolve-CliProxyApiKey()",
       "file_type": "code",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L195",
+      "source_location": "L185",
       "_origin": "ast",
       "id": "scripts_start_codex_desktop_ungate_resolve_cliproxyapikey",
       "community": 75,
@@ -21159,7 +21170,7 @@
       "label": "Get-CliProxyBridgeHealth()",
       "file_type": "code",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L229",
+      "source_location": "L219",
       "_origin": "ast",
       "id": "scripts_start_codex_desktop_ungate_get_cliproxybridgehealth",
       "community": 75,
@@ -21170,7 +21181,7 @@
       "label": "Test-LocalTcpListener()",
       "file_type": "code",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L242",
+      "source_location": "L232",
       "_origin": "ast",
       "id": "scripts_start_codex_desktop_ungate_test_localtcplistener",
       "community": 75,
@@ -21181,7 +21192,7 @@
       "label": "Test-CliProxyBridgeProcessIdentity()",
       "file_type": "code",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L252",
+      "source_location": "L242",
       "_origin": "ast",
       "id": "scripts_start_codex_desktop_ungate_test_cliproxybridgeprocessidentity",
       "community": 75,
@@ -21192,7 +21203,7 @@
       "label": "Ensure-CliProxyBridge()",
       "file_type": "code",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L273",
+      "source_location": "L263",
       "_origin": "ast",
       "id": "scripts_start_codex_desktop_ungate_ensure_cliproxybridge",
       "community": 75,
@@ -21203,7 +21214,7 @@
       "label": "Resolve-ModelApiKey()",
       "file_type": "code",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L402",
+      "source_location": "L392",
       "_origin": "ast",
       "id": "scripts_start_codex_desktop_ungate_resolve_modelapikey",
       "community": 75,
@@ -21214,7 +21225,7 @@
       "label": "Get-ProviderTomlBlock()",
       "file_type": "code",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L420",
+      "source_location": "L410",
       "_origin": "ast",
       "id": "scripts_start_codex_desktop_ungate_get_providertomlblock",
       "community": 75,
@@ -21225,7 +21236,7 @@
       "label": "Ensure-ModelProvidersInConfig()",
       "file_type": "code",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L436",
+      "source_location": "L426",
       "_origin": "ast",
       "id": "scripts_start_codex_desktop_ungate_ensure_modelprovidersinconfig",
       "community": 75,
@@ -21236,7 +21247,7 @@
       "label": "Select-UngateDesktopModel()",
       "file_type": "code",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L450",
+      "source_location": "L440",
       "_origin": "ast",
       "id": "scripts_start_codex_desktop_ungate_select_ungatedesktopmodel",
       "community": 75,
@@ -21247,7 +21258,7 @@
       "label": "Set-TopLevelTomlValue()",
       "file_type": "code",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L483",
+      "source_location": "L473",
       "_origin": "ast",
       "id": "scripts_start_codex_desktop_ungate_set_topleveltomlvalue",
       "community": 75,
@@ -21258,7 +21269,7 @@
       "label": "Remove-TomlTable()",
       "file_type": "code",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L517",
+      "source_location": "L507",
       "_origin": "ast",
       "id": "scripts_start_codex_desktop_ungate_remove_tomltable",
       "community": 75,
@@ -21266,10 +21277,21 @@
       "norm_label": "remove-tomltable()"
     },
     {
+      "label": "Get-TomlTableFamilyContent()",
+      "file_type": "code",
+      "source_file": "scripts/start-codex-desktop-ungate.ps1",
+      "source_location": "L536",
+      "_origin": "ast",
+      "id": "scripts_start_codex_desktop_ungate_get_tomltablefamilycontent",
+      "community": 75,
+      "community_name": "Community 75",
+      "norm_label": "get-tomltablefamilycontent()"
+    },
+    {
       "label": "Initialize-UngateCodexConfig()",
       "file_type": "code",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L546",
+      "source_location": "L564",
       "_origin": "ast",
       "id": "scripts_start_codex_desktop_ungate_initialize_ungatecodexconfig",
       "community": 75,
@@ -21280,7 +21302,7 @@
       "label": "Set-ModelIdentity()",
       "file_type": "code",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L577",
+      "source_location": "L595",
       "_origin": "ast",
       "id": "scripts_start_codex_desktop_ungate_set_modelidentity",
       "community": 75,
@@ -21291,7 +21313,7 @@
       "label": "Write-UngateModelCatalog()",
       "file_type": "code",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L595",
+      "source_location": "L613",
       "_origin": "ast",
       "id": "scripts_start_codex_desktop_ungate_write_ungatemodelcatalog",
       "community": 75,
@@ -21302,7 +21324,7 @@
       "label": "Ensure-SharedDirectory()",
       "file_type": "code",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L703",
+      "source_location": "L721",
       "_origin": "ast",
       "id": "scripts_start_codex_desktop_ungate_ensure_shareddirectory",
       "community": 75,
@@ -21310,10 +21332,21 @@
       "norm_label": "ensure-shareddirectory()"
     },
     {
+      "label": "Sync-CodexGlobalInstructions()",
+      "file_type": "code",
+      "source_file": "scripts/start-codex-desktop-ungate.ps1",
+      "source_location": "L750",
+      "_origin": "ast",
+      "id": "scripts_start_codex_desktop_ungate_sync_codexglobalinstructions",
+      "community": 75,
+      "community_name": "Community 75",
+      "norm_label": "sync-codexglobalinstructions()"
+    },
+    {
       "label": "Sync-CodexAuthentication()",
       "file_type": "code",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L732",
+      "source_location": "L789",
       "_origin": "ast",
       "id": "scripts_start_codex_desktop_ungate_sync_codexauthentication",
       "community": 75,
@@ -21324,7 +21357,7 @@
       "label": "Get-CodexCliExecutable()",
       "file_type": "code",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L739",
+      "source_location": "L796",
       "_origin": "ast",
       "id": "scripts_start_codex_desktop_ungate_get_codexcliexecutable",
       "community": 75,
@@ -21332,10 +21365,32 @@
       "norm_label": "get-codexcliexecutable()"
     },
     {
+      "label": "Test-CodexMcpConfiguration()",
+      "file_type": "code",
+      "source_file": "scripts/start-codex-desktop-ungate.ps1",
+      "source_location": "L833",
+      "_origin": "ast",
+      "id": "scripts_start_codex_desktop_ungate_test_codexmcpconfiguration",
+      "community": 75,
+      "community_name": "Community 75",
+      "norm_label": "test-codexmcpconfiguration()"
+    },
+    {
+      "label": "Sync-CodexMcpServers()",
+      "file_type": "code",
+      "source_file": "scripts/start-codex-desktop-ungate.ps1",
+      "source_location": "L872",
+      "_origin": "ast",
+      "id": "scripts_start_codex_desktop_ungate_sync_codexmcpservers",
+      "community": 75,
+      "community_name": "Community 75",
+      "norm_label": "sync-codexmcpservers()"
+    },
+    {
       "label": "Assert-UngateCodexConfig()",
       "file_type": "code",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L776",
+      "source_location": "L983",
       "_origin": "ast",
       "id": "scripts_start_codex_desktop_ungate_assert_ungatecodexconfig",
       "community": 75,
@@ -21346,7 +21401,7 @@
       "label": "Initialize-CodexWindowsSandbox()",
       "file_type": "code",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L930",
+      "source_location": "L1137",
       "_origin": "ast",
       "id": "scripts_start_codex_desktop_ungate_initialize_codexwindowssandbox",
       "community": 75,
@@ -21357,7 +21412,7 @@
       "label": "Get-CodexBetaPackageInfo()",
       "file_type": "code",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L963",
+      "source_location": "L1170",
       "_origin": "ast",
       "id": "scripts_start_codex_desktop_ungate_get_codexbetapackageinfo",
       "community": 75,
@@ -21368,7 +21423,7 @@
       "label": "Start-CodexBetaDesktop()",
       "file_type": "code",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L1001",
+      "source_location": "L1208",
       "_origin": "ast",
       "id": "scripts_start_codex_desktop_ungate_start_codexbetadesktop",
       "community": 75,
@@ -21379,7 +21434,7 @@
       "label": "Get-CodexBetaProcesses()",
       "file_type": "code",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L1118",
+      "source_location": "L1325",
       "_origin": "ast",
       "id": "scripts_start_codex_desktop_ungate_get_codexbetaprocesses",
       "community": 75,
@@ -21390,7 +21445,7 @@
       "label": "Stop-CodexBeta()",
       "file_type": "code",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L1129",
+      "source_location": "L1336",
       "_origin": "ast",
       "id": "scripts_start_codex_desktop_ungate_stop_codexbeta",
       "community": 75,
@@ -21401,7 +21456,7 @@
       "label": "Normalize-WorkspaceRootPath()",
       "file_type": "code",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L1185",
+      "source_location": "L1392",
       "_origin": "ast",
       "id": "scripts_start_codex_desktop_ungate_normalize_workspacerootpath",
       "community": 75,
@@ -21412,7 +21467,7 @@
       "label": "Get-WorkspaceRootList()",
       "file_type": "code",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L1209",
+      "source_location": "L1416",
       "_origin": "ast",
       "id": "scripts_start_codex_desktop_ungate_get_workspacerootlist",
       "community": 75,
@@ -21423,7 +21478,7 @@
       "label": "Restore-CodexWorkspaceRoots()",
       "file_type": "code",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L1235",
+      "source_location": "L1442",
       "_origin": "ast",
       "id": "scripts_start_codex_desktop_ungate_restore_codexworkspaceroots",
       "community": 75,
@@ -64432,7 +64487,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L776",
+      "source_location": "L983",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate",
@@ -64443,7 +64498,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L273",
+      "source_location": "L263",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate",
@@ -64454,7 +64509,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L436",
+      "source_location": "L426",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate",
@@ -64465,7 +64520,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L703",
+      "source_location": "L721",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate",
@@ -64476,7 +64531,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L229",
+      "source_location": "L219",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate",
@@ -64487,7 +64542,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L963",
+      "source_location": "L1170",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate",
@@ -64498,7 +64553,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L1118",
+      "source_location": "L1325",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate",
@@ -64509,7 +64564,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L739",
+      "source_location": "L796",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate",
@@ -64520,7 +64575,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L180",
+      "source_location": "L170",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate",
@@ -64531,7 +64586,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L420",
+      "source_location": "L410",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate",
@@ -64542,7 +64597,18 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L1209",
+      "source_location": "L536",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "scripts_start_codex_desktop_ungate",
+      "target": "scripts_start_codex_desktop_ungate_get_tomltablefamilycontent",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "scripts/start-codex-desktop-ungate.ps1",
+      "source_location": "L1416",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate",
@@ -64553,7 +64619,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L930",
+      "source_location": "L1137",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate",
@@ -64564,7 +64630,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L546",
+      "source_location": "L564",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate",
@@ -64575,7 +64641,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L1185",
+      "source_location": "L1392",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate",
@@ -64586,7 +64652,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L517",
+      "source_location": "L507",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate",
@@ -64597,7 +64663,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L195",
+      "source_location": "L185",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate",
@@ -64608,7 +64674,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L402",
+      "source_location": "L392",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate",
@@ -64619,7 +64685,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L1235",
+      "source_location": "L1442",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate",
@@ -64630,7 +64696,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L450",
+      "source_location": "L440",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate",
@@ -64641,7 +64707,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L577",
+      "source_location": "L595",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate",
@@ -64652,7 +64718,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L483",
+      "source_location": "L473",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate",
@@ -64663,7 +64729,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L1001",
+      "source_location": "L1208",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate",
@@ -64674,7 +64740,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L1129",
+      "source_location": "L1336",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate",
@@ -64685,7 +64751,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L732",
+      "source_location": "L789",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate",
@@ -64696,11 +64762,22 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L252",
+      "source_location": "L750",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate",
-      "target": "scripts_start_codex_desktop_ungate_test_cliproxybridgeprocessidentity",
+      "target": "scripts_start_codex_desktop_ungate_sync_codexglobalinstructions",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "scripts/start-codex-desktop-ungate.ps1",
+      "source_location": "L872",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "scripts_start_codex_desktop_ungate",
+      "target": "scripts_start_codex_desktop_ungate_sync_codexmcpservers",
       "confidence_score": 1.0
     },
     {
@@ -64711,6 +64788,28 @@
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate",
+      "target": "scripts_start_codex_desktop_ungate_test_cliproxybridgeprocessidentity",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "scripts/start-codex-desktop-ungate.ps1",
+      "source_location": "L833",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "scripts_start_codex_desktop_ungate",
+      "target": "scripts_start_codex_desktop_ungate_test_codexmcpconfiguration",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "scripts/start-codex-desktop-ungate.ps1",
+      "source_location": "L232",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "scripts_start_codex_desktop_ungate",
       "target": "scripts_start_codex_desktop_ungate_test_localtcplistener",
       "confidence_score": 1.0
     },
@@ -64718,7 +64817,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L595",
+      "source_location": "L613",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate",
@@ -64729,7 +64828,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L804",
+      "source_location": "L1011",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate_assert_ungatecodexconfig",
@@ -64740,7 +64839,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L443",
+      "source_location": "L433",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate_ensure_modelprovidersinconfig",
@@ -64751,7 +64850,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L417",
+      "source_location": "L407",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate_resolve_modelapikey",
@@ -64762,7 +64861,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L298",
+      "source_location": "L288",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate_ensure_cliproxybridge",
@@ -64773,7 +64872,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L297",
+      "source_location": "L287",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate_ensure_cliproxybridge",
@@ -64784,7 +64883,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L314",
+      "source_location": "L304",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate_ensure_cliproxybridge",
@@ -64797,7 +64896,7 @@
       "confidence": "INFERRED",
       "confidence_score": 0.8,
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L410",
+      "source_location": "L400",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate_resolve_modelapikey",
@@ -64807,7 +64906,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L445",
+      "source_location": "L435",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate_ensure_modelprovidersinconfig",
@@ -64818,7 +64917,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L444",
+      "source_location": "L434",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate_ensure_modelprovidersinconfig",
@@ -64829,7 +64928,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L568",
+      "source_location": "L586",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate_initialize_ungatecodexconfig",
@@ -64840,7 +64939,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L691",
+      "source_location": "L709",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate_write_ungatemodelcatalog",
@@ -64851,7 +64950,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L559",
+      "source_location": "L577",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate_initialize_ungatecodexconfig",
@@ -64862,7 +64961,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L675",
+      "source_location": "L693",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate_write_ungatemodelcatalog",
@@ -64873,7 +64972,29 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L630",
+      "source_location": "L917",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "scripts_start_codex_desktop_ungate_sync_codexmcpservers",
+      "target": "scripts_start_codex_desktop_ungate_remove_tomltable",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "source_file": "scripts/start-codex-desktop-ungate.ps1",
+      "source_location": "L901",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "scripts_start_codex_desktop_ungate_sync_codexmcpservers",
+      "target": "scripts_start_codex_desktop_ungate_get_tomltablefamilycontent",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "source_file": "scripts/start-codex-desktop-ungate.ps1",
+      "source_location": "L648",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate_write_ungatemodelcatalog",
@@ -64884,7 +65005,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L874",
+      "source_location": "L1081",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate_assert_ungatecodexconfig",
@@ -64895,7 +65016,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L939",
+      "source_location": "L1146",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate_initialize_codexwindowssandbox",
@@ -64906,7 +65027,29 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L1135",
+      "source_location": "L889",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "scripts_start_codex_desktop_ungate_sync_codexmcpservers",
+      "target": "scripts_start_codex_desktop_ungate_get_codexcliexecutable",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "source_file": "scripts/start-codex-desktop-ungate.ps1",
+      "source_location": "L895",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "scripts_start_codex_desktop_ungate_sync_codexmcpservers",
+      "target": "scripts_start_codex_desktop_ungate_test_codexmcpconfiguration",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "source_file": "scripts/start-codex-desktop-ungate.ps1",
+      "source_location": "L1342",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate_stop_codexbeta",
@@ -64917,7 +65060,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L1218",
+      "source_location": "L1425",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate_get_workspacerootlist",
@@ -64928,7 +65071,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
-      "source_location": "L1259",
+      "source_location": "L1466",
       "weight": 1.0,
       "_origin": "ast",
       "source": "scripts_start_codex_desktop_ungate_restore_codexworkspaceroots",
@@ -66505,5 +66648,5 @@
       "source_file": "apps/extension/resources/icon.png"
     }
   ],
-  "built_at_commit": "47653cde1c6dceb5977575f29c810ab62c4df5c5"
+  "built_at_commit": "70c32f53da213e4bd68b4f256013dcec00b57eaa"
 }

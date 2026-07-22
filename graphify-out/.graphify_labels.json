@@ -149,6 +149,7 @@
   "147": "OpenAiKeyFixInternals",
   "148": "@skeletonlabs/skeleton",
   "149": "ungate-codex-common.Tests.ps1",
+  "150": "start-codex-desktop-ungate.Tests.ps1",
   "151": "constants.ts",
   "152": "@tailwindcss/vite",
   "153": "@types/d3-scale",
@@ -171,8 +172,7 @@
   "171": "vitest",
   "172": "@vitest/eslint-plugin",
   "173": "layerchart",
-  "174": "SettingsStore",
+  "175": "@skeletonlabs/skeleton-svelte",
   "177": "AnalyticsStore",
-  "178": "svelte-check",
   "179": "codex-plugin-isolation.Tests.ps1"
 }

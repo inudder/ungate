@@ -5,9 +5,10 @@
 
 .DESCRIPTION
     Creates ~/.codex-ungate/config.toml from the normal Codex config on first
-    use, exposes the configured Ungate models through the Desktop picker,
-    selects ungate-opus-4-8 by default, and launches Codex Beta with a
-    process-local CODEX_HOME.
+    use, mirrors the normal Codex MCP server configuration, exposes the
+    configured Ungate models through the Desktop picker, selects
+    ungate-opus-4-8 by default, and launches Codex Beta with a process-local
+    CODEX_HOME.
 
     The normal ~/.codex/config.toml is never modified. Codex Beta must be
     fully closed before launching this isolated instance.
@@ -71,31 +72,22 @@ if (-not (Test-Path -LiteralPath $CodexPackageLaunchHelperPath -PathType Leaf)) 
 }
 Import-Module $PluginIsolationModulePath -Force
 $UngateEnvironmentInstruction = @'
-Execution environment: Windows 11 with PowerShell 7.
+Execution environment: Windows 11. The shell is PowerShell 7.
 
-HARD RULE — PowerShell quoting (follow every time):
-1) If a command needs nested quotes, $variables as literals, or multi-line code:
-   write a .ps1 file first (single-quoted here-string @' ... '@), then run it.
-   Never pass complex PowerShell as one inline shell argument.
-2) Never put $Projects, $_, $script:Name, $(), or nested ' / " inside a
-   double-quoted PowerShell string meant to stay literal.
-3) Prefer single-quoted strings. For multi-line source use @' ... '@.
-4) Escape `$ with a backtick only for tiny one-line literals.
-
-WRONG (inline, expands $Projects, breaks on quotes):
-  pwsh -Command "Set-Content a.ps1 -Value \"`$Projects = @()\""
-
-RIGHT (script file, no expansion):
-  @'
-  $Projects = @()
-  Write-Host 'dp graphify'
-  '@ | Set-Content -Path .\tmp-edit.ps1 -Encoding utf8
-  pwsh -File .\tmp-edit.ps1
-
-Source edits:
-- Prefer a narrow patch; do not rewrite a whole file with Set-Content for a small change.
-- After every edit: git diff. If corrupted, fix the smallest broken section before more edits.
-- Verify with Select-String -Path or rg -n. Never pipe Get-Content -Raw into Select-String.
+HARD RULE — source edits:
+- Call the apply_patch tool for every manual source-file edit or file creation.
+  Do not type apply_patch inside Shell.
+- Use Shell only for inspection, execution, formatting, and verification.
+- Do not edit source through Set-Content, Add-Content, WriteAllText, Python,
+  Node.js, or a generated temporary edit script while apply_patch is available.
+- Never nest PowerShell here-strings or wrap source containing @' / '@ / @" / "@
+  inside another here-string.
+- PowerShell is not Bash. Never use <<EOF or python - <<'PY'.
+- The js tool is a V8 orchestration isolate, not Node.js. Do not use require,
+  fs, path, or filesystem access there.
+- After editing a .ps1 file, validate it with Parser.ParseFile.
+- After an edit-related ParserError, do not retry with another quoting wrapper;
+  switch directly to apply_patch.
 
 Images / vision:
 - If the user attaches an image (LocalImage, input_image, data:image/..., or <image ... path=...>),
@@ -104,8 +96,6 @@ Images / vision:
   That produces: Cannot read "image.png" (this model does not support image input).
 - Only use filesystem tools for non-image files, or when the user asks to inspect binary/metadata
   offline and no vision attachment is present.
-
-Do not end a turn after saying you will repair next: run the repair/verify tool in the same turn unless blocked.
 '@
 $UngateModelDefinitions = @(
     [pscustomobject][ordered]@{
@@ -543,6 +533,34 @@ function Remove-TomlTable {
     return $result -join "`r`n"
 }
 
+function Get-TomlTableFamilyContent {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Content,
+        [Parameter(Mandatory = $true)]
+        [string]$TableName
+    )
+
+    $result = [System.Collections.Generic.List[string]]::new()
+    $capture = $false
+
+    foreach ($line in ($Content -split '\r?\n')) {
+        if ($line -match '^\s*\[([^\]]+)\]\s*(?:#.*)?$') {
+            $currentTable = $Matches[1].Trim()
+            $capture = (
+                $currentTable -eq $TableName -or
+                $currentTable.StartsWith("$TableName.", [System.StringComparison]::Ordinal)
+            )
+        }
+
+        if ($capture) {
+            $result.Add($line)
+        }
+    }
+
+    return ($result -join "`r`n").Trim()
+}
+
 function Initialize-UngateCodexConfig {
     if (Test-Path -LiteralPath $CustomConfigPath) {
         Write-Host "[ungate] Using existing custom config: $CustomConfigPath" -ForegroundColor DarkGray
@@ -729,6 +747,45 @@ function Ensure-SharedDirectory {
     Write-Host "[ungate] Shared Codex directory: $Name" -ForegroundColor DarkGray
 }
 
+function Sync-CodexGlobalInstructions {
+    $sourceInstructions = Join-Path $DefaultCodexHome 'AGENTS.md'
+    $targetInstructions = Join-Path $CustomCodexHome 'AGENTS.md'
+
+    if (-not (Test-Path -LiteralPath $sourceInstructions -PathType Leaf)) {
+        throw "Default Codex global instructions not found at $sourceInstructions."
+    }
+    if (
+        (Test-Path -LiteralPath $targetInstructions) -and
+        -not (Test-Path -LiteralPath $targetInstructions -PathType Leaf)
+    ) {
+        throw "Custom Codex global instructions target is not a file: $targetInstructions"
+    }
+
+    New-Item -ItemType Directory -Path $CustomCodexHome -Force | Out-Null
+    $sourceHash = (Get-FileHash -LiteralPath $sourceInstructions -Algorithm SHA256).Hash
+    $targetHash = if (Test-Path -LiteralPath $targetInstructions -PathType Leaf) {
+        (Get-FileHash -LiteralPath $targetInstructions -Algorithm SHA256).Hash
+    }
+    else {
+        $null
+    }
+
+    if ($sourceHash -eq $targetHash) {
+        Write-Host '[ungate] Global AGENTS.md already synchronized.' -ForegroundColor DarkGray
+        return
+    }
+
+    Copy-Item `
+        -LiteralPath $sourceInstructions `
+        -Destination $targetInstructions `
+        -Force
+    $targetHash = (Get-FileHash -LiteralPath $targetInstructions -Algorithm SHA256).Hash
+    if ($targetHash -ne $sourceHash) {
+        throw "Failed to verify synchronized global instructions at $targetInstructions."
+    }
+    Write-Host '[ungate] Global AGENTS.md synchronized from the default Codex home.' -ForegroundColor Green
+}
+
 function Sync-CodexAuthentication {
     $sourceAuth = Join-Path $DefaultCodexHome 'auth.json'
     if (Test-Path -LiteralPath $sourceAuth) {
@@ -771,6 +828,156 @@ function Get-CodexCliExecutable {
     }
 
     return $null
+}
+
+function Test-CodexMcpConfiguration {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$CodexExecutable,
+        [Parameter(Mandatory = $true)]
+        [string]$CodexHome
+    )
+
+    $previousCodexHome = $env:CODEX_HOME
+    try {
+        $env:CODEX_HOME = $CodexHome
+        $inventoryOutput = @(& $CodexExecutable mcp list --json 2>$null)
+        if ($LASTEXITCODE -ne 0) {
+            throw "Codex rejected the MCP configuration in $CodexHome."
+        }
+
+        try {
+            $inventory = ($inventoryOutput -join "`n") | ConvertFrom-Json -Depth 100
+        }
+        catch {
+            throw "Codex returned invalid MCP inventory JSON for $CodexHome."
+        }
+
+        return @(
+            $inventory |
+                ForEach-Object { [string]$_.name } |
+                Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+        )
+    }
+    finally {
+        if ($null -eq $previousCodexHome) {
+            Remove-Item Env:\CODEX_HOME -ErrorAction SilentlyContinue
+        }
+        else {
+            $env:CODEX_HOME = $previousCodexHome
+        }
+    }
+}
+
+function Sync-CodexMcpServers {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SourceCodexHome,
+        [Parameter(Mandatory = $true)]
+        [string]$TargetCodexHome
+    )
+
+    $sourceConfigPath = Join-Path $SourceCodexHome 'config.toml'
+    $targetConfigPath = Join-Path $TargetCodexHome 'config.toml'
+    if (-not (Test-Path -LiteralPath $sourceConfigPath -PathType Leaf)) {
+        throw "Default Codex config not found at $sourceConfigPath."
+    }
+    if (-not (Test-Path -LiteralPath $targetConfigPath -PathType Leaf)) {
+        throw "Custom Codex config not found at $targetConfigPath."
+    }
+
+    $codexExecutable = Get-CodexCliExecutable
+    if (-not $codexExecutable) {
+        throw 'Codex CLI is required to synchronize MCP servers.'
+    }
+
+    # Validate the source before reading or changing the isolated config.
+    $null = Test-CodexMcpConfiguration `
+        -CodexExecutable $codexExecutable `
+        -CodexHome $SourceCodexHome
+
+    $sourceConfig = Get-Content -LiteralPath $sourceConfigPath -Raw
+    $targetConfig = Get-Content -LiteralPath $targetConfigPath -Raw
+    $sourceMcpContent = Get-TomlTableFamilyContent `
+        -Content $sourceConfig `
+        -TableName 'mcp_servers'
+    $targetMcpContent = Get-TomlTableFamilyContent `
+        -Content $targetConfig `
+        -TableName 'mcp_servers'
+
+    if ($sourceMcpContent -ceq $targetMcpContent) {
+        $null = Test-CodexMcpConfiguration `
+            -CodexExecutable $codexExecutable `
+            -CodexHome $TargetCodexHome
+        Write-Host '[ungate] MCP servers already synchronized.' -ForegroundColor DarkGray
+        return
+    }
+
+    $targetWithoutMcp = (
+        Remove-TomlTable -Content $targetConfig -TableName 'mcp_servers'
+    ).TrimEnd()
+    $updatedTargetConfig = if ([string]::IsNullOrWhiteSpace($sourceMcpContent)) {
+        $targetWithoutMcp + "`r`n"
+    }
+    else {
+        $targetWithoutMcp + "`r`n`r`n" + $sourceMcpContent + "`r`n"
+    }
+
+    $targetDirectory = Split-Path -Parent $targetConfigPath
+    $transactionId = [guid]::NewGuid().ToString('N')
+    $temporaryConfigPath = Join-Path $targetDirectory ".config.toml.$transactionId.tmp"
+    $backupConfigPath = Join-Path $targetDirectory ".config.toml.$transactionId.bak"
+    $preserveBackup = $false
+
+    try {
+        [System.IO.File]::WriteAllText(
+            $temporaryConfigPath,
+            $updatedTargetConfig,
+            [System.Text.UTF8Encoding]::new($false)
+        )
+        [System.IO.File]::Replace(
+            $temporaryConfigPath,
+            $targetConfigPath,
+            $backupConfigPath
+        )
+
+        try {
+            $null = Test-CodexMcpConfiguration `
+                -CodexExecutable $codexExecutable `
+                -CodexHome $TargetCodexHome
+            $verifiedConfig = Get-Content -LiteralPath $targetConfigPath -Raw
+            $verifiedMcpContent = Get-TomlTableFamilyContent `
+                -Content $verifiedConfig `
+                -TableName 'mcp_servers'
+            if ($verifiedMcpContent -cne $sourceMcpContent) {
+                throw 'The synchronized MCP table family does not match the source.'
+            }
+        }
+        catch {
+            $validationError = $_.Exception.Message
+            try {
+                [System.IO.File]::Copy($backupConfigPath, $targetConfigPath, $true)
+            }
+            catch {
+                $preserveBackup = $true
+                throw "MCP synchronization failed and automatic recovery failed. Backup retained at $backupConfigPath."
+            }
+            throw "MCP synchronization failed; the previous Beta config was restored. $validationError"
+        }
+    }
+    finally {
+        if (Test-Path -LiteralPath $temporaryConfigPath -PathType Leaf) {
+            Remove-Item -LiteralPath $temporaryConfigPath -Force
+        }
+        if (
+            -not $preserveBackup -and
+            (Test-Path -LiteralPath $backupConfigPath -PathType Leaf)
+        ) {
+            Remove-Item -LiteralPath $backupConfigPath -Force
+        }
+    }
+
+    Write-Host '[ungate] MCP servers synchronized from the default Codex home.' -ForegroundColor Green
 }
 
 function Assert-UngateCodexConfig {
@@ -1368,8 +1575,12 @@ catch {
 }
 
 Initialize-UngateCodexConfig
+Sync-CodexMcpServers `
+    -SourceCodexHome $DefaultCodexHome `
+    -TargetCodexHome $CustomCodexHome
 Write-UngateModelCatalog
 Ensure-SharedDirectory -Name 'skills'
+Sync-CodexGlobalInstructions
 Sync-CodexAuthentication
 $codexExecutable = Get-CodexCliExecutable
 if (-not $codexExecutable) {

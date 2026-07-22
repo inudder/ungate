@@ -1440,8 +1440,8 @@
     "semantic_hash": ""
   },
   "scripts/start-codex-desktop-ungate.ps1": {
-    "mtime": 1784452085.9506881,
-    "ast_hash": "040390c01b163cfa5b41a06b02125c75",
+    "mtime": 1784563908.720661,
+    "ast_hash": "f8dd1652e54679568d52061bc608aba1",
     "semantic_hash": ""
   },
   "scripts/ungate-codex-common.ps1": {
@@ -1497,6 +1497,11 @@
   "graphify-out/memory/query_20260719_080650_j__dev_ungate_local_scripts_start_codex_desktop_un.md": {
     "mtime": 1784448410.720484,
     "ast_hash": "a87376a049ec2cd9bdf716703804b82b",
+    "semantic_hash": ""
+  },
+  "scripts/start-codex-desktop-ungate.Tests.ps1": {
+    "mtime": 1784564109.4211228,
+    "ast_hash": "39c97bf7bc8b9852eeb108a9e7f4700f",
     "semantic_hash": ""
   }
 }
