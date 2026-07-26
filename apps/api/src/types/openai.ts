@@ -97,12 +97,33 @@ export interface OpenAIResponsesFunctionTool {
 	strict?: boolean;
 }
 
+export interface OpenAIResponsesNamespaceFunctionTool {
+	type: 'function';
+	name: string;
+	description?: string;
+	parameters?: Record<string, unknown>;
+	input_schema?: Record<string, unknown>;
+	inputSchema?: Record<string, unknown>;
+	strict?: boolean;
+}
+
+export interface OpenAIResponsesNamespaceTool {
+	type: 'namespace';
+	name: string;
+	tools?: OpenAIResponsesNamespaceFunctionTool[];
+	functions?: OpenAIResponsesNamespaceFunctionTool[];
+}
+
 export interface OpenAIResponsesRequest {
 	model: string;
 	input: string | Record<string, unknown>[];
 	instructions?: string;
-	tools?: (OpenAIResponsesFunctionTool | OpenAITool)[];
-	tool_choice?: 'none' | 'auto' | 'required' | { type: 'function'; name?: string; function?: { name?: string } };
+	tools?: (OpenAIResponsesFunctionTool | OpenAIResponsesNamespaceTool | OpenAITool)[];
+	tool_choice?:
+		| 'none'
+		| 'auto'
+		| 'required'
+		| { type: 'function'; name?: string; namespace?: string; function?: { name?: string; namespace?: string } };
 	stream?: boolean;
 	temperature?: number;
 	top_p?: number;
@@ -142,6 +163,7 @@ export interface OpenAIResponseOutputFunctionToolCall {
 	type: 'function_call';
 	call_id: string;
 	name: string;
+	namespace?: string;
 	arguments: string;
 	status: 'in_progress' | 'completed' | 'incomplete';
 }

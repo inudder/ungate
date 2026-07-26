@@ -1,64 +1,105 @@
-import { DEFAULT_KEY_FIX_ENABLED, type ExtensionToWebview, type TunnelState } from '@ungate/shared/frontend';
+import { dashboardClient } from '$shared/dashboard-client';
 
-import { postExtensionMessage } from '$shared/vscode';
+import type { DashboardServiceAction, DashboardStatus, TunnelState } from '@ungate/shared/frontend';
 
 interface TunnelStore {
 	readonly tunnel: TunnelState;
-	readonly keyFixEnabled: boolean;
-	startTunnel(): void;
-	stopTunnel(): void;
-	restartTunnel(): void;
-	setKeyFixEnabled(enabled: boolean): void;
+	readonly busy: boolean;
+	readonly error: string | null;
+	initialize(): Promise<void>;
+	startTunnel(): Promise<void>;
+	stopTunnel(): Promise<void>;
+	restartTunnel(): Promise<void>;
 }
 
 const defaultState: TunnelState = { status: 'stopped', url: null, error: null };
 
 let tunnel = $state<TunnelState>({ ...defaultState });
-let keyFixEnabled = $state(DEFAULT_KEY_FIX_ENABLED);
+let busy = $state(false);
+let error = $state<string | null>(null);
+let initialized = false;
 
-function handleMessage(event: MessageEvent): void {
-	const message = event.data as ExtensionToWebview;
-
-	if (message.type === 'tunnel-status') {
-		tunnel = message.state;
+function toTunnelStatus(phase: DashboardStatus['tunnel']['phase']): TunnelState['status'] {
+	switch (phase) {
+		case 'running':
+			return 'running';
+		case 'starting':
+		case 'stopping':
+			return 'starting';
+		case 'error':
+			return 'error';
+		default:
+			return 'stopped';
 	}
+}
 
-	if (message.type === 'key-fix-state') {
-		keyFixEnabled = message.enabled;
+function applyStatus(status: DashboardStatus): void {
+	tunnel = {
+		status: toTunnelStatus(status.tunnel.phase),
+		url: status.tunnel.url || null,
+		error: status.tunnel.error
+	};
+}
+
+async function initialize(): Promise<void> {
+	if (initialized) return;
+	initialized = true;
+
+	dashboardClient.subscribe((event) => {
+		if (event.type === 'status') {
+			applyStatus(event.data);
+		}
+	});
+
+	try {
+		applyStatus(await dashboardClient.getStatus());
+	} catch (reason) {
+		error = reason instanceof Error ? reason.message : String(reason);
+		tunnel = { status: 'error', url: null, error };
 	}
 }
 
-window.addEventListener('message', handleMessage);
+async function runAction(action: DashboardServiceAction): Promise<void> {
+	busy = true;
+	error = null;
 
-function startTunnel(): void {
-	postExtensionMessage({ type: 'start-tunnel' });
+	try {
+		const operation = await dashboardClient.controlTunnel(action);
+		await dashboardClient.waitForOperation(operation.id);
+		applyStatus(await dashboardClient.getStatus());
+	} catch (reason) {
+		error = reason instanceof Error ? reason.message : String(reason);
+	} finally {
+		busy = false;
+	}
 }
 
-function stopTunnel(): void {
-	postExtensionMessage({ type: 'stop-tunnel' });
+function startTunnel(): Promise<void> {
+	return runAction('start');
 }
 
-function restartTunnel(): void {
-	postExtensionMessage({ type: 'restart-tunnel' });
+function stopTunnel(): Promise<void> {
+	return runAction('stop');
 }
 
-function setKeyFixEnabled(enabled: boolean): void {
-	postExtensionMessage({ type: 'set-key-fix-enabled', enabled });
+function restartTunnel(): Promise<void> {
+	return runAction('restart');
 }
 
 export function getTunnelStore(): TunnelStore {
-	const store: TunnelStore = {
+	return {
 		get tunnel() {
 			return tunnel;
 		},
-		get keyFixEnabled() {
-			return keyFixEnabled;
+		get busy() {
+			return busy;
 		},
+		get error() {
+			return error;
+		},
+		initialize,
 		startTunnel,
 		stopTunnel,
-		restartTunnel,
-		setKeyFixEnabled
+		restartTunnel
 	};
-
-	return store;
 }

@@ -1,12 +1,14 @@
-import { postExtensionMessage } from '$shared/vscode';
+import { dashboardClient } from '$shared/dashboard-client';
 
-import type { ExtensionToWebview, LogEntry } from '@ungate/shared/frontend';
+import type { LogEntry } from '@ungate/shared/frontend';
 
 const MAX_LOG_ENTRIES = 500;
 
 interface LogsStore {
 	readonly apiLogs: LogEntry[];
 	readonly tunnelLogs: LogEntry[];
+	readonly error: string | null;
+	initialize(): Promise<void>;
 	clearApi(): void;
 	clearTunnel(): void;
 	copyApi(): Promise<void>;
@@ -15,34 +17,8 @@ interface LogsStore {
 
 let apiLogs = $state<LogEntry[]>([]);
 let tunnelLogs = $state<LogEntry[]>([]);
-
-function handleMessage(event: MessageEvent): void {
-	const message = event.data as ExtensionToWebview;
-
-	if (message.type === 'log') {
-		if (message.source === 'api') {
-			apiLogs = trimLogEntries([...apiLogs, message.entry]);
-		} else {
-			tunnelLogs = trimLogEntries([...tunnelLogs, message.entry]);
-		}
-	}
-
-	if (message.type === 'log-bulk') {
-		if (message.source === 'api') {
-			apiLogs = trimLogEntries([...apiLogs, ...message.entries]);
-		} else {
-			tunnelLogs = trimLogEntries([...tunnelLogs, ...message.entries]);
-		}
-	}
-
-	if (message.type === 'logs-cleared') {
-		if (message.source === 'api') {
-			apiLogs = [];
-		} else {
-			tunnelLogs = [];
-		}
-	}
-}
+let error = $state<string | null>(null);
+let initialized = false;
 
 function trimLogEntries(entries: LogEntry[]): LogEntry[] {
 	if (entries.length <= MAX_LOG_ENTRIES) {
@@ -52,16 +28,36 @@ function trimLogEntries(entries: LogEntry[]): LogEntry[] {
 	return entries.slice(-MAX_LOG_ENTRIES);
 }
 
-window.addEventListener('message', handleMessage);
+async function initialize(): Promise<void> {
+	if (initialized) return;
+	initialized = true;
+	error = null;
+
+	try {
+		const [apiSnapshot, tunnelSnapshot] = await Promise.all([dashboardClient.getLogs('api'), dashboardClient.getLogs('tunnel')]);
+		apiLogs = trimLogEntries(apiSnapshot.entries);
+		tunnelLogs = trimLogEntries(tunnelSnapshot.entries);
+	} catch (reason) {
+		error = reason instanceof Error ? reason.message : String(reason);
+	}
+
+	dashboardClient.subscribe((event) => {
+		if (event.type !== 'log') return;
+
+		if (event.data.source === 'api') {
+			apiLogs = trimLogEntries([...apiLogs, event.data.entry]);
+		} else {
+			tunnelLogs = trimLogEntries([...tunnelLogs, event.data.entry]);
+		}
+	});
+}
 
 function clearApi(): void {
 	apiLogs = [];
-	postExtensionMessage({ type: 'clear-logs', source: 'api' });
 }
 
 function clearTunnel(): void {
 	tunnelLogs = [];
-	postExtensionMessage({ type: 'clear-logs', source: 'tunnel' });
 }
 
 async function copyApi(): Promise<void> {
@@ -77,18 +73,20 @@ function formatLogs(entries: LogEntry[]): string {
 }
 
 export function getLogsStore(): LogsStore {
-	const store: LogsStore = {
+	return {
 		get apiLogs() {
 			return apiLogs;
 		},
 		get tunnelLogs() {
 			return tunnelLogs;
 		},
+		get error() {
+			return error;
+		},
+		initialize,
 		clearApi,
 		clearTunnel,
 		copyApi,
 		copyTunnel
 	};
-
-	return store;
 }

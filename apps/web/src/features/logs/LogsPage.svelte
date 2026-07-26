@@ -16,6 +16,10 @@ const levelClasses: Record<string, string> = {
 let apiCopied = $state(false);
 let tunnelCopied = $state(false);
 
+$effect(() => {
+	void store.initialize();
+});
+
 function showCopiedFor(source: 'api' | 'tunnel'): void {
 	if (source === 'api') {
 		apiCopied = true;
@@ -46,6 +50,10 @@ async function handleCopyTunnel(): Promise<void> {
 </script>
 
 <div class="space-y-6">
+	{#if store.error}
+		<div class="card preset-tonal-error p-3 text-sm">{store.error}</div>
+	{/if}
+
 	<div class="space-y-2">
 		<div class="flex items-center justify-between">
 			<p class="text-sm font-semibold">API Logs</p>

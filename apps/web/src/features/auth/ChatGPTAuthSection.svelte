@@ -1,12 +1,12 @@
 <script lang="ts">
 import { sleep } from '@ungate/shared/frontend';
 import IconCheck from 'virtual:icons/lucide/check';
+import IconExternalLink from 'virtual:icons/lucide/external-link';
 import IconLoader from 'virtual:icons/lucide/loader-circle';
 import IconLogOut from 'virtual:icons/lucide/log-out';
 import IconRotateCcw from 'virtual:icons/lucide/rotate-ccw';
 
 import { Api } from '$shared/api';
-import { postExtensionMessage } from '$shared/vscode';
 
 interface Props {
 	onAuthStatusChange?: () => void;
@@ -23,6 +23,7 @@ let pollingTimer = $state<ReturnType<typeof setInterval> | null>(null);
 let timeoutAbort: AbortController | null = null;
 let lastAction = $state('');
 let cancelled = $state(false);
+let authUrl = $state('');
 
 function stopPolling() {
 	if (pollingTimer) {
@@ -64,7 +65,8 @@ async function handleLogin() {
 
 	try {
 		const result = await Api.authChatGPTStart();
-		postExtensionMessage({ type: 'open-external-url', url: result.authUrl });
+		authUrl = result.authUrl;
+		window.open(result.authUrl, '_blank', 'noopener,noreferrer');
 		lastAction = 'Waiting for OpenAI callback';
 		pollingTimer = setInterval(() => {
 			void (async () => {
@@ -74,6 +76,7 @@ async function handleLogin() {
 						stopPolling();
 						authenticated = true;
 						email = status.email;
+						authUrl = '';
 						checking = false;
 						lastAction = 'Authorization completed';
 						onAuthStatusChange?.();
@@ -114,6 +117,7 @@ function handleCancel() {
 	stopPolling();
 	checking = false;
 	cancelled = true;
+	authUrl = '';
 	error = null;
 	lastAction = 'Authorization cancelled by user';
 }
@@ -131,6 +135,7 @@ async function handleLogout() {
 		await Api.authChatGPTLogout();
 		authenticated = false;
 		email = undefined;
+		authUrl = '';
 		cancelled = false;
 		lastAction = 'Disconnected';
 		stopPolling();
@@ -169,6 +174,14 @@ async function handleLogout() {
 				<IconLoader class="size-4 animate-spin" />
 				Waiting for authorization...
 			</div>
+			<a
+				href={authUrl}
+				target="_blank"
+				rel="noopener noreferrer"
+				class="anchor flex items-center gap-1 text-sm w-fit">
+				<IconExternalLink class="size-3.5" />
+				Open authorization page
+			</a>
 			<div class="flex gap-2">
 				<button
 					class="btn btn-sm preset-outlined-surface-700 hover:preset-filled-surface-500"

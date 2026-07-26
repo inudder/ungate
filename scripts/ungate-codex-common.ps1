@@ -73,18 +73,11 @@ function Test-UngateResponsesBridge {
         [string]$ProxyOpenAiBaseUrl
     )
 
-    $body = @{
-        model = $Model
-        input = ''
-    } | ConvertTo-Json -Compress
-
     try {
         $response = Invoke-WebRequest `
-            -Method Post `
-            -Uri "$ProxyOpenAiBaseUrl/responses" `
+            -Method Get `
+            -Uri "$ProxyOpenAiBaseUrl/responses/health" `
             -Headers @{ Authorization = "Bearer $Key" } `
-            -ContentType 'application/json' `
-            -Body $body `
             -TimeoutSec 5 `
             -SkipHttpErrorCheck `
             -ErrorAction Stop
@@ -97,13 +90,27 @@ function Test-UngateResponsesBridge {
     $text = $response.Content
 
     if ($statusCode -eq 404) {
-        throw '/v1/responses returned 404. Rebuild the NSSM bundle and restart the ungate-api service.'
+        throw '/v1/responses/health returned 404. Rebuild the NSSM bundle and restart the ungate-api service.'
     }
-    if ($statusCode -eq 400 -and $text -match 'Responses input must not be empty') {
-        return
+    if ($statusCode -in @(401, 403)) {
+        $detail = Get-CliProxyHttpErrorDetail -Content $text
+        throw "/v1/responses/health authentication failed with HTTP ${statusCode}: $detail"
+    }
+    if ($statusCode -ne 200) {
+        $detail = Get-CliProxyHttpErrorDetail -Content $text
+        throw "/v1/responses/health preflight failed with HTTP ${statusCode}: $detail"
     }
 
-    throw "/v1/responses preflight failed with HTTP ${statusCode}: $text"
+    try {
+        $payload = $text | ConvertFrom-Json -Depth 20 -ErrorAction Stop
+    }
+    catch {
+        throw "/v1/responses/health returned invalid JSON: $($_.Exception.Message)"
+    }
+
+    if ($payload.status -ne 'ok' -or $payload.wire_api -ne 'responses') {
+        throw '/v1/responses/health returned an unexpected health response.'
+    }
 }
 
 function Get-CliProxyHttpErrorDetail {

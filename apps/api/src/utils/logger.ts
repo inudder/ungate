@@ -5,6 +5,12 @@ export function setQuietMode(enabled: boolean): void {
 }
 
 export const logger = {
+	debug(...args: unknown[]): void {
+		if (!quietMode) {
+			globalThis.console.debug(...args);
+		}
+	},
+
 	log(...args: unknown[]): void {
 		if (!quietMode) {
 			globalThis.console.log(...args);

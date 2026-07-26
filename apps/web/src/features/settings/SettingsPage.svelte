@@ -5,6 +5,7 @@ import ModelsSection from './ModelsSection.svelte';
 import ProviderPanel from './ProviderPanel.svelte';
 import { getSettingsStore } from './settings-store.svelte';
 import { getSettingsUiStore } from './settings-ui-store.svelte';
+import WakePingPanel from './WakePingPanel.svelte';
 
 import type { AppSettings, ModelMappingConfig, ModelMappingProvider } from '@ungate/shared/frontend';
 
@@ -46,7 +47,6 @@ function withSortOrder(items: ModelMappingConfig[]): ModelMappingConfig[] {
 
 function currentValues(): Partial<AppSettings> {
 	const values: Partial<AppSettings> = {
-		port: parseInt(port, 10),
 		quiet,
 		models: cloneModels(models)
 	};
@@ -58,12 +58,6 @@ function currentValues(): Partial<AppSettings> {
 }
 
 function validateBeforeSave(): string | null {
-	const parsedPort = parseInt(port, 10);
-
-	if (!Number.isInteger(parsedPort) || parsedPort < 1 || parsedPort > 65535) {
-		return 'Port must be an integer between 1 and 65535.';
-	}
-
 	for (const model of models) {
 		if (!model.id.trim()) {
 			return 'Every model must have a Model ID.';
@@ -143,6 +137,7 @@ $effect(() => {
 
 	{#if store.settings}
 		<TunnelPanel />
+		<WakePingPanel />
 
 		<div class="card preset-tonal-surface border border-surface-700/30 p-5 space-y-4">
 			<div class="flex items-center justify-between gap-3">
@@ -161,7 +156,10 @@ $effect(() => {
 					<input
 						class="input text-sm"
 						type="number"
-						bind:value={port} />
+						bind:value={port}
+						readonly
+						disabled />
+					<span class="text-xs text-surface-500">Managed by the ungate-api NSSM service.</span>
 				</label>
 				<label class="label">
 					<span class="label-text text-xs">API Key</span>

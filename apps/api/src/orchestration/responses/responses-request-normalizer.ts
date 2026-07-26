@@ -1,6 +1,8 @@
 import { ModelMappings } from 'src/database/model-mappings';
 import { CodexInputUtils } from 'src/proxy/codex-input-utils';
 
+import { flattenResponsesNamespaceTools } from './responses-namespace-tools';
+
 import type { ModelMappingConfig } from '@ungate/shared';
 import type {
 	OpenAIChatRequest,
@@ -16,9 +18,22 @@ type ChatReasoningEffort = NonNullable<OpenAIChatRequest['reasoning']>['effort']
 
 const RESPONSES_COMPLETION_TOKEN_FLOOR = 8192;
 
+export type ResponsesRequestValidationErrorCode = 'empty_input';
+
+export class ResponsesRequestValidationError extends Error {
+	readonly code: ResponsesRequestValidationErrorCode;
+
+	constructor(code: ResponsesRequestValidationErrorCode, message: string) {
+		super(message);
+		this.name = 'ResponsesRequestValidationError';
+		this.code = code;
+	}
+}
+
 export interface ResponsesToChatRequestResult {
 	body: OpenAIChatRequest;
 	resolvedModel: ModelMappingConfig | null;
+	namespaceToolMapping: ReturnType<typeof flattenResponsesNamespaceTools>['mapping'];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -291,7 +306,7 @@ export function itemsToChatMessages(items: Record<string, unknown>[], instructio
 function inputToItems(input: OpenAIResponsesRequest['input']): Record<string, unknown>[] {
 	if (typeof input === 'string') {
 		if (!input.trim()) {
-			throw new Error('Responses input must not be empty');
+			throw new ResponsesRequestValidationError('empty_input', 'Responses input must not be empty');
 		}
 
 		return [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: input }] }];
@@ -314,20 +329,21 @@ function assertSupportedRequest(req: OpenAIResponsesRequest): void {
 export class ResponsesRequestNormalizer {
 	static toChatRequest(req: OpenAIResponsesRequest): ResponsesToChatRequestResult {
 		assertSupportedRequest(req);
+		const { request: flattenedRequest, mapping: namespaceToolMapping } = flattenResponsesNamespaceTools(req);
 
-		const resolvedModel = ModelMappings.resolveForChatCompletion(req.model);
-		const items = inputToItems(req.input);
-		const reasoningEffort = normalizeReasoningEffort(req.reasoning?.effort);
+		const resolvedModel = ModelMappings.resolveForChatCompletion(flattenedRequest.model);
+		const items = inputToItems(flattenedRequest.input);
+		const reasoningEffort = normalizeReasoningEffort(flattenedRequest.reasoning?.effort);
 		const body: OpenAIChatRequest = {
-			model: req.model,
-			messages: itemsToChatMessages(items, req.instructions),
-			stream: req.stream ?? false,
-			temperature: req.temperature,
-			top_p: req.top_p,
-			user: req.user,
-			tools: req.tools?.map(normalizeTool),
-			tool_choice: normalizeToolChoice(req.tool_choice),
-			max_completion_tokens: normalizeMaxCompletionTokens(req.max_output_tokens)
+			model: flattenedRequest.model,
+			messages: itemsToChatMessages(items, flattenedRequest.instructions),
+			stream: flattenedRequest.stream ?? false,
+			temperature: flattenedRequest.temperature,
+			top_p: flattenedRequest.top_p,
+			user: flattenedRequest.user,
+			tools: flattenedRequest.tools?.map((tool) => normalizeTool(tool as OpenAIResponsesFunctionTool | OpenAITool)),
+			tool_choice: normalizeToolChoice(flattenedRequest.tool_choice),
+			max_completion_tokens: normalizeMaxCompletionTokens(flattenedRequest.max_output_tokens)
 		};
 
 		if (reasoningEffort) {
@@ -335,10 +351,10 @@ export class ResponsesRequestNormalizer {
 			body.reasoning = { effort: reasoningEffort };
 		}
 
-		if (req.parallel_tool_calls !== undefined) {
-			(body as OpenAIChatRequest & { parallel_tool_calls?: boolean }).parallel_tool_calls = req.parallel_tool_calls;
+		if (flattenedRequest.parallel_tool_calls !== undefined) {
+			(body as OpenAIChatRequest & { parallel_tool_calls?: boolean }).parallel_tool_calls = flattenedRequest.parallel_tool_calls;
 		}
 
-		return { body, resolvedModel };
+		return { body, resolvedModel, namespaceToolMapping };
 	}
 }

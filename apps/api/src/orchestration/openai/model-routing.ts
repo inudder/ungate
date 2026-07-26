@@ -3,14 +3,37 @@ import { openaiToAnthropic } from 'src/adapter/openai-to-anthropic';
 import type { ModelMappingConfig } from '@ungate/shared';
 import type { OpenAIChatRequest } from 'src/types/openai';
 
+const MINIMAX_ADD_FILE_INSTRUCTION = [
+	'For Add File, copy this exact grammar and replace only the path and content:',
+	'*** Begin Patch',
+	'*** Add File: relative/path',
+	'+content',
+	'*** End Patch',
+	'There must be exactly one ASCII space after the colon. Every content line must start with a literal + in column 1. Do not add @@, indent the +, or escape it.'
+].join('\n');
+
+const MINIMAX_UPDATE_FILE_INSTRUCTION = [
+	'For Update File, copy this exact grammar and replace only the path and lines:',
+	'*** Begin Patch',
+	'*** Update File: relative/path',
+	'@@',
+	' unchanged context',
+	'-removed line',
+	'+added line',
+	'*** End Patch',
+	'Every hunk body line must start in column 1 with a space for context, - for deletion, or + for addition. Never emit a raw empty line inside a hunk: preserve an existing blank line as a line containing exactly one ASCII space, add a blank line as a line containing only +, and delete one as a line containing only -.'
+].join('\n');
+
 const MINIMAX_FILE_EDITING_INSTRUCTION = [
-	'MiniMax tool compatibility: the apply_patch custom tool is unavailable for this provider.',
-	'When a local file must be changed and exec_command is available, you must use exec_command to perform the edit.',
-	'PowerShell and Python file-editing commands are permitted for this MiniMax session; this rule overrides earlier instructions requiring apply_patch or prohibiting shell/Python writes.',
+	'MiniMax tool compatibility: when mcp__ungate_patch__apply_patch appears in the tool list, it is available and must be used for source edits.',
+	'Call the MCP patch tool with its exact working_directory, patch, and optional dry_run fields; do not replace it with shell or Python file edits.',
+	MINIMAX_ADD_FILE_INSTRUCTION,
+	MINIMAX_UPDATE_FILE_INSTRUCTION,
+	'If the MCP patch tool is not present in the tool list, use exec_command as the file-editing fallback.',
 	'Autonomous execution: research and planning are intermediate work, not task completion. While requested work remains, immediately call the next needed tool in the same turn; do not return a prose-only message that merely promises a future read, edit, or continuation.',
-	'For change requests, complete the sequence: inspect the required context, edit through exec_command, run relevant checks, then report the result.',
+	'For change requests, complete the sequence: inspect the required context, edit through the available patch tool, run relevant checks, then report the result.',
 	'Only finish without another tool call when the request is actually complete, a user decision is required, or a concrete blocker prevents safe progress; state that exact blocker.'
-].join(' ');
+].join('\n');
 
 function hasMiniMaxExecCommand(body: OpenAIChatRequest): boolean {
 	return Boolean(
@@ -27,8 +50,24 @@ function hasMiniMaxExecCommand(body: OpenAIChatRequest): boolean {
 	);
 }
 
+function hasMiniMaxPatchTool(body: OpenAIChatRequest): boolean {
+	return Boolean(
+		body.tools?.some((tool) => {
+			const name = tool.function.name;
+			const parameters = tool.function.parameters;
+
+			return (
+				(name === 'apply_patch' || name === 'mcp__ungate_patch__apply_patch') &&
+				parameters !== undefined &&
+				typeof parameters === 'object' &&
+				!Array.isArray(parameters)
+			);
+		})
+	);
+}
+
 function withMiniMaxFileEditingInstruction(body: OpenAIChatRequest): OpenAIChatRequest {
-	if (!hasMiniMaxExecCommand(body)) {
+	if (!hasMiniMaxExecCommand(body) && !hasMiniMaxPatchTool(body)) {
 		return body;
 	}
 

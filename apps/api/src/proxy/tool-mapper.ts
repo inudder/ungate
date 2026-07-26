@@ -68,7 +68,10 @@ const TOOL_NAME_MAPPING: Record<string, string> = {
 	request_user_input: 'AskUserQuestion',
 
 	// Browser/UI operations
-	browser_action: 'WebFetch'
+	browser_action: 'WebFetch',
+
+	// Codex MCP tools routed through the Responses namespace adapter
+	mcp__ungate_patch__apply_patch: 'Edit'
 };
 
 const VALID_CLAUDE_CODE_TOOLS = new Set([

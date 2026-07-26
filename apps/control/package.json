@@ -1,0 +1,27 @@
+{
+	"name": "@ungate/control",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"start": "node bundle/main.cjs",
+		"build:bundle": "pnpm --filter @ungate/web build && tsup && node scripts/copy-web-assets.mjs",
+		"smoke:bundle": "node scripts/smoke-bundle.mjs",
+		"smoke:browser": "node scripts/smoke-browser.mjs",
+		"check": "tsc --noEmit",
+		"lint": "eslint .",
+		"lint:fix": "eslint . --fix",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"@fastify/static": "~10.1.2",
+		"@ungate/shared": "workspace:*",
+		"fastify": "~5.8.5"
+	},
+	"devDependencies": {
+		"@types/node": "~22.15.35",
+		"@ungate/dev-kit": "workspace:*",
+		"tsup": "~8.5.1",
+		"typescript": "~5.7.0",
+		"vitest": "~4.0.18"
+	}
+}

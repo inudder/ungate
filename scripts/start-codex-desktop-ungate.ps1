@@ -8,7 +8,9 @@
     use, mirrors the normal Codex MCP server configuration, exposes the
     configured Ungate models through the Desktop picker, selects
     ungate-opus-4-8 by default, and launches Codex Beta with a process-local
-    CODEX_HOME.
+    CODEX_HOME. All models selected by this launcher use the same custom
+    CODEX_HOME, so their project history is shared. The normal ~/.codex profile
+    remains separate.
 
     The normal ~/.codex/config.toml is never modified. Codex Beta must be
     fully closed before launching this isolated instance.
@@ -22,7 +24,9 @@
     ungate-opus-4-8 by default without prompting.
 
 .PARAMETER CustomCodexHome
-    Isolated Codex home (default: ~/.codex-ungate).
+    Launcher Codex home and shared history store (default: ~/.codex-ungate).
+    Keep this value unchanged when switching models if a common history is
+    required. A non-default value is allowed, but creates a separate history.
 
 .PARAMETER PrepareOnly
     Prepare and validate the custom configuration without launching Desktop.
@@ -47,8 +51,29 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+function Normalize-CodexHomePath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$PathValue
+    )
+
+    if ([string]::IsNullOrWhiteSpace($PathValue)) {
+        throw 'Codex home path cannot be empty.'
+    }
+
+    $normalized = [System.IO.Path]::GetFullPath($PathValue)
+    $root = [System.IO.Path]::GetPathRoot($normalized)
+    if ($normalized.Length -gt $root.Length) {
+        $normalized = $normalized.TrimEnd('\', '/')
+    }
+
+    return $normalized
+}
+
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $DefaultCodexHome = Join-Path $HOME '.codex'
+$CanonicalCodexHome = Normalize-CodexHomePath -PathValue (Join-Path $HOME '.codex-ungate')
+$CustomCodexHome = Normalize-CodexHomePath -PathValue $CustomCodexHome
 $DefaultConfigPath = Join-Path $DefaultCodexHome 'config.toml'
 $CustomConfigPath = Join-Path $CustomCodexHome 'config.toml'
 $DefaultModelCachePath = Join-Path $DefaultCodexHome 'models_cache.json'
@@ -75,8 +100,28 @@ $UngateEnvironmentInstruction = @'
 Execution environment: Windows 11. The shell is PowerShell 7.
 
 HARD RULE — source edits:
-- Call the apply_patch tool for every manual source-file edit or file creation.
-  Do not type apply_patch inside Shell.
+- Prefer the native apply_patch tool for every manual source-file edit or file
+  creation. Do not type apply_patch inside Shell.
+- If native apply_patch is unavailable but the MCP namespace ungate_patch is
+  available, call ungate_patch.apply_patch with the absolute working directory
+  and patch text. Treat it as the required patch implementation.
+- Native apply_patch means a callable tool exposed in the current session.
+  Never emulate it from Shell by invoking codex.exe,
+  --codex-run-as-apply-patch, an apply_patch executable, or another wrapper.
+- When ungate_patch.apply_patch is available, call that MCP tool directly; do
+  not probe or invoke it through Shell.
+- If neither tool is available, stop and report the missing tool; do not edit
+  source through Shell.
+- Before calling a patch tool, verify that the patch starts with the exact
+  `*** Begin Patch` line, ends with the exact `*** End Patch` line, uses only
+  supported plain-text operation headers, and has at least one `-` or `+` line
+  in every `Update File` hunk. Do not wrap headers in Markdown emphasis.
+- If ungate_patch.apply_patch returns `no_change_hunk`, inspect the current
+  target block with read-only tools, rebuild the diff with a real `-` or `+`
+  change (or remove the operation), and retry the same patch tool exactly once.
+- If it returns `invalid_patch_header`, correct the header syntax and retry the
+  same patch tool exactly once. If that retry fails, or any other patch error
+  occurs, report the tool error and stop. An error never authorizes Shell edits.
 - Use Shell only for inspection, execution, formatting, and verification.
 - Do not edit source through Set-Content, Add-Content, WriteAllText, Python,
   Node.js, or a generated temporary edit script while apply_patch is available.
@@ -561,6 +606,54 @@ function Get-TomlTableFamilyContent {
     return ($result -join "`r`n").Trim()
 }
 
+function Get-CodexHistoryProfileInfo {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$HomePath,
+        [Parameter(Mandatory = $true)]
+        [string]$CanonicalHomePath,
+        [Parameter(Mandatory = $true)]
+        [string]$ModelSlug,
+        [Parameter(Mandatory = $true)]
+        [string]$ProviderName
+    )
+
+    $normalizedHome = Normalize-CodexHomePath -PathValue $HomePath
+    $normalizedCanonicalHome = Normalize-CodexHomePath -PathValue $CanonicalHomePath
+
+    return [pscustomobject][ordered]@{
+        ModelSlug = $ModelSlug
+        ProviderName = $ProviderName
+        CodexHome = $normalizedHome
+        SessionsPath = Join-Path $normalizedHome 'sessions'
+        StatePath = Join-Path $normalizedHome 'state_5.sqlite'
+        IsCanonical = [string]::Equals(
+            $normalizedHome,
+            $normalizedCanonicalHome,
+            [System.StringComparison]::OrdinalIgnoreCase
+        )
+    }
+}
+
+function Write-CodexHistoryProfileDiagnostics {
+    param(
+        [Parameter(Mandatory = $true)]
+        [psobject]$Profile
+    )
+
+    Write-Host "[ungate] CODEX_HOME (launcher history): $($Profile.CodexHome)" -ForegroundColor Cyan
+    Write-Host "[ungate] Session history directory: $($Profile.SessionsPath)" -ForegroundColor DarkGray
+    Write-Host "[ungate] Session state database: $($Profile.StatePath)" -ForegroundColor DarkGray
+    Write-Host "[ungate] Normal Codex profile remains separate: $DefaultCodexHome" -ForegroundColor DarkGray
+    Write-Host "[ungate] Selected model/provider: $($Profile.ModelSlug) / $($Profile.ProviderName)." -ForegroundColor DarkGray
+
+    if (-not $Profile.IsCanonical) {
+        Write-Host `
+            "[ungate] Warning: -CustomCodexHome is not the shared default '$CanonicalCodexHome'. This launch uses a separate history." `
+            -ForegroundColor Yellow
+    }
+}
+
 function Initialize-UngateCodexConfig {
     if (Test-Path -LiteralPath $CustomConfigPath) {
         Write-Host "[ungate] Using existing custom config: $CustomConfigPath" -ForegroundColor DarkGray
@@ -794,6 +887,8 @@ function Sync-CodexAuthentication {
 }
 
 function Get-CodexCliExecutable {
+    $candidatePaths = [System.Collections.Generic.List[string]]::new()
+
     foreach ($configPath in @($DefaultConfigPath, $CustomConfigPath)) {
         if (-not (Test-Path -LiteralPath $configPath)) {
             continue
@@ -805,26 +900,62 @@ function Get-CodexCliExecutable {
             "(?m)^CODEX_CLI_PATH\s*=\s*['`"]([^'`"]+)['`"]\s*$"
         )
         if ($configuredCliMatch.Success) {
-            $configuredCli = $configuredCliMatch.Groups[1].Value
-            if (Test-Path -LiteralPath $configuredCli) {
-                return $configuredCli
+            $candidatePaths.Add($configuredCliMatch.Groups[1].Value)
+        }
+    }
+
+    foreach ($codexCommand in @(Get-Command codex -All -ErrorAction SilentlyContinue)) {
+        $commandSource = [string]$codexCommand.Source
+        if ([string]::IsNullOrWhiteSpace($commandSource)) {
+            continue
+        }
+
+        $candidatePaths.Add($commandSource)
+        $commandDirectory = Split-Path -Parent $commandSource
+        $npmPackageRoot = Join-Path $commandDirectory 'node_modules\@openai\codex'
+        if (Test-Path -LiteralPath $npmPackageRoot -PathType Container) {
+            $npmNativeCandidates = Get-ChildItem `
+                -LiteralPath $npmPackageRoot `
+                -Filter 'codex.exe' `
+                -Recurse `
+                -File `
+                -ErrorAction SilentlyContinue |
+                Sort-Object LastWriteTimeUtc -Descending
+            foreach ($npmNativeCandidate in $npmNativeCandidates) {
+                $candidatePaths.Add($npmNativeCandidate.FullName)
             }
         }
     }
 
-    $codex = Get-Command codex -ErrorAction SilentlyContinue
-    if ($codex -and (Test-Path -LiteralPath $codex.Source)) {
-        return $codex.Source
-    }
-
     $localCodexBin = Join-Path $env:LOCALAPPDATA 'OpenAI\Codex\bin'
     if (Test-Path -LiteralPath $localCodexBin) {
-        $codexExecutable = Get-ChildItem -LiteralPath $localCodexBin -Recurse -Filter codex.exe -ErrorAction SilentlyContinue |
+        $localNativeCandidates = Get-ChildItem `
+            -LiteralPath $localCodexBin `
+            -Recurse `
+            -Filter 'codex.exe' `
+            -File `
+            -ErrorAction SilentlyContinue |
             Sort-Object LastWriteTime -Descending |
-            Select-Object -First 1
-        if ($codexExecutable) {
-            return $codexExecutable.FullName
+            Select-Object -First 5
+        foreach ($localNativeCandidate in $localNativeCandidates) {
+            $candidatePaths.Add($localNativeCandidate.FullName)
         }
+    }
+
+    $seenPaths = [System.Collections.Generic.HashSet[string]]::new(
+        [System.StringComparer]::OrdinalIgnoreCase
+    )
+    foreach ($candidatePath in $candidatePaths) {
+        if (
+            [string]::IsNullOrWhiteSpace($candidatePath) -or
+            [System.IO.Path]::GetExtension($candidatePath) -ine '.exe' -or
+            -not $seenPaths.Add($candidatePath) -or
+            -not (Test-Path -LiteralPath $candidatePath -PathType Leaf)
+        ) {
+            continue
+        }
+
+        return (Resolve-Path -LiteralPath $candidatePath).Path
     }
 
     return $null
@@ -1063,19 +1194,24 @@ function Assert-UngateCodexConfig {
                 -Headers @{ Authorization = "Bearer $providerKey" } `
                 -TimeoutSec 5 `
                 -ErrorAction Stop
+            $availableModelIds = @($availableModels.data | ForEach-Object { $_.id })
+            $missingModelIds = @($providerModels.Slug | Where-Object { $_ -notin $availableModelIds })
+            if ($missingModelIds.Count -gt 0) {
+                Write-Host `
+                    "[ungate] Warning: catalog models not found in $($provider.Name) /v1/models: $($missingModelIds -join ', ')" `
+                    -ForegroundColor Yellow
+            }
+            else {
+                Write-Host `
+                    "[ungate] $($provider.DisplayName) models available: $($providerModels.Slug -join ', ')." `
+                    -ForegroundColor Green
+            }
         }
         catch {
-            throw "Could not validate models for '$($provider.Name)' through $($provider.ProxyBaseUrl)/v1/models: $($_.Exception.Message)"
+            Write-Host `
+                "[ungate] Warning: could not validate models for '$($provider.Name)' through $($provider.ProxyBaseUrl)/v1/models: $($_.Exception.Message)" `
+                -ForegroundColor Yellow
         }
-
-        $availableModelIds = @($availableModels.data | ForEach-Object { $_.id })
-        $missingModelIds = @($providerModels.Slug | Where-Object { $_ -notin $availableModelIds })
-        if ($missingModelIds.Count -gt 0) {
-            throw "Catalog models not found in $($provider.Name) /v1/models: $($missingModelIds -join ', ')"
-        }
-        Write-Host `
-            "[ungate] $($provider.DisplayName) models available: $($providerModels.Slug -join ', ')." `
-            -ForegroundColor Green
     }
 
     $codexExecutable = Get-CodexCliExecutable
@@ -1516,6 +1652,12 @@ if (-not $selectedModelDefinition) {
 Write-Host `
     "[ungate] Selected model: $($selectedModelDefinition.DisplayName) [$Model]." `
     -ForegroundColor Cyan
+$historyProfile = Get-CodexHistoryProfileInfo `
+    -HomePath $CustomCodexHome `
+    -CanonicalHomePath $CanonicalCodexHome `
+    -ModelSlug $Model `
+    -ProviderName $selectedModelDefinition.ProviderName
+Write-CodexHistoryProfileDiagnostics -Profile $historyProfile
 
 $codexBeta = Get-CodexBetaPackageInfo
 $desktopExecutable = $codexBeta.ExecutablePath
@@ -1539,39 +1681,56 @@ foreach ($provider in (Get-ProviderDefinitions)) {
 Ensure-CliProxyBridge -Key $providerKeys[$CliProxyProviderName]
 
 $selectedKey = $providerKeys[$selectedModelDefinition.ProviderName]
-try {
-    if ($selectedModelDefinition.RequiresUngate) {
-        Invoke-UngatePreflight `
-            -Key $selectedKey `
-            -Model $Model `
-            -ProxyBaseUrl $selectedModelDefinition.ProxyBaseUrl
-    }
-    else {
-        # CLIProxyAPI has no /health, so validate both discovery and a minimal live inference.
-        $models = Invoke-RestMethod `
-            -Uri "$($selectedModelDefinition.ProxyBaseUrl)/v1/models" `
-            -Headers @{ Authorization = "Bearer $selectedKey" } `
-            -TimeoutSec 5 `
-            -ErrorAction Stop
-        $ids = @($models.data | ForEach-Object { $_.id })
-        if ($Model -notin $ids) {
-            throw "Model '$Model' not found in $($selectedModelDefinition.ProxyBaseUrl)/v1/models. Available: $($ids -join ', ')"
+$preflightAttempts = 2
+$preflightFailure = $null
+for ($attempt = 1; $attempt -le $preflightAttempts; $attempt++) {
+    try {
+        if ($selectedModelDefinition.RequiresUngate) {
+            Invoke-UngatePreflight `
+                -Key $selectedKey `
+                -Model $Model `
+                -ProxyBaseUrl $selectedModelDefinition.ProxyBaseUrl
         }
-        Write-Host "[ungate] Proxy healthy at $($selectedModelDefinition.ProxyBaseUrl)." -ForegroundColor Green
-        Write-Host "[ungate] Model '$Model' available." -ForegroundColor Green
-        Test-CliProxyResponsesInference `
-            -Key $selectedKey `
-            -Model $Model `
-            -ProxyOpenAiBaseUrl "$($selectedModelDefinition.ProxyBaseUrl)/v1"
-        Write-Host `
-            "[ungate] Live /v1/responses inference preflight passed for '$Model'." `
-            -ForegroundColor Green
+        else {
+            # CLIProxyAPI has no /health, so validate both discovery and a minimal live inference.
+            $models = Invoke-RestMethod `
+                -Uri "$($selectedModelDefinition.ProxyBaseUrl)/v1/models" `
+                -Headers @{ Authorization = "Bearer $selectedKey" } `
+                -TimeoutSec 5 `
+                -ErrorAction Stop
+            $ids = @($models.data | ForEach-Object { $_.id })
+            if ($Model -notin $ids) {
+                throw "Model '$Model' not found in $($selectedModelDefinition.ProxyBaseUrl)/v1/models. Available: $($ids -join ', ')"
+            }
+            Write-Host "[ungate] Proxy healthy at $($selectedModelDefinition.ProxyBaseUrl)." -ForegroundColor Green
+            Write-Host "[ungate] Model '$Model' available." -ForegroundColor Green
+            Test-CliProxyResponsesInference `
+                -Key $selectedKey `
+                -Model $Model `
+                -ProxyOpenAiBaseUrl "$($selectedModelDefinition.ProxyBaseUrl)/v1"
+            Write-Host `
+                "[ungate] Live /v1/responses inference preflight passed for '$Model'." `
+                -ForegroundColor Green
+        }
+
+        $preflightFailure = $null
+        break
+    }
+    catch {
+        $preflightFailure = $_
+        if ($attempt -lt $preflightAttempts) {
+            Write-Host `
+                "[ungate] Preflight attempt $attempt of $preflightAttempts failed; retrying." `
+                -ForegroundColor Yellow
+            Write-Host "        $($_.Exception.Message)" -ForegroundColor DarkYellow
+            Start-Sleep -Seconds 1
+        }
     }
 }
-catch {
+
+if ($preflightFailure) {
     Write-Host '[ungate] Preflight failed.' -ForegroundColor Red
-    Write-Host "        $($_.Exception.Message)" -ForegroundColor Yellow
-    exit 2
+    Write-Host "        $($preflightFailure.Exception.Message)" -ForegroundColor Yellow
 }
 
 Initialize-UngateCodexConfig
@@ -1611,6 +1770,10 @@ Write-Host "[ungate] Custom CODEX_HOME ready: $CustomCodexHome" -ForegroundColor
 Restore-CodexWorkspaceRoots
 
 if ($PrepareOnly) {
+    if ($preflightFailure) {
+        Write-Host '[ungate] Preparation finished with preflight warning. Desktop launch skipped.' -ForegroundColor Yellow
+        exit 2
+    }
     Write-Host '[ungate] Preparation passed. Desktop launch skipped.' -ForegroundColor Green
     exit 0
 }

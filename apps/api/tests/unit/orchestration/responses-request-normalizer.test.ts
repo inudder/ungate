@@ -59,6 +59,40 @@ describe('ResponsesRequestNormalizer', () => {
 		expect(result.body.max_completion_tokens).toBe(12000);
 	});
 
+	it('passes flattened MCP namespace tools to chat providers', () => {
+		resolveForChatCompletionMock.mockReturnValueOnce({ provider: 'minimax', upstreamModel: 'mini-up' });
+
+		const result = ResponsesRequestNormalizer.toChatRequest({
+			model: 'miniMax-M3',
+			input: 'apply it',
+			tools: [
+				{
+					type: 'namespace',
+					name: 'mcp__ungate_patch',
+					tools: [
+						{
+							type: 'function',
+							name: 'apply_patch',
+							inputSchema: { type: 'object', properties: { patch: { type: 'string' } } }
+						}
+					]
+				}
+			]
+		});
+
+		expect(result.body.tools).toEqual([
+			{
+				type: 'function',
+				function: {
+					name: 'mcp__ungate_patch__apply_patch',
+					description: undefined,
+					parameters: { type: 'object', properties: { patch: { type: 'string' } } },
+					strict: undefined
+				}
+			}
+		]);
+	});
+
 	it('turns function_call and function_call_output items into chat messages', () => {
 		const messages = itemsToChatMessages([
 			{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'run tool' }] },

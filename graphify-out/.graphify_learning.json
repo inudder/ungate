@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-20T13:11:27.646469+00:00",
+  "generated_at": "2026-07-22T12:27:46.252578+00:00",
   "nodes": {
     "scripts_codex_plugin_isolation_get_codexplugininventory": {
       "code_fingerprint": "9c0c258ad62fe3e5a6e806c6ce12855aa30b8ab2da79d57350a026ab5397cae2",
@@ -12,7 +12,7 @@
           "q": "J:\\Dev\\ungate-local\\scripts\\start-codex-desktop-ungate.ps1 после обновления Codex Beta перестал запускаться: plugin list --json reports openai-bundled marketplace root does not contain a supported manifest."
         }
       ],
-      "score": 0.972395676,
+      "score": 0.92913495,
       "source_file": "scripts/codex-plugin-isolation.psm1",
       "status": "tentative",
       "uses": 1
@@ -28,7 +28,7 @@
           "q": "J:\\Dev\\ungate-local\\scripts\\start-codex-desktop-ungate.ps1 после обновления Codex Beta перестал запускаться: plugin list --json reports openai-bundled marketplace root does not contain a supported manifest."
         }
       ],
-      "score": 0.972395676,
+      "score": 0.92913495,
       "source_file": "scripts/codex-plugin-isolation.psm1",
       "status": "tentative",
       "uses": 1
@@ -44,13 +44,13 @@
           "q": "J:\\Dev\\ungate-local\\scripts\\start-codex-desktop-ungate.ps1 после обновления Codex Beta перестал запускаться: plugin list --json reports openai-bundled marketplace root does not contain a supported manifest."
         }
       ],
-      "score": 0.972395676,
+      "score": 0.92913495,
       "source_file": "scripts/codex-plugin-isolation.psm1",
       "status": "tentative",
       "uses": 1
     },
     "scripts_start_codex_desktop_ungate": {
-      "code_fingerprint": "e63f2d0378460f6007df7b7886fb3ba0ace88d7fc30b30ed44de55d93c852ff8",
+      "code_fingerprint": "e3580d6c4335d30f65457bea5743ff04a4224f8851b7155d37639908421ceaae",
       "label": "start-codex-desktop-ungate.ps1",
       "last": "2026-07-19T08:06:50.721031+00:00",
       "provenance": [
@@ -60,7 +60,7 @@
           "q": "J:\\Dev\\ungate-local\\scripts\\start-codex-desktop-ungate.ps1 после обновления Codex Beta перестал запускаться: plugin list --json reports openai-bundled marketplace root does not contain a supported manifest."
         }
       ],
-      "score": 0.972395676,
+      "score": 0.92913495,
       "source_file": "scripts/start-codex-desktop-ungate.ps1",
       "status": "tentative",
       "uses": 1

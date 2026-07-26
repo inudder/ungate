@@ -72,17 +72,21 @@ $env:UNGATE_API_KEY = $key
 Write-Host "[ungate] API key resolved (len=$($key.Length))." -ForegroundColor DarkGray
 
 # 2. Validate the proxy, model mapping, and Responses bridge.
+$preflightFailed = $false
 try {
     Invoke-UngatePreflight -Key $key -Model $Profile -ProxyBaseUrl $ProxyBaseUrl
 }
 catch {
+    $preflightFailed = $true
     Write-Host '[ungate] Preflight failed.' -ForegroundColor Red
     Write-Host "        $($_.Exception.Message)" -ForegroundColor Yellow
     Write-Host "        Run: pnpm --filter @ungate/api build:bundle; then restart: nssm restart ungate-api" -ForegroundColor Yellow
-    exit 2
 }
 
 if ($PreflightOnly) {
+    if ($preflightFailed) {
+        exit 2
+    }
     Write-Host "[ungate] Preflight passed. Skipping Codex launch because -PreflightOnly was set." -ForegroundColor Green
     exit 0
 }

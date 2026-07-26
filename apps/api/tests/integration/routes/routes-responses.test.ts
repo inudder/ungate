@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import responsesPlugin from 'src/routes/responses';
+import { logger } from 'src/utils/logger';
 
 import { withPlugin } from '../test-harness';
 
@@ -48,7 +49,98 @@ function sseResponse(events: string[]): Response {
 
 describe('routes-responses', () => {
 	afterEach(() => {
+		vi.restoreAllMocks();
 		vi.clearAllMocks();
+	});
+
+	it('reports the authenticated Responses bridge health without calling an upstream provider', async () => {
+		const app = await withPlugin(responsesPlugin, { apiKey: 'secret' });
+		const response = await app.inject({
+			method: 'GET',
+			url: '/v1/responses/health',
+			headers: { authorization: 'Bearer secret' }
+		});
+
+		expect(response.statusCode).toBe(200);
+		expect(response.json()).toEqual({ status: 'ok', wire_api: 'responses' });
+		expect(resolveForChatCompletionMock).not.toHaveBeenCalled();
+		expect(proxyMiniMaxRequestMock).not.toHaveBeenCalled();
+		expect(proxyOpenAIRequestMock).not.toHaveBeenCalled();
+		expect(proxyRequestMock).not.toHaveBeenCalled();
+		expect(requestsRecordMock).not.toHaveBeenCalled();
+		await app.close();
+	});
+
+	it('protects the Responses bridge health endpoint with the configured API key', async () => {
+		const app = await withPlugin(responsesPlugin, { apiKey: 'secret' });
+		const response = await app.inject({
+			method: 'GET',
+			url: '/v1/responses/health',
+			headers: { authorization: 'Bearer wrong-key' }
+		});
+
+		expect(response.statusCode).toBe(403);
+		expect(response.json()).toEqual({
+			type: 'error',
+			error: { type: 'authentication_error', message: 'Unauthorized: Invalid API key' }
+		});
+		expect(resolveForChatCompletionMock).not.toHaveBeenCalled();
+		await app.close();
+	});
+
+	it('returns the existing 400 contract for empty input and records only safe debug metadata', async () => {
+		const debugSpy = vi.spyOn(logger, 'debug').mockImplementation(() => {});
+		const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => {});
+		const app = await withPlugin(responsesPlugin, { apiKey: 'secret' });
+		const response = await app.inject({
+			method: 'POST',
+			url: '/v1/responses',
+			headers: {
+				authorization: 'Bearer secret',
+				'user-agent': 'Codex Desktop/test',
+				originator: 'codex_cli_rs'
+			},
+			payload: { model: 'minimax-alias', input: '', stream: true }
+		});
+
+		expect(response.statusCode).toBe(400);
+		expect(response.json()).toEqual({
+			error: { message: 'Responses input must not be empty', type: 'invalid_request_error' }
+		});
+		expect(debugSpy).toHaveBeenCalledWith('Responses request validation rejected', {
+			code: 'empty_input',
+			model: 'minimax-alias',
+			stream: true,
+			userAgent: 'Codex Desktop/test',
+			originator: 'codex_cli_rs'
+		});
+		expect(errorSpy).not.toHaveBeenCalled();
+		expect(proxyMiniMaxRequestMock).not.toHaveBeenCalled();
+		expect(proxyOpenAIRequestMock).not.toHaveBeenCalled();
+		expect(proxyRequestMock).not.toHaveBeenCalled();
+		await app.close();
+	});
+
+	it('continues to log non-empty-input request failures as errors', async () => {
+		const debugSpy = vi.spyOn(logger, 'debug').mockImplementation(() => {});
+		const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => {});
+		const app = await withPlugin(responsesPlugin, { apiKey: 'secret' });
+		const response = await app.inject({
+			method: 'POST',
+			url: '/v1/responses',
+			headers: { authorization: 'Bearer secret' },
+			payload: { model: '', input: 'hello' }
+		});
+
+		expect(response.statusCode).toBe(400);
+		expect(response.json()).toEqual({
+			error: { message: 'Responses request model is required', type: 'invalid_request_error' }
+		});
+		expect(debugSpy).not.toHaveBeenCalled();
+		expect(errorSpy).toHaveBeenCalledWith(
+			'Responses request handling error: Error: Responses request model is required'
+		);
+		await app.close();
 	});
 
 	it('routes to MiniMax and returns a Responses JSON object', async () => {
@@ -101,12 +193,97 @@ describe('routes-responses', () => {
 				messages: expect.arrayContaining([
 					expect.objectContaining({
 						role: 'system',
-						content: expect.stringContaining('apply_patch custom tool is unavailable')
+						content: expect.stringContaining('mcp__ungate_patch__apply_patch appears in the tool list')
 					})
 				])
 			})
 		);
 		expect(requestsRecordMock).toHaveBeenCalled();
+		await app.close();
+	});
+
+	it('flattens MCP namespace tools for MiniMax and restores the namespace in streaming tool calls', async () => {
+		resolveForChatCompletionMock.mockReturnValueOnce({ provider: 'minimax', upstreamModel: 'mini-up' });
+		proxyMiniMaxRequestMock.mockResolvedValueOnce({
+			response: sseResponse([
+				JSON.stringify({
+					choices: [
+						{
+							delta: {
+								tool_calls: [
+									{
+										index: 0,
+										id: 'call_patch',
+										type: 'function',
+										function: {
+											name: 'mcp__ungate_patch__apply_patch',
+											arguments: '{"working_directory":"J:\\\\Dev\\\\project","patch":"*** Begin Patch"}'
+										}
+									}
+								]
+							},
+							finish_reason: 'tool_calls'
+						}
+					],
+					usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 }
+				})
+			]),
+			context: {
+				startTime: Date.now(),
+				model: 'mini-up',
+				source: 'minimax',
+				reverseToolMapping: {},
+				inputTokens: 1,
+				outputTokens: 2
+			}
+		});
+
+		const app = await withPlugin(responsesPlugin, { apiKey: 'secret' });
+		const response = await app.inject({
+			method: 'POST',
+			url: '/v1/responses',
+			headers: { 'x-api-key': 'secret' },
+			payload: {
+				model: 'minimax-alias',
+				input: 'apply it',
+				stream: true,
+				tools: [
+					{
+						type: 'namespace',
+						name: 'mcp__ungate_patch',
+						tools: [
+							{
+								type: 'function',
+								name: 'apply_patch',
+								description: 'Apply a source patch',
+								inputSchema: {
+									type: 'object',
+									properties: { working_directory: { type: 'string' }, patch: { type: 'string' } },
+									required: ['working_directory', 'patch']
+								}
+							}
+						]
+					}
+				]
+			}
+		});
+
+		expect(response.statusCode).toBe(200);
+		expect(proxyMiniMaxRequestMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				tools: [
+					expect.objectContaining({
+						function: expect.objectContaining({
+							name: 'mcp__ungate_patch__apply_patch',
+							parameters: expect.objectContaining({ required: ['working_directory', 'patch'] })
+						})
+					})
+				]
+			})
+		);
+		expect(response.body).toContain('"name":"apply_patch"');
+		expect(response.body).toContain('"namespace":"mcp__ungate_patch"');
+		expect(response.body).toContain('response.function_call_arguments.done');
 		await app.close();
 	});
 
@@ -316,6 +493,96 @@ describe('routes-responses', () => {
 		expect(response.body).toContain('event: response.completed');
 		expect(response.body).not.toContain('[DONE]');
 		expect(requestsRecordMock).toHaveBeenCalled();
+		await app.close();
+	});
+
+	it('carries MCP namespace tools through the Claude route and restores the tool call for Codex', async () => {
+		resolveForChatCompletionMock.mockReturnValueOnce({
+			provider: 'claude',
+			upstreamModel: 'claude-opus-4-8',
+			reasoningBudget: 'high'
+		});
+		proxyRequestMock.mockResolvedValueOnce({
+			response: new Response(
+				JSON.stringify({
+					id: 'msg_patch',
+					model: 'claude-opus-4-8',
+					content: [
+						{
+							type: 'tool_use',
+							id: 'call_patch',
+							name: 'Edit',
+							input: { working_directory: 'J:\\Dev\\project', patch: '*** Begin Patch' }
+						}
+					],
+					stop_reason: 'tool_use',
+					usage: { input_tokens: 2, output_tokens: 3 }
+				}),
+				{ status: 200, headers: { 'content-type': 'application/json' } }
+			),
+			context: {
+				startTime: Date.now(),
+				model: 'claude-opus-4-8',
+				source: 'claude',
+				reverseToolMapping: { Edit: 'mcp__ungate_patch__apply_patch' },
+				inputTokens: 2,
+				outputTokens: 3
+			}
+		});
+
+		const app = await withPlugin(responsesPlugin, { apiKey: 'secret' });
+		const response = await app.inject({
+			method: 'POST',
+			url: '/v1/responses',
+			headers: { 'x-api-key': 'secret' },
+			payload: {
+				model: 'ungate-opus-4-8',
+				input: 'apply it',
+				tools: [
+					{
+						type: 'namespace',
+						name: 'mcp__ungate_patch',
+						tools: [
+							{
+								type: 'function',
+								name: 'apply_patch',
+								description: 'Apply a source patch',
+								inputSchema: {
+									type: 'object',
+									properties: { working_directory: { type: 'string' }, patch: { type: 'string' } },
+									required: ['working_directory', 'patch']
+								}
+							}
+						]
+					}
+				]
+			}
+		});
+
+		expect(response.statusCode).toBe(200);
+		expect(proxyRequestMock).toHaveBeenCalledWith(
+			'/v1/messages',
+			expect.objectContaining({
+				model: 'claude-opus-4-8',
+				tools: [
+					expect.objectContaining({
+						name: 'mcp__ungate_patch__apply_patch',
+						input_schema: expect.objectContaining({ required: ['working_directory', 'patch'] })
+					})
+				]
+			}),
+			expect.any(Object)
+		);
+		expect(response.json()).toMatchObject({
+			output: [
+				{
+					type: 'function_call',
+					name: 'apply_patch',
+					namespace: 'mcp__ungate_patch',
+					call_id: 'call_patch'
+				}
+			]
+		});
 		await app.close();
 	});
 });

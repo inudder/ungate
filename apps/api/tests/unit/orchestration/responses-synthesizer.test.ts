@@ -22,6 +22,19 @@ function sseResponse(events: string[]): Response {
 	return new Response(stream, { status: 200, headers: { 'content-type': 'text/event-stream' } });
 }
 
+function sseResponseWithUnterminatedFinalEvent(events: string[]): Response {
+	const stream = new ReadableStream<Uint8Array>({
+		start(controller) {
+			const encoder = new TextEncoder();
+			const body = events.map((event, index) => `data: ${event}${index === events.length - 1 ? '' : '\n\n'}`).join('');
+			controller.enqueue(encoder.encode(body));
+			controller.close();
+		}
+	});
+
+	return new Response(stream, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+}
+
 function context() {
 	return {
 		model: 'model-upstream',
@@ -254,5 +267,27 @@ describe('Responses synthesizers', () => {
 		expect(text).not.toContain('response.reasoning_summary_text.delta');
 		expect(text).not.toContain('private reasoning');
 		expect(text).not.toContain('also private');
+	});
+
+	it('flushes a MiniMax final SSE event without a blank delimiter', async () => {
+		const { stream } = ResponsesStreamSynthesizer.createResponseStream({
+			source: 'minimax',
+			response: sseResponseWithUnterminatedFinalEvent([
+				'{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_patch","type":"function","function":{"name":"mcp__ungate_patch__apply_patch"}}]},"finish_reason":null}]}',
+				'{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\\"working_directory\\":\\"J:\\\\Dev\\\\project\\",\\"patch\\":\\"*** Begin Patch\\"}"}}]},"finish_reason":"tool_calls"}]}'
+			]),
+			requestId: 'minimax_tail_test',
+			model: 'miniMax-M3',
+			context: {
+				...context(),
+				source: 'minimax'
+			}
+		});
+		const text = await readBody(stream);
+
+		expect(text).toContain('response.function_call_arguments.done');
+		expect(text).toContain('mcp__ungate_patch__apply_patch');
+		expect(text).toContain('working_directory');
+		expect(text).toContain('response.completed');
 	});
 });

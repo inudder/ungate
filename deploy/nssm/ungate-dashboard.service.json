@@ -1,0 +1,24 @@
+{
+  "name": "ungate-dashboard",
+  "displayName": "Ungate Local Dashboard",
+  "runtimePreset": "node",
+  "path": "C:\\Program Files\\nodejs\\node.exe",
+  "args": "bundle\\main.cjs",
+  "cwd": "J:\\Dev\\ungate-local\\apps\\control",
+  "autoStart": true,
+  "restartOnCrash": true,
+  "managedPorts": [47820],
+  "env": {
+    "NODE_ENV": "production",
+    "PORT": "47820",
+    "UNGATE_API_PORT": "47821",
+    "UNGATE_API_URL": "http://127.0.0.1:47821",
+    "UNGATE_API_SERVICE": "ungate-api",
+    "UNGATE_TUNNEL_SERVICE": "frpc",
+    "UNGATE_TUNNEL_HEALTH_URL": "https://ungate.ahref.cyou/health",
+    "NSSM_PATH": "C:\\Users\\kalvinclein\\scoop\\apps\\nssm\\current\\nssm.exe"
+  },
+  "logs": "J:\\Dev\\ungate-local\\apps\\control\\ungate-dashboard.log",
+  "logonMode": "localSystem",
+  "logonUser": ""
+}

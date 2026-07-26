@@ -2,6 +2,96 @@ BeforeAll {
     . (Join-Path $PSScriptRoot 'ungate-codex-common.ps1')
 }
 
+Describe 'Test-UngateResponsesBridge' {
+    It 'uses the authenticated health endpoint without a request body' {
+        Mock Invoke-WebRequest {
+            [pscustomobject]@{
+                StatusCode = 200
+                Content = '{"status":"ok","wire_api":"responses"}'
+            }
+        }
+
+        {
+            Test-UngateResponsesBridge `
+                -Key 'test-key' `
+                -Model 'ungate-opus-4-8' `
+                -ProxyOpenAiBaseUrl 'http://127.0.0.1:47821/v1'
+        } | Should -Not -Throw
+
+        Should -Invoke Invoke-WebRequest -Times 1 -Exactly -ParameterFilter {
+            $Method -eq 'Get' -and
+            $Uri -eq 'http://127.0.0.1:47821/v1/responses/health' -and
+            $Headers.Authorization -eq 'Bearer test-key' -and
+            $TimeoutSec -eq 5 -and
+            $null -eq $Body
+        }
+    }
+
+    It 'reports an authentication failure' {
+        Mock Invoke-WebRequest {
+            [pscustomobject]@{
+                StatusCode = 403
+                Content = '{"error":{"message":"Unauthorized: Invalid API key"}}'
+            }
+        }
+
+        {
+            Test-UngateResponsesBridge `
+                -Key 'bad-key' `
+                -Model 'ungate-opus-4-8' `
+                -ProxyOpenAiBaseUrl 'http://127.0.0.1:47821/v1'
+        } | Should -Throw '*authentication failed with HTTP 403*'
+    }
+
+    It 'reports a stale service bundle when the health endpoint is missing' {
+        Mock Invoke-WebRequest {
+            [pscustomobject]@{
+                StatusCode = 404
+                Content = '{"error":"Not Found"}'
+            }
+        }
+
+        {
+            Test-UngateResponsesBridge `
+                -Key 'test-key' `
+                -Model 'ungate-opus-4-8' `
+                -ProxyOpenAiBaseUrl 'http://127.0.0.1:47821/v1'
+        } | Should -Throw '*Rebuild the NSSM bundle and restart the ungate-api service*'
+    }
+
+    It 'rejects invalid JSON from the health endpoint' {
+        Mock Invoke-WebRequest {
+            [pscustomobject]@{
+                StatusCode = 200
+                Content = 'not-json'
+            }
+        }
+
+        {
+            Test-UngateResponsesBridge `
+                -Key 'test-key' `
+                -Model 'ungate-opus-4-8' `
+                -ProxyOpenAiBaseUrl 'http://127.0.0.1:47821/v1'
+        } | Should -Throw '*returned invalid JSON*'
+    }
+
+    It 'rejects an unexpected health response contract' {
+        Mock Invoke-WebRequest {
+            [pscustomobject]@{
+                StatusCode = 200
+                Content = '{"status":"ok","wire_api":"chat"}'
+            }
+        }
+
+        {
+            Test-UngateResponsesBridge `
+                -Key 'test-key' `
+                -Model 'ungate-opus-4-8' `
+                -ProxyOpenAiBaseUrl 'http://127.0.0.1:47821/v1'
+        } | Should -Throw '*unexpected health response*'
+    }
+}
+
 Describe 'Test-CliProxyResponsesInference' {
     It 'sends a minimal non-streaming inference request and accepts OK' {
         Mock Invoke-WebRequest {

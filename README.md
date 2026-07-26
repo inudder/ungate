@@ -58,8 +58,27 @@ sequenceDiagram
 - [x] MiniMax `<think>...</think>` reasoning separation
 - [x] Request analytics
 - [x] Analytics split by provider: Claude, OpenAI, and MiniMax
-- [x] Built-in web UI panel
+- [x] Standalone local dashboard on `127.0.0.1:47820`
 - [x] Keeps `OpenAI API Key` enabled when Cursor turns it off on its own
+
+## Standalone local dashboard
+
+The local fork runs the dashboard independently from Cursor:
+
+- `ungate-dashboard` serves the Svelte UI and control API on `127.0.0.1:47820`.
+- `ungate-api` remains the model proxy on `127.0.0.1:47821`.
+- `frpc` remains the public tunnel service.
+
+Build the dashboard service:
+
+```powershell
+pnpm --filter @ungate/control build:bundle
+```
+
+Services are created and managed through
+`J:\Dev\panel-nssm-service-manager`. Import
+`deploy\nssm\ungate-dashboard.service.json` in **Создать службу**, click
+**Заполнить поля**, verify the values, and then click **Создать**.
 
 ## Provider support
 

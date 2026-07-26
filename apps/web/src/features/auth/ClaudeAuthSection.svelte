@@ -5,7 +5,6 @@ import IconLoader from 'virtual:icons/lucide/loader-circle';
 import IconLogOut from 'virtual:icons/lucide/log-out';
 
 import { Api } from '$shared/api';
-import { postExtensionMessage } from '$shared/vscode';
 
 type Phase = 'idle' | 'pending-code' | 'completing';
 
@@ -51,7 +50,7 @@ async function handleStartLogin() {
 		authUrl = result.authUrl;
 		sessionId = result.sessionId;
 		phase = 'pending-code';
-		postExtensionMessage({ type: 'open-external-url', url: authUrl });
+		window.open(authUrl, '_blank', 'noopener,noreferrer');
 	} catch (e) {
 		error = e instanceof Error ? e.message : String(e);
 	}

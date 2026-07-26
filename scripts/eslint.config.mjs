@@ -14,7 +14,7 @@ export default [
 		}
 	},
 	{
-		files: ['cliproxy-namespace-bridge*.mjs'],
+		files: ['cliproxy-namespace-bridge*.mjs', 'ungate-patch-mcp*.mjs'],
 		rules: {
 			'@typescript-eslint/no-floating-promises': 'off',
 			'@typescript-eslint/no-misused-promises': 'off',
@@ -23,6 +23,8 @@ export default [
 			'@typescript-eslint/no-unsafe-call': 'off',
 			'@typescript-eslint/no-unsafe-member-access': 'off',
 			'@typescript-eslint/no-unsafe-return': 'off',
+			'import-x/no-unresolved': 'off',
+			'vitest/no-disabled-tests': 'off',
 			'vitest/no-import-node-test': 'off'
 		}
 	}

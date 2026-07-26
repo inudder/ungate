@@ -102,8 +102,7 @@ function addModel() {
 			provider: selectedProvider,
 			upstreamModel: '',
 			sortOrder: models.length,
-			reasoningBudget: null,
-			enabled: true
+			reasoningBudget: null
 		}
 	]);
 

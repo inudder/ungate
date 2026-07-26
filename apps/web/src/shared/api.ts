@@ -1,96 +1,36 @@
-import {
-	sleep,
-	type AnalyticsSummary,
-	type AppSettings,
-	type ModelMappingConfig,
-	type ModelValidationResult,
-	type Period,
-	type RequestRecord,
-	type TokenSeriesPoint
+import { dashboardClient } from './dashboard-client';
+
+import type {
+	AnalyticsSummary,
+	AppSettings,
+	ModelMappingConfig,
+	ModelValidationResult,
+	Period,
+	RequestRecord,
+	TokenSeriesPoint
 } from '@ungate/shared/frontend';
 
+export interface WakePingStatus {
+	enabled: boolean;
+	workStart: string;
+	workEnd: string;
+	nextPingAt: string | null;
+	lastPingAt: string | null;
+	lastPingError: string | null;
+	running: boolean;
+}
+
 export class Api {
-	private static port: number | null = (window as unknown as { __PORT__?: number | null }).__PORT__ ?? null;
-	private static readonly portWaiters = new Set<(port: number) => void>();
-
-	static {
-		window.addEventListener('message', (event: MessageEvent) => {
-			const message = event.data as { type?: string; port?: number | null };
-
-			if (message.type === 'port') {
-				this.port = message.port ?? null;
-
-				if (message.port) {
-					for (const resolve of this.portWaiters) {
-						resolve(message.port);
-					}
-
-					this.portWaiters.clear();
-				}
-			}
-		});
+	private static get<T>(path: string): Promise<T> {
+		return dashboardClient.backend(path);
 	}
 
-	private static async getPort(): Promise<number> {
-		const injected = (window as unknown as { __PORT__?: number | null }).__PORT__;
-
-		if (injected) {
-			return injected;
-		}
-
-		if (this.port) {
-			return this.port;
-		}
-
-		const port = await new Promise<number>((resolve, reject) => {
-			const resolveWithCleanup = (nextPort: number) => {
-				this.portWaiters.delete(resolveWithCleanup);
-				resolve(nextPort);
-			};
-
-			this.portWaiters.add(resolveWithCleanup);
-
-			void sleep(5000)
-				.then(() => {
-					this.portWaiters.delete(resolveWithCleanup);
-					reject(new Error('Ungate API is still starting'));
-				})
-				.catch(() => {});
-		});
-
-		return port;
-	}
-
-	private static async baseUrl(): Promise<string> {
-		const port = await this.getPort();
-
-		return `http://localhost:${port}`;
-	}
-
-	private static async get<T>(path: string): Promise<T> {
-		const baseUrl = await this.baseUrl();
-		const response = await fetch(`${baseUrl}${path}`);
-
-		if (!response.ok) {
-			throw new Error(`GET ${path} failed: ${response.status}`);
-		}
-
-		return response.json() as Promise<T>;
-	}
-
-	private static async post<T>(path: string, body?: unknown): Promise<T> {
-		const baseUrl = await this.baseUrl();
-		const response = await fetch(`${baseUrl}${path}`, {
+	private static post<T>(path: string, body?: unknown): Promise<T> {
+		return dashboardClient.backend(path, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify(body ?? {})
 		});
-
-		if (!response.ok) {
-			throw new Error(`POST ${path} failed: ${response.status}`);
-		}
-
-		return response.json() as Promise<T>;
 	}
 
 	static fetchAnalytics(period: Period): Promise<AnalyticsSummary> {
@@ -165,12 +105,23 @@ export class Api {
 		return this.post('/auth/openai/logout');
 	}
 
+	static wakePingStatus(): Promise<WakePingStatus> {
+		return this.get('/wake-ping');
+	}
+
+	static updateWakePing(update: Partial<Pick<WakePingStatus, 'enabled' | 'workStart' | 'workEnd'>>): Promise<{ ok: boolean }> {
+		return this.post('/wake-ping', update);
+	}
+
+	static sendWakePing(): Promise<{ ok: boolean; lastPingAt: string | null; lastPingError: string | null }> {
+		return this.post('/wake-ping/ping');
+	}
+
 	static async healthCheck(): Promise<boolean> {
 		try {
-			const baseUrl = await this.baseUrl();
-			const response = await fetch(`${baseUrl}/health`, { signal: AbortSignal.timeout(1000) });
+			const response = await dashboardClient.backend<{ status: string }>('/health');
 
-			return response.ok;
+			return response.status === 'ok';
 		} catch {
 			return false;
 		}

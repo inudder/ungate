@@ -101,7 +101,7 @@ describe('routes-openai', () => {
 				messages: expect.arrayContaining([
 					expect.objectContaining({
 						role: 'system',
-						content: expect.stringContaining('apply_patch custom tool is unavailable')
+						content: expect.stringContaining('mcp__ungate_patch__apply_patch appears in the tool list')
 					})
 				])
 			})

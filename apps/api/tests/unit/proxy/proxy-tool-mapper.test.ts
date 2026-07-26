@@ -49,6 +49,24 @@ describe('proxy-tool-mapper', () => {
 		expect(result.reverseMapping.AskUserQuestion).toBe('request_user_input');
 	});
 
+	it('maps the Ungate MCP patch tool to a Claude Code-compatible edit tool', () => {
+		const inputSchema = {
+			type: 'object',
+			properties: { working_directory: { type: 'string' }, patch: { type: 'string' }, dry_run: { type: 'boolean' } },
+			required: ['working_directory', 'patch']
+		};
+		const result = ToolMapper.map([
+			{
+				name: 'mcp__ungate_patch__apply_patch',
+				description: 'Apply a source patch',
+				input_schema: inputSchema
+			}
+		]);
+
+		expect(result.tools).toEqual([{ name: 'Edit', description: 'Apply a source patch', input_schema: inputSchema }]);
+		expect(result.reverseMapping.Edit).toBe('mcp__ungate_patch__apply_patch');
+	});
+
 	it('keeps valid tools and deduplicates by suffix', () => {
 		const result = ToolMapper.map([
 			{ name: 'Read', description: '', input_schema: {} },

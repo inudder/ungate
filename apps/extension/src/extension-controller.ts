@@ -110,7 +110,7 @@ export class ExtensionController {
 		});
 
 		const openDashboard = vscode.commands.registerCommand(extensionCommands.openDashboard, () => {
-			this.dashboard.show();
+			void vscode.env.openExternal(vscode.Uri.parse('http://127.0.0.1:47820/'));
 		});
 
 		const copyTunnelUrl = vscode.commands.registerCommand(extensionCommands.copyTunnelUrl, () => {

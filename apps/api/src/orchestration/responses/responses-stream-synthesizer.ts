@@ -1,6 +1,8 @@
 import { CompletionRequestTelemetry } from 'src/metrics';
 import { logger } from 'src/utils/logger';
 
+import { restoreResponsesNamespaceValue, type ResponsesNamespaceToolMapping } from './responses-namespace-tools';
+
 import type { AnthropicStreamEvent } from 'src/types/anthropic-stream';
 import type {
 	OpenAIResponseOutputFunctionToolCall,
@@ -21,6 +23,7 @@ interface CreateResponseStreamOptions {
 	requestId: string;
 	model: string;
 	context: RequestContext;
+	namespaceToolMapping?: ResponsesNamespaceToolMapping;
 }
 
 interface CollectResponseOptions extends CreateResponseStreamOptions {
@@ -611,6 +614,21 @@ async function readStream(
 	const emitter = new ResponsesEventEmitter(options.requestId, options.model, options.context.reverseToolMapping);
 	let buffer = '';
 
+	const processPayload = (payload: string): void => {
+		try {
+			const events =
+				options.source === 'claude'
+					? processAnthropicPayload(payload, emitter)
+					: processChatPayload(payload, emitter, options.source);
+
+			if (events.length > 0) {
+				onEvents(events);
+			}
+		} catch (error) {
+			logger.error(`Responses stream parse error: ${String(error)}`);
+		}
+	};
+
 	onEvents(emitter.start());
 
 	while (true) {
@@ -623,19 +641,17 @@ async function readStream(
 		buffer = parsed.buffer;
 
 		for (const payload of parsed.payloads) {
-			try {
-				const events =
-					options.source === 'claude'
-						? processAnthropicPayload(payload, emitter)
-						: processChatPayload(payload, emitter, options.source);
-
-				if (events.length > 0) {
-					onEvents(events);
-				}
-			} catch (error) {
-				logger.error(`Responses stream parse error: ${String(error)}`);
-			}
+			processPayload(payload);
 		}
+	}
+
+	// Some upstreams close immediately after writing the final SSE event and do
+	// not send the blank line that normally dispatches it. Flush the decoder and
+	// synthesize that delimiter so the final text, finish reason, or tool-call
+	// arguments are not silently discarded before the response is finalized.
+	const trailing = parseSse(buffer, `${decoder.decode()}\n\n`);
+	for (const payload of trailing.payloads) {
+		processPayload(payload);
 	}
 
 	if (options.source === 'minimax') {
@@ -676,7 +692,10 @@ export class ResponsesStreamSynthesizer {
 					const emitter = await readStream(options, (events) => {
 						for (const event of events) {
 							if (!cancelled) {
-								controller.enqueue(encoder.encode(serializeEvent(event)));
+								const restoredEvent = options.namespaceToolMapping
+									? restoreResponsesNamespaceValue(event, options.namespaceToolMapping)
+									: event;
+								controller.enqueue(encoder.encode(serializeEvent(restoredEvent)));
 							}
 						}
 					});
@@ -712,6 +731,8 @@ export class ResponsesStreamSynthesizer {
 		const emitter = await readStream(options, () => {});
 		emitter.record(options.context, options.streamRecord ?? false);
 
-		return emitter.getFinalResponse();
+		const response = emitter.getFinalResponse();
+
+		return options.namespaceToolMapping ? restoreResponsesNamespaceValue(response, options.namespaceToolMapping) : response;
 	}
 }

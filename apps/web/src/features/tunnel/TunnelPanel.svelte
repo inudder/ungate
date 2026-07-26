@@ -3,6 +3,7 @@ import { sleep } from '@ungate/shared/frontend';
 import IconCopy from 'virtual:icons/lucide/copy';
 import IconPlay from 'virtual:icons/lucide/play';
 import IconRotateCcw from 'virtual:icons/lucide/rotate-ccw';
+import IconSquare from 'virtual:icons/lucide/square';
 
 import { getTunnelStore } from './tunnel-store.svelte';
 
@@ -26,6 +27,10 @@ const statusDotClass: Record<string, string> = {
 
 let copied = $state(false);
 
+$effect(() => {
+	void store.initialize();
+});
+
 function handleCopy() {
 	if (!store.tunnel.url) return;
 
@@ -34,11 +39,6 @@ function handleCopy() {
 		await sleep(2000);
 		copied = false;
 	});
-}
-
-function handleKeyFixChange(event: Event): void {
-	const target = event.currentTarget as HTMLInputElement;
-	store.setKeyFixEnabled(target.checked);
 }
 </script>
 
@@ -77,16 +77,36 @@ function handleKeyFixChange(event: Event): void {
 		</div>
 	{/if}
 
+	{#if store.error}
+		<div class="card preset-tonal-error p-3">
+			<p class="text-sm opacity-70">{store.error}</p>
+		</div>
+	{/if}
+
 	<div class="flex gap-2">
 		{#if store.tunnel.status === 'stopped' || store.tunnel.status === 'error'}
 			<button
 				class="btn btn-sm preset-filled-primary-500"
-				onclick={() => store.startTunnel()}>
+				onclick={() => void store.startTunnel()}
+				disabled={store.busy}>
 				<IconPlay class="size-4" />
 				Start tunnel
 			</button>
 		{:else if store.tunnel.status === 'running'}
-			<span class="text-xs text-surface-400 py-1">Managed by frpc (NSSM service)</span>
+			<button
+				class="btn btn-sm preset-tonal-surface"
+				onclick={() => void store.restartTunnel()}
+				disabled={store.busy}>
+				<IconRotateCcw class="size-4 {store.busy ? 'animate-spin' : ''}" />
+				Restart
+			</button>
+			<button
+				class="btn btn-sm preset-tonal-error"
+				onclick={() => void store.stopTunnel()}
+				disabled={store.busy}>
+				<IconSquare class="size-4" />
+				Stop
+			</button>
 		{:else}
 			<button
 				class="btn btn-sm preset-tonal-surface"
@@ -95,20 +115,5 @@ function handleKeyFixChange(event: Event): void {
 				{statusLabel[store.tunnel.status] ?? 'Working...'}
 			</button>
 		{/if}
-	</div>
-
-	<div class="card preset-tonal-surface border border-surface-700/30 p-3 space-y-2">
-		<label class="flex items-start gap-3 cursor-pointer">
-			<input
-				class="checkbox mt-0.5"
-				type="checkbox"
-				checked={store.keyFixEnabled}
-				onchange={handleKeyFixChange} />
-			<span class="text-sm leading-5">Keep OpenAI API Key enabled in Cursor</span>
-		</label>
-		<p class="text-xs text-surface-400">
-			If Cursor turns off OpenAI API Key on its own, Ungate will turn it back on automatically. When you turn this off, Ungate
-			stops watching this setting and also turns OpenAI API Key off in Cursor.
-		</p>
 	</div>
 </div>

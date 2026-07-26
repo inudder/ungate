@@ -4,8 +4,11 @@ import { CompletionErrorMapper, CompletionModelRouting, CompletionStreamingGatew
 import {
 	ResponsesNonStreamSynthesizer,
 	ResponsesRequestNormalizer,
+	ResponsesRequestValidationError,
 	ResponsesRouteDecision,
 	ResponsesStreamSynthesizer,
+	restoreResponsesNamespaceValue,
+	type ResponsesNamespaceToolMapping,
 	type ResponsesRouteTarget
 } from 'src/orchestration/responses';
 import { apiKeyAuth } from 'src/plugins/auth';
@@ -87,7 +90,8 @@ function sendResponsesStream(
 	response: Response,
 	context: RequestContext,
 	requestId: string,
-	model: string
+	model: string,
+	namespaceToolMapping: ResponsesNamespaceToolMapping
 ): FastifyReply {
 	CompletionStreamingGateway.copyUpstreamHeaders(reply, response, true);
 	reply.code(response.status);
@@ -97,7 +101,8 @@ function sendResponsesStream(
 		response,
 		requestId,
 		model,
-		context
+		context,
+		namespaceToolMapping
 	});
 
 	for (const [key, value] of Object.entries(headers)) {
@@ -113,7 +118,8 @@ async function sendResponsesJson(
 	response: Response,
 	context: RequestContext,
 	requestId: string,
-	model: string
+	model: string,
+	namespaceToolMapping: ResponsesNamespaceToolMapping
 ): Promise<FastifyReply> {
 	if (route === 'openai') {
 		const synthesized = await ResponsesStreamSynthesizer.collectStreamResponse({
@@ -122,7 +128,8 @@ async function sendResponsesJson(
 			requestId,
 			model,
 			context,
-			streamRecord: false
+			streamRecord: false,
+			namespaceToolMapping
 		});
 
 		CompletionRequestTelemetry.applyProxyHeaders(reply, Date.now() - context.startTime);
@@ -150,7 +157,7 @@ async function sendResponsesJson(
 			latencyMs
 		});
 
-		return reply.send(synthesized);
+		return reply.send(restoreResponsesNamespaceValue(synthesized, namespaceToolMapping));
 	}
 
 	let responseJson = context.bodyJson;
@@ -171,19 +178,24 @@ async function sendResponsesJson(
 		latencyMs
 	});
 
-	return reply.send(synthesized);
+	return reply.send(restoreResponsesNamespaceValue(synthesized, namespaceToolMapping));
 }
 
 const plugin: FastifyPluginCallback = (app) => {
 	const { config } = app;
 
+	app.get('/v1/responses/health', { preHandler: apiKeyAuth(config) }, async (_request, reply) => {
+		return reply.send({ status: 'ok', wire_api: 'responses' });
+	});
+
 	app.post(
 		'/v1/responses',
 		{ bodyLimit: OPENAI_MULTIMODAL_BODY_LIMIT_BYTES, preHandler: apiKeyAuth(config) },
 		async (request, reply) => {
+			const responsesBody = (request.body ?? {}) as OpenAIResponsesRequest;
+
 			try {
-				const responsesBody = request.body as OpenAIResponsesRequest;
-				const { body: chatBody, resolvedModel } = ResponsesRequestNormalizer.toChatRequest(responsesBody);
+				const { body: chatBody, resolvedModel, namespaceToolMapping } = ResponsesRequestNormalizer.toChatRequest(responsesBody);
 				const route = ResponsesRouteDecision.decideRoute(resolvedModel, responsesBody.model);
 				const requestId = Date.now().toString();
 				const { result } = await callUpstream(route, request, chatBody, resolvedModel);
@@ -200,12 +212,22 @@ const plugin: FastifyPluginCallback = (app) => {
 				}
 
 				if (chatBody.stream) {
-					return sendResponsesStream(reply, route, response, context, requestId, chatBody.model);
+					return sendResponsesStream(reply, route, response, context, requestId, chatBody.model, namespaceToolMapping);
 				}
 
-				return sendResponsesJson(reply, route, response, context, requestId, chatBody.model);
+				return sendResponsesJson(reply, route, response, context, requestId, chatBody.model, namespaceToolMapping);
 			} catch (error) {
-				logger.error(`Responses request handling error: ${String(error)}`);
+				if (error instanceof ResponsesRequestValidationError && error.code === 'empty_input') {
+					logger.debug('Responses request validation rejected', {
+						code: error.code,
+						model: responsesBody.model,
+						stream: responsesBody.stream ?? false,
+						userAgent: request.headers['user-agent'],
+						originator: request.headers.originator
+					});
+				} else {
+					logger.error(`Responses request handling error: ${String(error)}`);
+				}
 
 				return reply
 					.code(400)

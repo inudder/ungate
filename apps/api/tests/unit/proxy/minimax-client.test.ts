@@ -38,7 +38,7 @@ describe('minimax-client', () => {
 		vi.clearAllMocks();
 	});
 
-	it('keeps named function tools and drops unsupported unnamed Codex tools', () => {
+	it('keeps named function tools, including the namespaced MCP patch tool, and drops unsupported unnamed Codex tools', () => {
 		const validTool: OpenAITool = {
 			type: 'function',
 			function: {
@@ -47,14 +47,22 @@ describe('minimax-client', () => {
 				parameters: { type: 'object' }
 			}
 		};
+		const patchTool: OpenAITool = {
+			type: 'function',
+			function: {
+				name: 'mcp__ungate_patch__apply_patch',
+				description: 'Apply a source patch',
+				parameters: { type: 'object', properties: { patch: { type: 'string' } } }
+			}
+		};
 		const unsupportedNamespaceTool = {
 			type: 'function',
 			function: { name: 'mcp__context7', description: 'Unsupported namespace tool', parameters: undefined }
 		} as unknown as OpenAITool;
 
-		const body = buildMiniMaxRequestBody(request([validTool, unsupportedNamespaceTool]));
+		const body = buildMiniMaxRequestBody(request([validTool, patchTool, unsupportedNamespaceTool]));
 
-		expect(body).toMatchObject({ tools: [validTool], tool_choice: 'auto' });
+		expect(body).toMatchObject({ tools: [validTool, patchTool], tool_choice: 'auto' });
 	});
 
 	it('omits tool choice when no valid MiniMax tools remain', () => {

@@ -14,6 +14,8 @@ BeforeAll {
     $functionNames = @(
         'Remove-TomlTable',
         'Get-TomlTableFamilyContent',
+        'Normalize-CodexHomePath',
+        'Get-CodexHistoryProfileInfo',
         'Get-CodexCliExecutable',
         'Test-CodexMcpConfiguration',
         'Sync-CodexMcpServers'
@@ -60,6 +62,117 @@ BeforeAll {
             $Content,
             [System.Text.UTF8Encoding]::new($false)
         )
+    }
+}
+
+Describe 'Codex launcher history profile' {
+    It 'uses one canonical history home for every launcher model' {
+        $canonicalHome = Join-Path $TestDrive 'codex-ungate'
+        $models = @(
+            [pscustomobject]@{ Slug = 'ungate-opus-4-8'; Provider = 'ungate_proxy' }
+            [pscustomobject]@{ Slug = 'ungate-fable-5'; Provider = 'ungate_proxy' }
+            [pscustomobject]@{ Slug = 'miniMax-M3'; Provider = 'ungate_proxy' }
+            [pscustomobject]@{ Slug = 'grok-4.5'; Provider = 'cliproxyapi' }
+        )
+
+        $profiles = @(
+            foreach ($model in $models) {
+                Get-CodexHistoryProfileInfo `
+                    -HomePath $canonicalHome `
+                    -CanonicalHomePath $canonicalHome `
+                    -ModelSlug $model.Slug `
+                    -ProviderName $model.Provider
+            }
+        )
+
+        @($profiles | Select-Object -ExpandProperty CodexHome -Unique) | Should -HaveCount 1
+        @($profiles | Select-Object -ExpandProperty SessionsPath -Unique) | Should -HaveCount 1
+        @($profiles | Select-Object -ExpandProperty StatePath -Unique) | Should -HaveCount 1
+        @($profiles | Where-Object { -not $_.IsCanonical }) | Should -HaveCount 0
+        $profiles | ForEach-Object { $_.StatePath | Should -Be (Join-Path $canonicalHome 'state_5.sqlite') }
+    }
+
+    It 'marks a non-default custom home as a separate history profile' {
+        $canonicalHome = Join-Path $TestDrive 'codex-ungate'
+        $separateHome = Join-Path $TestDrive 'codex-ungate-grok'
+
+        $profile = Get-CodexHistoryProfileInfo `
+            -HomePath $separateHome `
+            -CanonicalHomePath $canonicalHome `
+            -ModelSlug 'grok-4.5' `
+            -ProviderName 'cliproxyapi'
+
+        $profile.IsCanonical | Should -BeFalse
+        $profile.CodexHome | Should -Be ([System.IO.Path]::GetFullPath($separateHome))
+    }
+}
+
+Describe 'Get-CodexCliExecutable' {
+    BeforeEach {
+        $script:cliTestRoot = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $script:cliTestRoot -Force | Out-Null
+        $script:DefaultConfigPath = Join-Path $script:cliTestRoot 'default-config.toml'
+        $script:CustomConfigPath = Join-Path $script:cliTestRoot 'custom-config.toml'
+        $script:previousLocalAppData = $env:LOCALAPPDATA
+        $env:LOCALAPPDATA = Join-Path $script:cliTestRoot 'local-app-data'
+        New-Item -ItemType Directory -Path $env:LOCALAPPDATA -Force | Out-Null
+    }
+
+    AfterEach {
+        if ($null -eq $script:previousLocalAppData) {
+            Remove-Item Env:LOCALAPPDATA -ErrorAction SilentlyContinue
+        }
+        else {
+            $env:LOCALAPPDATA = $script:previousLocalAppData
+        }
+    }
+
+    It 'uses an existing configured native executable' {
+        $nativeCli = Join-Path $script:cliTestRoot 'configured\codex.exe'
+        New-Item -ItemType Directory -Path (Split-Path -Parent $nativeCli) -Force | Out-Null
+        New-Item -ItemType File -Path $nativeCli -Force | Out-Null
+        Write-Utf8TestFile `
+            -LiteralPath $script:DefaultConfigPath `
+            -Content "CODEX_CLI_PATH = '$nativeCli'"
+        Mock Get-Command { $null }
+
+        Get-CodexCliExecutable | Should -BeExactly (Resolve-Path -LiteralPath $nativeCli).Path
+    }
+
+    It 'ignores a stale configured path and resolves the native npm CLI behind a PowerShell wrapper' {
+        Write-Utf8TestFile `
+            -LiteralPath $script:DefaultConfigPath `
+            -Content "CODEX_CLI_PATH = 'C:\missing\codex.exe'"
+        $npmRoot = Join-Path $script:cliTestRoot 'npm'
+        $wrapperPath = Join-Path $npmRoot 'codex.ps1'
+        $nativeCli = Join-Path `
+            $npmRoot `
+            'node_modules\@openai\codex\node_modules\@openai\codex-win32-x64\vendor\x86_64-pc-windows-msvc\bin\codex.exe'
+        New-Item -ItemType Directory -Path (Split-Path -Parent $nativeCli) -Force | Out-Null
+        New-Item -ItemType File -Path $wrapperPath -Force | Out-Null
+        New-Item -ItemType File -Path $nativeCli -Force | Out-Null
+        Mock Get-Command {
+            [pscustomobject]@{
+                Source = $wrapperPath
+                CommandType = 'ExternalScript'
+            }
+        }
+
+        Get-CodexCliExecutable | Should -BeExactly (Resolve-Path -LiteralPath $nativeCli).Path
+    }
+
+    It 'does not return a PowerShell wrapper when no native executable exists' {
+        $wrapperPath = Join-Path $script:cliTestRoot 'npm\codex.ps1'
+        New-Item -ItemType Directory -Path (Split-Path -Parent $wrapperPath) -Force | Out-Null
+        New-Item -ItemType File -Path $wrapperPath -Force | Out-Null
+        Mock Get-Command {
+            [pscustomobject]@{
+                Source = $wrapperPath
+                CommandType = 'ExternalScript'
+            }
+        }
+
+        Get-CodexCliExecutable | Should -BeNullOrEmpty
     }
 }
 

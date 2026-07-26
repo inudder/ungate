@@ -1,5 +1,5 @@
 import { Api } from '$shared/api';
-import { postExtensionMessage } from '$shared/vscode';
+import { dashboardClient } from '$shared/dashboard-client';
 
 import type { AppSettings } from '@ungate/shared/frontend';
 
@@ -26,7 +26,6 @@ let saved = $state(false);
 let restarting = $state(false);
 let statusMessage = $state<string | null>(null);
 let savedTimer: ReturnType<typeof setTimeout> | null = null;
-let restartTimer: ReturnType<typeof setTimeout> | null = null;
 
 function extractError(e: unknown): string {
 	if (e instanceof Error) {
@@ -84,15 +83,16 @@ async function saveAndRestart(update: Partial<AppSettings>): Promise<void> {
 
 	restarting = true;
 	statusMessage = 'Restarting server...';
-	postExtensionMessage({ type: 'restart-server' });
 
-	if (restartTimer) {
-		clearTimeout(restartTimer);
-	}
-
-	restartTimer = setTimeout(() => {
+	try {
+		const operation = await dashboardClient.restartApi();
+		await dashboardClient.waitForOperation(operation.id);
 		completeRestart();
-	}, 2500);
+	} catch (e) {
+		restarting = false;
+		error = extractError(e);
+		statusMessage = 'Server restart failed';
+	}
 }
 
 function resetStatus(): void {

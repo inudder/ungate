@@ -36,7 +36,7 @@ describe('CompletionModelRouting', () => {
 		expect(CompletionModelRouting.buildMiniMaxBody(body as never, null).model).toBe('alias');
 	});
 
-	it('adds MiniMax file-editing guidance after leading system messages when exec_command is available', () => {
+	it('adds MiniMax file-editing guidance after leading system messages when an edit tool is available', () => {
 		const body = {
 			model: 'alias',
 			messages: [
@@ -68,10 +68,17 @@ describe('CompletionModelRouting', () => {
 			throw new Error('MiniMax instruction must be text');
 		}
 
-		expect(instructionContent).toContain('apply_patch custom tool is unavailable');
+		expect(instructionContent).toContain('mcp__ungate_patch__apply_patch appears in the tool list');
+		expect(instructionContent).toContain('*** Add File: relative/path\n+content');
+		expect(instructionContent).toContain('exactly one ASCII space after the colon');
+		expect(instructionContent).toContain('literal + in column 1');
+		expect(instructionContent).toContain('Do not add @@');
+		expect(instructionContent).toContain('*** Update File: relative/path\n@@\n unchanged context');
+		expect(instructionContent).toContain('Never emit a raw empty line inside a hunk');
+		expect(instructionContent).toContain('line containing exactly one ASCII space');
 		expect(instructionContent).toContain('research and planning are intermediate work, not task completion');
 		expect(instructionContent).toContain('do not return a prose-only message');
-		expect(instructionContent).toContain('inspect the required context, edit through exec_command, run relevant checks');
+		expect(instructionContent).toContain('inspect the required context, edit through the available patch tool, run relevant checks');
 		expect(instructionContent).toContain('a user decision is required');
 		expect(body.messages).toHaveLength(3);
 	});
@@ -80,6 +87,24 @@ describe('CompletionModelRouting', () => {
 		const body = { model: 'alias', messages: [{ role: 'user', content: 'hello' }], tools: [] } as const;
 
 		expect(CompletionModelRouting.buildMiniMaxBody(body as never, null)).toBe(body);
+	});
+
+	it('adds MiniMax file-editing guidance when the MCP patch tool is available without exec_command', () => {
+		const body = {
+			model: 'alias',
+			messages: [{ role: 'user', content: 'edit a file' }],
+			tools: [
+				{
+					type: 'function',
+					function: { name: 'mcp__ungate_patch__apply_patch', parameters: { type: 'object' } }
+				}
+			]
+		} as const;
+
+		const upstream = CompletionModelRouting.buildMiniMaxBody(body as never, null);
+
+		expect(upstream.messages).toHaveLength(2);
+		expect(upstream.messages[0]).toEqual(expect.objectContaining({ role: 'system', content: expect.stringContaining('mcp__ungate_patch__apply_patch') }));
 	});
 
 	it('injects reasoning from model mapping into minimax body when client omits it', () => {
