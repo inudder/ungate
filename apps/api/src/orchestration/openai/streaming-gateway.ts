@@ -5,6 +5,17 @@ import type { FastifyReply } from 'fastify';
 import type { RequestContext } from 'src/types/proxy';
 
 export class CompletionStreamingGateway {
+	static copyRateLimitHeaders(reply: FastifyReply, response: Response): void {
+		const safeRateLimitHeaders =
+			/^(?:retry-after|x-ratelimit-(?:reset|reset-(?:requests|tokens)|(?:requests|tokens)-reset)|anthropic-ratelimit-(?:requests|tokens)-reset)$/i;
+
+		for (const [key, value] of response.headers.entries()) {
+			if (safeRateLimitHeaders.test(key)) {
+				reply.header(key, value);
+			}
+		}
+	}
+
 	static copyUpstreamHeaders(reply: FastifyReply, response: Response, transformedStream = false): void {
 		for (const [key, value] of response.headers.entries()) {
 			const normalizedKey = key.toLowerCase();

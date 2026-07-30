@@ -30,4 +30,22 @@ describe('CompletionErrorMapper', () => {
 		expect(payload.message).toBe('Invalid model: sonnet-4 for input');
 		expect(payload.type).toBe('invalid_request_error');
 	});
+
+	it('marks only a confirmed Claude usage window as insufficient quota', () => {
+		const exhausted = CompletionErrorMapper.claudeApiErrorPayload(
+			{ error: { message: 'Usage Limit Reached. Resets at 17:00', type: 'rate_limit_error' } },
+			429
+		);
+		const transient = CompletionErrorMapper.claudeApiErrorPayload(
+			{ error: { message: 'Too many requests', type: 'rate_limit_error' } },
+			429
+		);
+
+		expect(exhausted).toEqual({
+			message: 'Quota exceeded: Usage Limit Reached. Resets at 17:00',
+			type: 'rate_limit_error',
+			code: 'insufficient_quota'
+		});
+		expect(transient).toEqual({ message: 'Too many requests', type: 'rate_limit_error' });
+	});
 });

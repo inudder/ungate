@@ -137,6 +137,27 @@ describe('ResponsesRequestNormalizer', () => {
 		]);
 	});
 
+	it('merges assistant commentary with tool calls before their tool results', () => {
+		const messages = itemsToChatMessages([
+			{ type: 'function_call', call_id: 'call_1', name: 'Shell', arguments: '{"command":"Get-Date"}' },
+			{
+				type: 'message',
+				role: 'assistant',
+				content: [{ type: 'output_text', text: 'I found the log. Checking the latest entries.' }]
+			},
+			{ type: 'function_call_output', call_id: 'call_1', output: 'done' }
+		]);
+
+		expect(messages).toEqual([
+			{
+				role: 'assistant',
+				content: 'I found the log. Checking the latest entries.',
+				tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'Shell', arguments: '{"command":"Get-Date"}' } }]
+			},
+			{ role: 'tool', tool_call_id: 'call_1', content: 'done' }
+		]);
+	});
+
 	it('does not group function calls separated by a tool result', () => {
 		const messages = itemsToChatMessages([
 			{ type: 'function_call', call_id: 'call_1', name: 'Read', arguments: '{}' },

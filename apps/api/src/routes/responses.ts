@@ -32,9 +32,9 @@ async function errorMessageFor(
 ): Promise<{ message: string; type: string; code?: string }> {
 	if (route === 'claude') {
 		const errorJson = await response.json().catch(() => ({ error: { message: `HTTP ${response.status}` } }));
-		const payload = CompletionErrorMapper.claudeApiErrorPayload(errorJson);
+		const payload = CompletionErrorMapper.claudeApiErrorPayload(errorJson, response.status);
 
-		return { message: payload.message, type: payload.type ?? 'api_error' };
+		return { message: payload.message, type: payload.type ?? 'api_error', ...(payload.code && { code: payload.code }) };
 	}
 
 	if (route === 'minimax') {
@@ -204,6 +204,7 @@ const plugin: FastifyPluginCallback = (app) => {
 				if (!response.ok) {
 					const error = await errorMessageFor(route, response, context);
 
+					CompletionStreamingGateway.copyRateLimitHeaders(reply, response);
 					recordError(reply, context, error.message);
 
 					return reply

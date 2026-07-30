@@ -260,6 +260,41 @@ function functionOutputToChatMessage(item: Record<string, unknown>): OpenAIMessa
 	};
 }
 
+function mergeAssistantContent(current: OpenAIMessage['content'], incoming: OpenAIMessage['content']): OpenAIMessage['content'] {
+	if (!current) {
+		return incoming;
+	}
+
+	if (!incoming) {
+		return current;
+	}
+
+	if (typeof current === 'string' && typeof incoming === 'string') {
+		return `${current}\n${incoming}`;
+	}
+
+	const currentParts = typeof current === 'string' ? [{ type: 'text' as const, text: current }] : current;
+	const incomingParts = typeof incoming === 'string' ? [{ type: 'text' as const, text: incoming }] : incoming;
+
+	return [...currentParts, ...incomingParts];
+}
+
+function appendAssistantMessage(messages: OpenAIMessage[], incoming: OpenAIMessage): void {
+	const previous = messages.at(-1);
+
+	if (previous?.role !== 'assistant') {
+		messages.push(incoming);
+
+		return;
+	}
+
+	previous.content = mergeAssistantContent(previous.content, incoming.content);
+
+	if (incoming.tool_calls?.length) {
+		previous.tool_calls = [...(previous.tool_calls ?? []), ...incoming.tool_calls];
+	}
+}
+
 export function itemsToChatMessages(items: Record<string, unknown>[], instructions?: string): OpenAIMessage[] {
 	const messages: OpenAIMessage[] = [];
 
@@ -272,7 +307,13 @@ export function itemsToChatMessages(items: Record<string, unknown>[], instructio
 		const type = item.type;
 
 		if (type === 'message') {
-			messages.push(...messageItemToChatMessages(item));
+			for (const message of messageItemToChatMessages(item)) {
+				if (message.role === 'assistant') {
+					appendAssistantMessage(messages, message);
+				} else {
+					messages.push(message);
+				}
+			}
 			continue;
 		}
 
@@ -284,7 +325,7 @@ export function itemsToChatMessages(items: Record<string, unknown>[], instructio
 				toolCalls.push(functionCallToToolCall(items[index]));
 			}
 
-			messages.push({ role: 'assistant', content: null, tool_calls: toolCalls });
+			appendAssistantMessage(messages, { role: 'assistant', content: null, tool_calls: toolCalls });
 			continue;
 		}
 

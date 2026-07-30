@@ -379,6 +379,46 @@ describe('routes-openai', () => {
 		await app.close();
 	});
 
+	it('marks a Claude usage-window 429 as quota exhaustion and forwards reset headers', async () => {
+		resolveForChatCompletionMock.mockReturnValueOnce(null);
+		proxyRequestMock.mockResolvedValueOnce({
+			response: new Response(
+				JSON.stringify({ error: { message: 'Usage Limit Reached. Resets in 2 hours', type: 'rate_limit_error' } }),
+				{
+					status: 429,
+					headers: {
+						'content-type': 'application/json',
+						'retry-after': '7200',
+						'x-ratelimit-reset-tokens': '2026-07-29T18:00:00Z',
+						'x-unsafe-upstream': 'hidden'
+					}
+				}
+			),
+			context: { startTime: Date.now(), model: 'claude-sonnet-4-6', source: 'claude', reverseToolMapping: {} }
+		});
+
+		const app = await withPlugin(openaiPlugin, { apiKey: 'secret' });
+		const response = await app.inject({
+			method: 'POST',
+			url: '/v1/chat/completions',
+			headers: { 'x-api-key': 'secret' },
+			payload: { model: 'claude-4.6-sonnet', messages: [{ role: 'user', content: 'hello' }], stream: false }
+		});
+
+		expect(response.statusCode).toBe(429);
+		expect(response.json()).toEqual({
+			error: {
+				message: 'Quota exceeded: Usage Limit Reached. Resets in 2 hours',
+				type: 'rate_limit_error',
+				code: 'insufficient_quota'
+			}
+		});
+		expect(response.headers['retry-after']).toBe('7200');
+		expect(response.headers['x-ratelimit-reset-tokens']).toBe('2026-07-29T18:00:00Z');
+		expect(response.headers['x-unsafe-upstream']).toBeUndefined();
+		await app.close();
+	});
+
 	it('handles a non-JSON claude error body without crashing', async () => {
 		resolveForChatCompletionMock.mockReturnValueOnce(null);
 		proxyRequestMock.mockResolvedValueOnce({

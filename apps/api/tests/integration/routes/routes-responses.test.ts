@@ -496,6 +496,49 @@ describe('routes-responses', () => {
 		await app.close();
 	});
 
+	it('returns Claude usage-window quota details and reset headers from Responses', async () => {
+		resolveForChatCompletionMock.mockReturnValueOnce(null);
+		proxyRequestMock.mockResolvedValueOnce({
+			response: new Response(
+				JSON.stringify({ error: { message: "You've reached your usage limit", type: 'rate_limit_error' } }),
+				{
+					status: 429,
+					headers: {
+						'content-type': 'application/json',
+						'retry-after': '3600',
+						'x-ratelimit-requests-reset': '2026-07-29T17:00:00Z'
+					}
+				}
+			),
+			context: {
+				startTime: Date.now(),
+				model: 'claude-sonnet-4-6',
+				source: 'claude',
+				reverseToolMapping: {}
+			}
+		});
+
+		const app = await withPlugin(responsesPlugin, { apiKey: 'secret' });
+		const response = await app.inject({
+			method: 'POST',
+			url: '/v1/responses',
+			headers: { 'x-api-key': 'secret' },
+			payload: { model: 'claude-4.6-sonnet', input: 'hello' }
+		});
+
+		expect(response.statusCode).toBe(429);
+		expect(response.json()).toEqual({
+			error: {
+				message: "Quota exceeded: You've reached your usage limit",
+				type: 'rate_limit_error',
+				code: 'insufficient_quota'
+			}
+		});
+		expect(response.headers['retry-after']).toBe('3600');
+		expect(response.headers['x-ratelimit-requests-reset']).toBe('2026-07-29T17:00:00Z');
+		await app.close();
+	});
+
 	it('carries MCP namespace tools through the Claude route and restores the tool call for Codex', async () => {
 		resolveForChatCompletionMock.mockReturnValueOnce({
 			provider: 'claude',

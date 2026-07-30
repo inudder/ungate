@@ -290,4 +290,57 @@ describe('Responses synthesizers', () => {
 		expect(text).toContain('working_directory');
 		expect(text).toContain('response.completed');
 	});
+
+	it('recovers a MiniMax tool call that leaked into assistant text', async () => {
+		const leaked = [
+			'Let me check the storage.]<]minimax[>[',
+			'<tool_call>',
+			']<]minimax[>[<invoke name="shell_command">]<]minimax[>[<cmd>Get-ChildItem</cmd>]<]minimax[>[</invoke>',
+			']<]minimax[>[</tool_call>'
+		].join('\\n');
+		const { stream } = ResponsesStreamSynthesizer.createResponseStream({
+			source: 'minimax',
+			response: sseResponse([
+				`{"choices":[{"delta":{"content":${JSON.stringify(leaked)}},"finish_reason":null}]}`,
+				'{"choices":[{"delta":{},"finish_reason":"stop"}]}',
+				'[DONE]'
+			]),
+			requestId: 'minimax_inline_leak',
+			model: 'miniMax-M3',
+			context: {
+				...context(),
+				source: 'minimax'
+			}
+		});
+		const text = await readBody(stream);
+
+		expect(text).toContain('"delta":"Let me check the storage."');
+		expect(text).toContain('event: response.function_call_arguments.done');
+		expect(text).toContain('shell_command');
+		expect(text).toContain('Get-ChildItem');
+		expect(text).not.toContain(']<]minimax[>[');
+		expect(text).not.toContain('<tool_call>');
+	});
+
+	it('keeps plain MiniMax text intact when no inline tool call leaks', async () => {
+		const { stream } = ResponsesStreamSynthesizer.createResponseStream({
+			source: 'minimax',
+			response: sseResponse([
+				'{"choices":[{"delta":{"content":"Plain answer without markers."},"finish_reason":null}]}',
+				'{"choices":[{"delta":{},"finish_reason":"stop"}]}',
+				'[DONE]'
+			]),
+			requestId: 'minimax_plain_text',
+			model: 'miniMax-M3',
+			context: {
+				...context(),
+				source: 'minimax'
+			}
+		});
+		const text = await readBody(stream);
+
+		expect(text).toContain('Plain answer without markers.');
+		expect(text).toContain('event: response.completed');
+		expect(text).not.toContain('response.function_call_arguments.done');
+	});
 });

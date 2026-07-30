@@ -1,6 +1,7 @@
 import { CompletionRequestTelemetry } from 'src/metrics';
 import { logger } from 'src/utils/logger';
 
+import { extractMiniMaxInlineToolCalls, inlineToolCallPendingSuffix } from './minimax-inline-tool-calls';
 import { restoreResponsesNamespaceValue, type ResponsesNamespaceToolMapping } from './responses-namespace-tools';
 
 import type { AnthropicStreamEvent } from 'src/types/anthropic-stream';
@@ -45,6 +46,22 @@ type OutputStatus = OpenAIResponsesResponse['status'];
 
 const THINK_OPEN = '<think>';
 const THINK_CLOSE = '</think>';
+const INLINE_TOOL_CALL_MARKERS = [']<]minimax[>[', '<tool_call>'];
+// Keeps recovered calls from colliding with indices used by real tool_call deltas.
+const INLINE_TOOL_CALL_INDEX_OFFSET = 10_000;
+
+function findInlineToolCallStart(text: string): number {
+	let earliest = -1;
+
+	for (const marker of INLINE_TOOL_CALL_MARKERS) {
+		const index = text.indexOf(marker);
+		if (index >= 0 && (earliest === -1 || index < earliest)) {
+			earliest = index;
+		}
+	}
+
+	return earliest;
+}
 
 function nowSeconds(): number {
 	return Math.floor(Date.now() / 1000);
@@ -192,6 +209,9 @@ class ResponsesEventEmitter {
 	private cacheCreationTokens = 0;
 	private minimaxState: 'content' | 'thinking' = 'content';
 	private minimaxPendingTag = '';
+	private minimaxTextBuffer = '';
+	private minimaxLeakDetected = false;
+	private minimaxRecoveredCalls = 0;
 
 	constructor(requestId: string, model: string, reverseToolMapping: Record<string, string> = {}) {
 		this.responseId = responseId(requestId);
@@ -259,22 +279,88 @@ class ResponsesEventEmitter {
 		// The MiniMax catalog disables reasoning summaries. Orphan summary deltas make Codex reject the entire SSE stream.
 		for (const segment of parsed.segments) {
 			if (segment.kind === 'content') {
-				events.push(...this.textDelta(segment.text));
+				this.minimaxTextBuffer += segment.text;
 			}
 		}
+
+		events.push(...this.drainMiniMaxBuffer());
 
 		return events;
 	}
 
-	flushMiniMaxPending(): Record<string, unknown>[] {
-		if (!this.minimaxPendingTag) {
+	/**
+	 * Emits buffered MiniMax text that cannot be part of a leaked tool-call
+	 * marker. Once a marker is seen, text is held back until the stream ends so
+	 * the whole block can be parsed into a real function call.
+	 */
+	private drainMiniMaxBuffer(): Record<string, unknown>[] {
+		if (this.minimaxLeakDetected) {
 			return [];
 		}
 
-		const pending = this.minimaxPendingTag;
-		this.minimaxPendingTag = '';
+		const markerIndex = findInlineToolCallStart(this.minimaxTextBuffer);
 
-		return this.minimaxState === 'thinking' ? [] : this.textDelta(pending);
+		if (markerIndex >= 0) {
+			this.minimaxLeakDetected = true;
+			const visible = this.minimaxTextBuffer.slice(0, markerIndex);
+			this.minimaxTextBuffer = this.minimaxTextBuffer.slice(markerIndex);
+
+			return visible ? this.textDelta(visible) : [];
+		}
+
+		const pending = inlineToolCallPendingSuffix(this.minimaxTextBuffer);
+		const emittable = pending ? this.minimaxTextBuffer.slice(0, -pending.length) : this.minimaxTextBuffer;
+		this.minimaxTextBuffer = pending;
+
+		return emittable ? this.textDelta(emittable) : [];
+	}
+
+	/**
+	 * Final MiniMax flush: recovers tool calls that the upstream emitted as plain
+	 * text, so a turn that would otherwise end as prose keeps executing in Codex.
+	 */
+	flushMiniMax(): Record<string, unknown>[] {
+		const events: Record<string, unknown>[] = [];
+
+		if (this.minimaxPendingTag) {
+			const pending = this.minimaxPendingTag;
+			this.minimaxPendingTag = '';
+
+			if (this.minimaxState !== 'thinking') {
+				this.minimaxTextBuffer += pending;
+			}
+		}
+
+		if (!this.minimaxTextBuffer) {
+			return events;
+		}
+
+		const buffered = this.minimaxTextBuffer;
+		this.minimaxTextBuffer = '';
+
+		if (!this.minimaxLeakDetected) {
+			return this.textDelta(buffered);
+		}
+
+		const extraction = extractMiniMaxInlineToolCalls(buffered);
+
+		if (extraction.text) {
+			events.push(...this.textDelta(extraction.text));
+		}
+
+		for (const call of extraction.toolCalls) {
+			const index = INLINE_TOOL_CALL_INDEX_OFFSET + this.minimaxRecoveredCalls;
+			this.minimaxRecoveredCalls += 1;
+			events.push(...this.toolStart(index, `fc_inline_${eventId('mm')}`, call.name));
+			events.push(...this.toolArgumentsDelta(index, call.arguments));
+		}
+
+		if (extraction.toolCalls.length > 0) {
+			logger.log(`[MiniMax] recovered ${extraction.toolCalls.length} inline tool call(s) from assistant text`);
+			this.finishReason = 'tool_calls';
+		}
+
+		return events;
 	}
 
 	toolStart(index: number, id: string | undefined, name: string | undefined): OpenAIResponseStreamEvent[] {
@@ -655,7 +741,7 @@ async function readStream(
 	}
 
 	if (options.source === 'minimax') {
-		const pending = emitter.flushMiniMaxPending();
+		const pending = emitter.flushMiniMax();
 		if (pending.length > 0) {
 			onEvents(pending);
 		}

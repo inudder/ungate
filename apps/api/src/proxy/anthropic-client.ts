@@ -58,9 +58,9 @@ export async function makeClaudeCodeRequest(
 		});
 
 		if (response.status === 429) {
-			logger.log('Claude Code rate limited');
+			logger.log('Claude Code rate limited; preserving upstream error details');
 
-			return { success: false, error: 'Rate limited', status: 429 };
+			return { success: true, response, source: 'claude', reverseToolMapping };
 		}
 
 		if (response.status === 401) {
@@ -118,8 +118,16 @@ export async function makeClaudeCodeRequest(
 			const errorBody = errorJson as { error?: { message?: string; type?: string } };
 			const errorMessage = errorBody?.error?.message ?? '';
 			const errorType = errorBody?.error?.type ?? '';
+			const messageShape =
+				preparedBody.messages?.slice(-8).map((message) => {
+					const contentTypes = Array.isArray(message.content)
+						? message.content.map((block) => block.type).join(',')
+						: typeof message.content;
 
-			logger.error(`API 400 Error: ${errorMessage} (type: ${errorType})`);
+					return `${message.role}[${contentTypes}]`;
+				}) ?? [];
+
+			logger.error(`API 400 Error: ${errorMessage} (type: ${errorType}; tail: ${messageShape.join(' -> ')})`);
 
 			if (errorMessage.includes('illegal value') || errorMessage.includes('invalid') || errorMessage.includes('argument')) {
 				const toolSchemas =
@@ -204,7 +212,11 @@ export async function proxyRequest(
 	const claudeResult = await makeClaudeCodeRequest(endpoint, body, headers);
 
 	if (claudeResult.success) {
-		logger.log('✓ Request served via Claude Code');
+		if (claudeResult.response.ok) {
+			logger.log('✓ Request served via Claude Code');
+		} else {
+			logger.warn(`Claude Code returned HTTP ${claudeResult.response.status}`);
+		}
 
 		const { inputTokens, outputTokens } = await extractUsage(claudeResult.response, stream);
 

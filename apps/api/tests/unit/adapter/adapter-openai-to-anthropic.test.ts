@@ -139,7 +139,7 @@ describe('openai-to-anthropic', () => {
 
 	it('trims assistant message trailing whitespace for Anthropic validation', () => {
 		const result = openaiToAnthropic({
-			model: 'claude-opus-4-6',
+			model: 'claude-opus-4-5-20251101',
 			messages: [
 				{ role: 'user', content: 'continue' },
 				{ role: 'assistant', content: 'partial answer \n' }
@@ -150,6 +150,22 @@ describe('openai-to-anthropic', () => {
 			role: 'assistant',
 			content: [{ type: 'text', text: 'partial answer' }]
 		});
+	});
+
+	it('ends Claude 4.6+ histories with a user turn instead of assistant prefill', () => {
+		const result = openaiToAnthropic({
+			model: 'claude-opus-5',
+			messages: [
+				{ role: 'user', content: 'continue the previous work' },
+				{ role: 'assistant', content: 'I found the relevant files. ' }
+			]
+		});
+
+		expect(result.messages.at(-2)).toEqual({
+			role: 'assistant',
+			content: [{ type: 'text', text: 'I found the relevant files.' }]
+		});
+		expect(result.messages.at(-1)).toEqual({ role: 'user', content: 'Continue.' });
 	});
 
 	it.each([

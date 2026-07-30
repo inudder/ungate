@@ -443,6 +443,7 @@ test('returns safe remediation for patch authoring errors', async (t) => {
 				'+content\n' +
 				'*** End Patch\n' +
 				'There must be exactly one ASCII space after the colon. Every content line must start with a literal + in column 1. Do not add @@, indent the +, or escape it.\n' +
+				'If validation returns invalid_patch for a missing +, rebuild the affected Add File body and call apply_patch again; do not use shell edits.\n' +
 				'For Update File, copy this exact grammar and replace only the path and lines:\n' +
 				'*** Begin Patch\n' +
 				'*** Update File: relative/path\n' +
@@ -465,7 +466,8 @@ content without the required marker
 				'*** Add File: relative/path\n' +
 				'+content\n' +
 				'*** End Patch\n' +
-				'There must be exactly one ASCII space after the colon. Every content line must start with a literal + in column 1. Do not add @@, indent the +, or escape it.'
+				'There must be exactly one ASCII space after the colon. Every content line must start with a literal + in column 1. Do not add @@, indent the +, or escape it.\n' +
+				'If validation returns invalid_patch for a missing +, rebuild the affected Add File body and call apply_patch again; do not use shell edits.'
 		},
 		{
 			patch: `*** Begin Patch

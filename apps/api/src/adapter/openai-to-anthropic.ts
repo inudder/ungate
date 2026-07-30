@@ -37,6 +37,23 @@ export interface AnthropicModelOverride {
 	reasoningBudget?: ReasoningBudgetTier | null;
 }
 
+function supportsAssistantPrefill(model: string): boolean {
+	const normalized = model.trim().toLowerCase();
+	const namedVersion = /^claude-(?:opus|sonnet|haiku|fable)-(\d+)(?:[-.](\d+))?/.exec(normalized);
+	const prefixVersion = /^claude-(\d+)[-.](\d+)-(?:opus|sonnet|haiku|fable)/.exec(normalized);
+	const match = namedVersion ?? prefixVersion;
+
+	if (!match) {
+		return true;
+	}
+
+	const major = Number(match[1]);
+	const minor = Number(match[2] ?? 0);
+
+	// Anthropic no longer accepts a final assistant prefill on Claude 4.6+.
+	return major < 4 || (major === 4 && minor < 6);
+}
+
 function convertContent(content: string | OpenAIContentPart[] | ContentBlock[]): string | ContentBlock[] {
 	if (typeof content === 'string') {
 		return content;
@@ -206,6 +223,10 @@ export function openaiToAnthropic(request: OpenAIChatRequest, override?: Anthrop
 		}
 	} else {
 		normalized = normalizeModelName(request.model);
+	}
+
+	if (messages.at(-1)?.role === 'assistant' && !supportsAssistantPrefill(normalized.model)) {
+		messages.push({ role: 'user', content: 'Continue.' });
 	}
 
 	const maxTokens = request.max_tokens ?? request.max_completion_tokens ?? 4096;

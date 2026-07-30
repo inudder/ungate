@@ -24,7 +24,13 @@ describe('routes-anthropic', () => {
 		proxyRequestMock.mockResolvedValueOnce({
 			response: new Response(upstreamBody, {
 				status: 201,
-				headers: { 'content-type': 'text/plain', 'content-encoding': 'gzip', 'x-up': '1' }
+				headers: {
+					'content-type': 'text/plain',
+					'content-encoding': 'gzip',
+					'x-up': '1',
+					'retry-after': '60',
+					'anthropic-ratelimit-tokens-reset': '2026-07-29T17:00:00Z'
+				}
 			})
 		});
 
@@ -38,6 +44,8 @@ describe('routes-anthropic', () => {
 
 		expect(response.statusCode).toBe(201);
 		expect(response.headers['x-up']).toBe('1');
+		expect(response.headers['retry-after']).toBe('60');
+		expect(response.headers['anthropic-ratelimit-tokens-reset']).toBe('2026-07-29T17:00:00Z');
 		expect(response.headers['content-encoding']).toBeUndefined();
 		await app.close();
 	});

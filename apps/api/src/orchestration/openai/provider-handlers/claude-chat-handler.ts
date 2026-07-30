@@ -24,8 +24,9 @@ export class ClaudeChatHandler {
 
 		if (!response.ok) {
 			const errorJson = await response.json().catch(() => ({ error: { message: `HTTP ${response.status}`, type: 'api_error' } }));
-			const payload = CompletionErrorMapper.claudeApiErrorPayload(errorJson);
+			const payload = CompletionErrorMapper.claudeApiErrorPayload(errorJson, response.status);
 			const errorLatencyMs = Date.now() - context.startTime;
+			CompletionStreamingGateway.copyRateLimitHeaders(reply, response);
 
 			CompletionRequestTelemetry.recordAndApplyProxyHeaders(reply, errorLatencyMs, {
 				model: context.model,
@@ -37,12 +38,15 @@ export class ClaudeChatHandler {
 				error: payload.message
 			});
 
-			const body: { error: { message: string; type?: string } } = {
+			const body: { error: { message: string; type?: string; code?: string } } = {
 				error: { message: payload.message }
 			};
 
 			if (payload.type) {
 				body.error.type = payload.type;
+			}
+			if (payload.code) {
+				body.error.code = payload.code;
 			}
 
 			return reply.code(response.status).send(body);

@@ -5,6 +5,19 @@ interface MiniMaxErrorContext {
 }
 
 export class CompletionErrorMapper {
+	private static isClaudeUsageWindowError(status: number, message: string): boolean {
+		if (status !== 429) {
+			return false;
+		}
+
+		return [
+			/\busage limit reached\b/i,
+			/\busage limit has been reached\b/i,
+			/\bclaude pro usage limit\b/i,
+			/\byou(?:'ve| have) reached your usage limit\b/i
+		].some((pattern) => pattern.test(message));
+	}
+
 	static miniMaxErrorMessage(response: Response, context: MiniMaxErrorContext): string {
 		return this.miniMaxErrorPayload(response, context).message;
 	}
@@ -35,7 +48,7 @@ export class CompletionErrorMapper {
 		return openaiChatErrorMessages.unknownUpstream;
 	}
 
-	static claudeApiErrorPayload(errorJson: unknown): { message: string; type?: string } {
+	static claudeApiErrorPayload(errorJson: unknown, status = 0): { message: string; type?: string; code?: string } {
 		const error = errorJson as { error?: { message?: string; type?: string } };
 		let errorMessage = error?.error?.message ?? openaiChatErrorMessages.unknownUpstream;
 
@@ -43,9 +56,14 @@ export class CompletionErrorMapper {
 			errorMessage = errorMessage.replace(/model:\s*x-([^\s,]+)/g, (_match, modelName) => `model: ${modelName}`);
 		}
 
-		const payload: { message: string; type?: string } = {
+		const payload: { message: string; type?: string; code?: string } = {
 			message: errorMessage
 		};
+
+		if (this.isClaudeUsageWindowError(status, errorMessage)) {
+			payload.message = `Quota exceeded: ${errorMessage}`;
+			payload.code = 'insufficient_quota';
+		}
 
 		const errType = error?.error?.type;
 

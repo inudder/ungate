@@ -23,7 +23,8 @@ const ADD_FILE_REMEDIATION = [
 	'*** Add File: relative/path',
 	'+content',
 	'*** End Patch',
-	'There must be exactly one ASCII space after the colon. Every content line must start with a literal + in column 1. Do not add @@, indent the +, or escape it.'
+	'There must be exactly one ASCII space after the colon. Every content line must start with a literal + in column 1. Do not add @@, indent the +, or escape it.',
+	'If validation returns invalid_patch for a missing +, rebuild the affected Add File body and call apply_patch again; do not use shell edits.'
 ].join('\n');
 const UPDATE_FILE_REMEDIATION = [
 	'For Update File, copy this exact grammar and replace only the path and lines:',

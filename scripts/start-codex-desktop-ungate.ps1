@@ -31,6 +31,11 @@
 .PARAMETER PrepareOnly
     Prepare and validate the custom configuration without launching Desktop.
 
+.PARAMETER AddModel
+    Start an interactive wizard that adds a model to the user model registry
+    inside CustomCodexHome. This mode does not prepare configuration or launch
+    Codex Beta.
+
 .PARAMETER SkipWorkspaceRestore
     Skip restoring active-workspace-roots from project-order / saved roots.
 
@@ -39,14 +44,22 @@
 
 .EXAMPLE
     pwsh J:\Dev\ungate-local\scripts\start-codex-desktop-ungate.ps1 -PrepareOnly
+
+.EXAMPLE
+    pwsh J:\Dev\ungate-local\scripts\start-codex-desktop-ungate.ps1 -AddModel
+
+.EXAMPLE
+    pwsh J:\Dev\ungate-local\scripts\start-codex-desktop-ungate.ps1 -EnableProviderFallback
 #>
 [CmdletBinding()]
 param(
     [string]$ApiKey,
     [string]$Model = 'ungate-opus-4-8',
     [string]$CustomCodexHome = (Join-Path $HOME '.codex-ungate'),
+    [switch]$AddModel,
     [switch]$PrepareOnly,
-    [switch]$SkipWorkspaceRestore
+    [switch]$SkipWorkspaceRestore,
+    [switch]$EnableProviderFallback
 )
 
 $ErrorActionPreference = 'Stop'
@@ -78,12 +91,16 @@ $DefaultConfigPath = Join-Path $DefaultCodexHome 'config.toml'
 $CustomConfigPath = Join-Path $CustomCodexHome 'config.toml'
 $DefaultModelCachePath = Join-Path $DefaultCodexHome 'models_cache.json'
 $CustomModelCatalogPath = Join-Path $CustomCodexHome 'ungate-models.json'
+$CustomModelDefinitionsPath = Join-Path $CustomCodexHome 'ungate-model-definitions.json'
 $CustomGlobalStatePath = Join-Path $CustomCodexHome '.codex-global-state.json'
 $ProxyBaseUrl = 'http://127.0.0.1:47821'
 $ProviderName = 'ungate_proxy'
 $CliProxyUpstreamBaseUrl = 'http://127.0.0.1:8317'
 $CliProxyBaseUrl = 'http://127.0.0.1:8318'
 $CliProxyProviderName = 'cliproxyapi'
+$OmniRouteBaseUrl = 'http://127.0.0.1:20128'
+$OmniRouteProviderName = 'omniroute'
+$OmniRouteFallbackModel = 'codex-fallback'
 $CliProxyConfigPath = 'J:\Sandbox\CLIProxyAPI\config.yaml'
 $CliProxyBridgePath = Join-Path $PSScriptRoot 'cliproxy-namespace-bridge.mjs'
 $CliProxyBridgeServiceName = 'cliproxy-namespace-bridge'
@@ -122,6 +139,9 @@ HARD RULE — source edits:
 - If it returns `invalid_patch_header`, correct the header syntax and retry the
   same patch tool exactly once. If that retry fails, or any other patch error
   occurs, report the tool error and stop. An error never authorizes Shell edits.
+- If it returns `invalid_patch` because an Add File content line is missing its
+  leading `+`, reconstruct that Add File body with a `+` on every content line
+  and retry the same patch tool exactly once. An invalid patch is not applied.
 - Use Shell only for inspection, execution, formatting, and verification.
 - Do not edit source through Set-Content, Add-Content, WriteAllText, Python,
   Node.js, or a generated temporary edit script while apply_patch is available.
@@ -142,7 +162,7 @@ Images / vision:
 - Only use filesystem tools for non-image files, or when the user asks to inspect binary/metadata
   offline and no vision attachment is present.
 '@
-$UngateModelDefinitions = @(
+$BuiltInUngateModelDefinitions = @(
     [pscustomobject][ordered]@{
         Slug = 'ungate-opus-4-8'
         DisplayName = 'Claude Opus 4.8 (Ungate)'
@@ -209,8 +229,423 @@ $UngateModelDefinitions = @(
         RequiresUngate = $false
     }
 )
+$OmniRouteFallbackModelDefinition = [pscustomobject][ordered]@{
+    Slug = $OmniRouteFallbackModel
+    DisplayName = 'Codex Provider Fallback (OmniRoute)'
+    Description = 'Opt-in provider fallback through OmniRoute: Claude, Grok, MiniMax, then Gemini.'
+    Identity = ('You are Codex using the local OmniRoute provider fallback. The active upstream may change between Claude, Grok, MiniMax, and Gemini when a provider is unavailable or its quota is exhausted.' + "`r`n`r`n" + $UngateEnvironmentInstruction)
+    DefaultReasoningLevel = 'high'
+    Priority = 0
+    InputModalities = @('text', 'image')
+    SupportsImageDetailOriginal = $true
+    WebSearchToolType = 'text_and_image'
+    ProviderName = $OmniRouteProviderName
+    ProviderDisplayName = 'OmniRoute'
+    ProxyBaseUrl = $OmniRouteBaseUrl
+    EnvKey = 'OMNIROUTE_API_KEY'
+    RequiresUngate = $false
+}
+$UngateModelDefinitions = @($BuiltInUngateModelDefinitions)
 
 . (Join-Path $PSScriptRoot 'ungate-codex-common.ps1')
+
+function ConvertTo-UngateModelDefinition {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Record,
+        [Parameter(Mandatory = $true)]
+        [int]$Priority
+    )
+
+    $requiredProperties = @(
+        'Slug',
+        'DisplayName',
+        'UpstreamModel',
+        'Transport',
+        'DefaultReasoningLevel',
+        'SupportsImageInput'
+    )
+    foreach ($propertyName in $requiredProperties) {
+        if ($propertyName -notin $Record.PSObject.Properties.Name) {
+            throw "Custom model record is missing required property '$propertyName'."
+        }
+    }
+
+    $slug = ([string]$Record.Slug).Trim()
+    $displayName = ([string]$Record.DisplayName).Trim()
+    $upstreamModel = ([string]$Record.UpstreamModel).Trim()
+    $transport = ([string]$Record.Transport).Trim().ToLowerInvariant()
+    $reasoningLevel = ([string]$Record.DefaultReasoningLevel).Trim().ToLowerInvariant()
+
+    if (-not $slug) {
+        throw 'Custom model ID cannot be empty.'
+    }
+    if ($slug -match '\s|["'']') {
+        throw "Custom model ID '$slug' cannot contain whitespace or quotes."
+    }
+    if (-not $displayName) {
+        throw "Custom model '$slug' must have a display name."
+    }
+    if (-not $upstreamModel) {
+        throw "Custom model '$slug' must have an upstream model ID."
+    }
+    if ($upstreamModel -match '\s|["'']') {
+        throw "Upstream model ID '$upstreamModel' cannot contain whitespace or quotes."
+    }
+    if ($transport -notin @('ungate', 'cliproxyapi')) {
+        throw "Custom model '$slug' has unsupported transport '$transport'."
+    }
+    if ($reasoningLevel -notin @('low', 'medium', 'high', 'xhigh')) {
+        throw "Custom model '$slug' has unsupported reasoning level '$reasoningLevel'."
+    }
+    if ($Record.SupportsImageInput -isnot [bool]) {
+        throw "Custom model '$slug' property SupportsImageInput must be true or false."
+    }
+
+    if ($transport -eq 'ungate') {
+        $providerNameForModel = $ProviderName
+        $providerDisplayName = 'Ungate Proxy'
+        $proxyBaseUrlForModel = $ProxyBaseUrl
+        $environmentKey = 'UNGATE_API_KEY'
+        $requiresUngate = $true
+        $transportDescription = 'the local Ungate Responses proxy'
+    }
+    else {
+        $providerNameForModel = $CliProxyProviderName
+        $providerDisplayName = 'CLIProxyAPI'
+        $proxyBaseUrlForModel = $CliProxyBaseUrl
+        $environmentKey = 'CLIPROXYAPI_API_KEY'
+        $requiresUngate = $false
+        $transportDescription = 'the local CLIProxyAPI compatibility bridge'
+    }
+
+    $supportsImageInput = [bool]$Record.SupportsImageInput
+    $inputModalities = if ($supportsImageInput) { @('text', 'image') } else { @('text') }
+    $webSearchToolType = if ($supportsImageInput) { 'text_and_image' } else { 'text' }
+    $description = "$displayName maps to upstream model '$upstreamModel' through $transportDescription."
+    $identity = (
+        "You are Codex, a coding agent powered by $displayName (upstream model $upstreamModel) through $transportDescription. " +
+        "When asked which model you are using, identify it as $displayName via $providerDisplayName and do not claim to be a GPT model." +
+        "`r`n`r`n" +
+        $UngateEnvironmentInstruction
+    )
+
+    return [pscustomobject][ordered]@{
+        Slug = $slug
+        DisplayName = $displayName
+        UpstreamModel = $upstreamModel
+        Transport = $transport
+        Description = $description
+        Identity = $identity
+        DefaultReasoningLevel = $reasoningLevel
+        Priority = $Priority
+        InputModalities = $inputModalities
+        SupportsImageInput = $supportsImageInput
+        SupportsImageDetailOriginal = $supportsImageInput
+        WebSearchToolType = $webSearchToolType
+        ProviderName = $providerNameForModel
+        ProviderDisplayName = $providerDisplayName
+        ProxyBaseUrl = $proxyBaseUrlForModel
+        EnvKey = $environmentKey
+        RequiresUngate = $requiresUngate
+    }
+}
+
+function Read-UngateCustomModelDefinitions {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RegistryPath,
+        [Parameter(Mandatory = $true)]
+        [object[]]$BuiltInDefinitions
+    )
+
+    if (-not (Test-Path -LiteralPath $RegistryPath)) {
+        return @()
+    }
+    if (-not (Test-Path -LiteralPath $RegistryPath -PathType Leaf)) {
+        throw "Custom model registry is not a file: $RegistryPath"
+    }
+
+    try {
+        $registry = Get-Content -LiteralPath $RegistryPath -Raw -Encoding utf8 |
+            ConvertFrom-Json -Depth 100 -ErrorAction Stop
+    }
+    catch {
+        throw "Failed to parse custom model registry at $RegistryPath : $($_.Exception.Message)"
+    }
+
+    if ('Version' -notin $registry.PSObject.Properties.Name -or [int]$registry.Version -ne 1) {
+        throw "Custom model registry at $RegistryPath has an unsupported or missing version."
+    }
+    if ('Models' -notin $registry.PSObject.Properties.Name) {
+        throw "Custom model registry at $RegistryPath is missing the models array."
+    }
+
+    $seenSlugs = [System.Collections.Generic.HashSet[string]]::new(
+        [System.StringComparer]::OrdinalIgnoreCase
+    )
+    foreach ($definition in $BuiltInDefinitions) {
+        if (-not $seenSlugs.Add([string]$definition.Slug)) {
+            throw "Built-in model ID '$($definition.Slug)' is duplicated."
+        }
+    }
+
+    $definitions = [System.Collections.Generic.List[object]]::new()
+    $priority = $BuiltInDefinitions.Count
+    foreach ($record in @($registry.Models)) {
+        $definition = ConvertTo-UngateModelDefinition -Record $record -Priority $priority
+        if (-not $seenSlugs.Add($definition.Slug)) {
+            throw "Custom model ID '$($definition.Slug)' duplicates an existing model."
+        }
+        [void]$definitions.Add($definition)
+        $priority++
+    }
+
+    return @($definitions)
+}
+
+function Write-UngateCustomModelDefinitions {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RegistryPath,
+        [Parameter(Mandatory = $true)]
+        [object[]]$Records,
+        [Parameter(Mandatory = $true)]
+        [object[]]$BuiltInDefinitions
+    )
+
+    $normalizedDefinitions = [System.Collections.Generic.List[object]]::new()
+    $seenSlugs = [System.Collections.Generic.HashSet[string]]::new(
+        [System.StringComparer]::OrdinalIgnoreCase
+    )
+    foreach ($definition in $BuiltInDefinitions) {
+        if (-not $seenSlugs.Add([string]$definition.Slug)) {
+            throw "Built-in model ID '$($definition.Slug)' is duplicated."
+        }
+    }
+
+    $priority = $BuiltInDefinitions.Count
+    foreach ($record in $Records) {
+        $definition = ConvertTo-UngateModelDefinition -Record $record -Priority $priority
+        if (-not $seenSlugs.Add($definition.Slug)) {
+            throw "Custom model ID '$($definition.Slug)' duplicates an existing model."
+        }
+        [void]$normalizedDefinitions.Add($definition)
+        $priority++
+    }
+
+    $persistentRecords = @(
+        foreach ($definition in $normalizedDefinitions) {
+            [ordered]@{
+                slug = $definition.Slug
+                displayName = $definition.DisplayName
+                upstreamModel = $definition.UpstreamModel
+                transport = $definition.Transport
+                defaultReasoningLevel = $definition.DefaultReasoningLevel
+                supportsImageInput = $definition.SupportsImageInput
+            }
+        }
+    )
+    $json = [ordered]@{
+        version = 1
+        models = $persistentRecords
+    } | ConvertTo-Json -Depth 20
+
+    $absoluteRegistryPath = [System.IO.Path]::GetFullPath($RegistryPath)
+    if (
+        (Test-Path -LiteralPath $absoluteRegistryPath) -and
+        -not (Test-Path -LiteralPath $absoluteRegistryPath -PathType Leaf)
+    ) {
+        throw "Custom model registry target is not a file: $absoluteRegistryPath"
+    }
+
+    $registryDirectory = Split-Path -Parent $absoluteRegistryPath
+    New-Item -ItemType Directory -Path $registryDirectory -Force | Out-Null
+    $transactionId = [guid]::NewGuid().ToString('N')
+    $temporaryPath = Join-Path $registryDirectory ".ungate-model-definitions.$transactionId.tmp"
+    $backupPath = Join-Path $registryDirectory ".ungate-model-definitions.$transactionId.bak"
+    $writeCompleted = $false
+
+    try {
+        [System.IO.File]::WriteAllText(
+            $temporaryPath,
+            $json + "`r`n",
+            [System.Text.UTF8Encoding]::new($false)
+        )
+        if (Test-Path -LiteralPath $absoluteRegistryPath -PathType Leaf) {
+            [System.IO.File]::Replace(
+                $temporaryPath,
+                $absoluteRegistryPath,
+                $backupPath,
+                $true
+            )
+        }
+        else {
+            [System.IO.File]::Move($temporaryPath, $absoluteRegistryPath)
+        }
+        $writeCompleted = $true
+    }
+    finally {
+        if (Test-Path -LiteralPath $temporaryPath -PathType Leaf) {
+            Remove-Item -LiteralPath $temporaryPath -Force
+        }
+        if ($writeCompleted -and (Test-Path -LiteralPath $backupPath -PathType Leaf)) {
+            Remove-Item -LiteralPath $backupPath -Force
+        }
+    }
+
+    return $absoluteRegistryPath
+}
+
+function Get-UngateModelDefinitions {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object[]]$BuiltInDefinitions,
+        [Parameter(Mandatory = $true)]
+        [string]$RegistryPath
+    )
+
+    $customDefinitions = @(
+        Read-UngateCustomModelDefinitions `
+            -RegistryPath $RegistryPath `
+            -BuiltInDefinitions $BuiltInDefinitions
+    )
+    return @($BuiltInDefinitions) + $customDefinitions
+}
+
+function Read-UngateMenuChoice {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Prompt,
+        [Parameter(Mandatory = $true)]
+        [string[]]$Values,
+        [Parameter(Mandatory = $true)]
+        [int]$DefaultIndex
+    )
+
+    while ($true) {
+        $choice = Read-Host "$Prompt [1-$($Values.Count)] (default: $($DefaultIndex + 1))"
+        if ([string]::IsNullOrWhiteSpace($choice)) {
+            return $Values[$DefaultIndex]
+        }
+
+        $selectedNumber = 0
+        if (
+            [int]::TryParse($choice, [ref]$selectedNumber) -and
+            $selectedNumber -ge 1 -and
+            $selectedNumber -le $Values.Count
+        ) {
+            return $Values[$selectedNumber - 1]
+        }
+
+        Write-Host "Enter a number from 1 to $($Values.Count)." -ForegroundColor Yellow
+    }
+}
+
+function Read-UngateYesNo {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Prompt,
+        [bool]$Default = $true
+    )
+
+    $defaultLabel = if ($Default) { 'Y/n' } else { 'y/N' }
+    while ($true) {
+        $choice = Read-Host "$Prompt [$defaultLabel]"
+        if ([string]::IsNullOrWhiteSpace($choice)) {
+            return $Default
+        }
+        $choice = $choice.Trim().ToLowerInvariant()
+        if ($choice -in @('y', 'yes')) {
+            return $true
+        }
+        if ($choice -in @('n', 'no')) {
+            return $false
+        }
+        Write-Host 'Enter y or n.' -ForegroundColor Yellow
+    }
+}
+
+function Invoke-AddUngateModelMode {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RegistryPath,
+        [Parameter(Mandatory = $true)]
+        [object[]]$BuiltInDefinitions
+    )
+
+    $existingDefinitions = @(
+        Read-UngateCustomModelDefinitions `
+            -RegistryPath $RegistryPath `
+            -BuiltInDefinitions $BuiltInDefinitions
+    )
+
+    Write-Host ''
+    Write-Host 'Add a model to the Codex Beta launcher:' -ForegroundColor Cyan
+    $slug = Read-Host 'Model ID (example: ungate-opus-5)'
+    $displayName = Read-Host 'Label (example: Claude Opus 5 (Ungate))'
+    $upstreamModel = Read-Host 'Upstream model ID (example: claude-opus-5)'
+
+    Write-Host ''
+    Write-Host 'Transport:'
+    Write-Host '  1) Ungate Proxy'
+    Write-Host '  2) CLIProxyAPI'
+    $transport = Read-UngateMenuChoice `
+        -Prompt 'Transport' `
+        -Values @('ungate', 'cliproxyapi') `
+        -DefaultIndex 0
+
+    Write-Host ''
+    Write-Host 'Default reasoning level:'
+    Write-Host '  1) low'
+    Write-Host '  2) medium'
+    Write-Host '  3) high'
+    Write-Host '  4) xhigh'
+    $reasoningLevel = Read-UngateMenuChoice `
+        -Prompt 'Reasoning level' `
+        -Values @('low', 'medium', 'high', 'xhigh') `
+        -DefaultIndex 2
+    $supportsImageInput = Read-UngateYesNo -Prompt 'Supports image input?' -Default $true
+
+    $newRecord = [pscustomobject][ordered]@{
+        Slug = $slug
+        DisplayName = $displayName
+        UpstreamModel = $upstreamModel
+        Transport = $transport
+        DefaultReasoningLevel = $reasoningLevel
+        SupportsImageInput = $supportsImageInput
+    }
+    $candidate = ConvertTo-UngateModelDefinition `
+        -Record $newRecord `
+        -Priority ($BuiltInDefinitions.Count + $existingDefinitions.Count)
+    $allSlugs = @($BuiltInDefinitions.Slug) + @($existingDefinitions.Slug)
+    if ($candidate.Slug -in $allSlugs) {
+        throw "Model ID '$($candidate.Slug)' already exists."
+    }
+
+    Write-Host ''
+    Write-Host 'New model:' -ForegroundColor Cyan
+    Write-Host "  Model ID:       $($candidate.Slug)"
+    Write-Host "  Label:          $($candidate.DisplayName)"
+    Write-Host "  Upstream Model: $($candidate.UpstreamModel)"
+    Write-Host "  Transport:      $($candidate.ProviderDisplayName)"
+    Write-Host "  Reasoning:      $($candidate.DefaultReasoningLevel)"
+    Write-Host "  Image input:    $($candidate.SupportsImageInput)"
+    Write-Host ''
+
+    if (-not (Read-UngateYesNo -Prompt 'Save this model?' -Default $true)) {
+        Write-Host '[ungate] Model addition cancelled.' -ForegroundColor Yellow
+        return
+    }
+
+    $registryRecords = @($existingDefinitions) + @($newRecord)
+    $savedPath = Write-UngateCustomModelDefinitions `
+        -RegistryPath $RegistryPath `
+        -Records $registryRecords `
+        -BuiltInDefinitions $BuiltInDefinitions
+    Write-Host "[ungate] Model '$($candidate.Slug)' added: $savedPath" -ForegroundColor Green
+    Write-Host '[ungate] Run the launcher normally to select the new model.' -ForegroundColor Green
+}
 
 function Get-ProviderDefinitions {
     $byName = [ordered]@{}
@@ -441,6 +876,17 @@ function Resolve-ModelApiKey {
         [string]$ApiKey
     )
 
+    if ($Definition.ProviderName -eq $OmniRouteProviderName) {
+        if ($ApiKey) {
+            return $ApiKey
+        }
+        if ($env:OMNIROUTE_API_KEY) {
+            return $env:OMNIROUTE_API_KEY
+        }
+
+        throw 'OmniRoute client key is required. Pass -ApiKey or set OMNIROUTE_API_KEY.'
+    }
+
     if ($Definition.RequiresUngate) {
         return Resolve-UngateApiKey -ApiKey $ApiKey -RepoRoot $RepoRoot
     }
@@ -450,6 +896,89 @@ function Resolve-ModelApiKey {
     }
 
     return Resolve-CliProxyApiKey
+}
+
+function Invoke-OmniRoutePreflight {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Key,
+        [Parameter(Mandatory = $true)]
+        [string]$Model,
+        [Parameter(Mandatory = $true)]
+        [string]$ProxyBaseUrl
+    )
+
+    try {
+        $health = Invoke-RestMethod `
+            -Uri "$ProxyBaseUrl/api/health/ping" `
+            -TimeoutSec 3 `
+            -ErrorAction Stop
+        if ($health.status -ne 'ok') {
+            throw 'health.status != ok'
+        }
+    }
+    catch {
+        throw "OmniRoute is not reachable at $ProxyBaseUrl. Start OmniRoute manually, then retry with -EnableProviderFallback."
+    }
+    Write-Host "[ungate] OmniRoute healthy at $ProxyBaseUrl." -ForegroundColor Green
+
+    try {
+        $models = Invoke-RestMethod `
+            -Uri "$ProxyBaseUrl/v1/models" `
+            -Headers @{ Authorization = "Bearer $Key" } `
+            -TimeoutSec 5 `
+            -ErrorAction Stop
+    }
+    catch {
+        throw "Could not list OmniRoute /v1/models. Verify OMNIROUTE_API_KEY and the codex-local key permissions: $($_.Exception.Message)"
+    }
+
+    $ids = @($models.data | ForEach-Object { $_.id })
+    if ($Model -notin $ids) {
+        throw "OmniRoute combo '$Model' was not found in /v1/models. Configure the combo before launching fallback mode."
+    }
+    Write-Host "[ungate] OmniRoute combo '$Model' available." -ForegroundColor Green
+
+    $body = [ordered]@{
+        model = $Model
+        input = 'Reply with exactly OK.'
+        max_output_tokens = 16
+        stream = $false
+        store = $false
+    } | ConvertTo-Json -Compress
+
+    try {
+        $response = Invoke-WebRequest `
+            -Method Post `
+            -Uri "$ProxyBaseUrl/v1/responses" `
+            -Headers @{ Authorization = "Bearer $Key" } `
+            -ContentType 'application/json' `
+            -Body $body `
+            -TimeoutSec 60 `
+            -SkipHttpErrorCheck `
+            -ErrorAction Stop
+    }
+    catch {
+        throw "Could not reach OmniRoute /v1/responses: $($_.Exception.Message)"
+    }
+
+    $statusCode = [int]$response.StatusCode
+    if ($statusCode -lt 200 -or $statusCode -ge 300) {
+        $detail = Get-CliProxyHttpErrorDetail -Content ([string]$response.Content)
+        throw "OmniRoute /v1/responses preflight failed with HTTP ${statusCode}: $detail"
+    }
+
+    try {
+        $payload = ([string]$response.Content) | ConvertFrom-Json -Depth 100 -ErrorAction Stop
+    }
+    catch {
+        throw "OmniRoute /v1/responses returned invalid JSON: $($_.Exception.Message)"
+    }
+    if (-not $payload.id -and -not $payload.output) {
+        throw "OmniRoute /v1/responses returned an unexpected response for combo '$Model'."
+    }
+
+    Write-Host "[ungate] Live OmniRoute /v1/responses preflight passed for '$Model'." -ForegroundColor Green
 }
 
 function Get-ProviderTomlBlock {
@@ -485,33 +1014,77 @@ function Ensure-ModelProvidersInConfig {
 function Select-UngateDesktopModel {
     param(
         [Parameter(Mandatory = $true)]
-        [object[]]$Definitions
+        [object[]]$Definitions,
+        [Parameter(Mandatory = $true)]
+        [object[]]$BuiltInDefinitions,
+        [Parameter(Mandatory = $true)]
+        [string]$RegistryPath,
+        [switch]$IncludeProviderFallback,
+        [string]$ProviderFallbackModel = 'codex-fallback'
     )
 
-    Write-Host ''
-    Write-Host 'Select a model for Codex Beta:' -ForegroundColor Cyan
-    for ($index = 0; $index -lt $Definitions.Count; $index++) {
-        $defaultLabel = if ($index -eq 0) { ' (default)' } else { '' }
-        Write-Host ("  {0}) {1}{2}" -f ($index + 1), $Definitions[$index].DisplayName, $defaultLabel)
-    }
-    Write-Host ''
-
     while ($true) {
-        $choice = Read-Host "Model [1-$($Definitions.Count)] (default: 1)"
+        Write-Host ''
+        Write-Host 'Select a mode for Codex Beta:' -ForegroundColor Cyan
+        for ($index = 0; $index -lt $Definitions.Count; $index++) {
+            $defaultLabel = if ($index -eq 0) { ' (default)' } else { '' }
+            Write-Host ("  {0}) {1}{2}" -f ($index + 1), $Definitions[$index].DisplayName, $defaultLabel)
+        }
+        $providerFallbackIndex = if ($IncludeProviderFallback) { $Definitions.Count + 1 } else { $null }
+        if ($IncludeProviderFallback) {
+            Write-Host (
+                "  {0}) [ ] Enable provider fallback (OmniRoute) — Claude → Grok → MiniMax → Gemini" -f
+                    $providerFallbackIndex
+            ) -ForegroundColor Yellow
+        }
+        $addModelIndex = $Definitions.Count + $(if ($IncludeProviderFallback) { 2 } else { 1 })
+        Write-Host ("  {0}) Add a new model" -f $addModelIndex) -ForegroundColor DarkCyan
+        Write-Host ''
+
+        $choicePrompt = if ($IncludeProviderFallback) {
+            "Mode [1-$addModelIndex or F] (default: 1)"
+        }
+        else {
+            "Mode [1-$addModelIndex] (default: 1)"
+        }
+        $choice = Read-Host $choicePrompt
         if ([string]::IsNullOrWhiteSpace($choice)) {
             return $Definitions[0].Slug
+        }
+
+        if ($IncludeProviderFallback -and $choice.Trim().Equals('f', [System.StringComparison]::OrdinalIgnoreCase)) {
+            Write-Host '  [x] Provider fallback enabled.' -ForegroundColor Green
+            return $ProviderFallbackModel
         }
 
         $selectedNumber = 0
         if (
             [int]::TryParse($choice, [ref]$selectedNumber) -and
             $selectedNumber -ge 1 -and
-            $selectedNumber -le $Definitions.Count
+            $selectedNumber -le $addModelIndex
         ) {
-            return $Definitions[$selectedNumber - 1].Slug
+            if ($selectedNumber -le $Definitions.Count) {
+                return $Definitions[$selectedNumber - 1].Slug
+            }
+
+            if ($IncludeProviderFallback -and $selectedNumber -eq $providerFallbackIndex) {
+                Write-Host '  [x] Provider fallback enabled.' -ForegroundColor Green
+                return $ProviderFallbackModel
+            }
+
+            Invoke-AddUngateModelMode `
+                -RegistryPath $RegistryPath `
+                -BuiltInDefinitions $BuiltInDefinitions
+            $Definitions = @(
+                Get-UngateModelDefinitions `
+                    -BuiltInDefinitions $BuiltInDefinitions `
+                    -RegistryPath $RegistryPath
+            )
+            continue
         }
 
-        Write-Host "Enter a number from 1 to $($Definitions.Count)." -ForegroundColor Yellow
+        $fallbackHint = if ($IncludeProviderFallback) { ' or F' } else { '' }
+        Write-Host "Enter a number from 1 to $addModelIndex$fallbackHint." -ForegroundColor Yellow
     }
 }
 
@@ -1638,8 +2211,51 @@ function Restore-CodexWorkspaceRoots {
     Write-Host "[ungate] Restored $($merged.Count) workspace roots from project-order ∪ saved roots." -ForegroundColor Green
 }
 
-if (-not $PrepareOnly -and -not $PSBoundParameters.ContainsKey('Model')) {
-    $Model = Select-UngateDesktopModel -Definitions $UngateModelDefinitions
+if ($AddModel) {
+    $conflictingParameters = @(
+        'ApiKey',
+        'Model',
+        'PrepareOnly',
+        'SkipWorkspaceRestore',
+        'EnableProviderFallback'
+    ) | Where-Object { $PSBoundParameters.ContainsKey($_) }
+    if ($conflictingParameters.Count -gt 0) {
+        throw "-AddModel cannot be combined with: $($conflictingParameters -join ', ')."
+    }
+
+    Invoke-AddUngateModelMode `
+        -RegistryPath $CustomModelDefinitionsPath `
+        -BuiltInDefinitions $BuiltInUngateModelDefinitions
+    exit 0
+}
+
+$UngateModelDefinitions = @(
+    Get-UngateModelDefinitions `
+        -BuiltInDefinitions $BuiltInUngateModelDefinitions `
+        -RegistryPath $CustomModelDefinitionsPath
+)
+
+if ($EnableProviderFallback) {
+    if ($PSBoundParameters.ContainsKey('Model')) {
+        throw '-EnableProviderFallback cannot be combined with -Model.'
+    }
+
+    $Model = $OmniRouteFallbackModel
+    $UngateModelDefinitions = @($UngateModelDefinitions) + @($OmniRouteFallbackModelDefinition)
+}
+
+if (-not $EnableProviderFallback -and -not $PrepareOnly -and -not $PSBoundParameters.ContainsKey('Model')) {
+    $Model = Select-UngateDesktopModel `
+        -Definitions $UngateModelDefinitions `
+        -BuiltInDefinitions $BuiltInUngateModelDefinitions `
+        -RegistryPath $CustomModelDefinitionsPath `
+        -IncludeProviderFallback `
+        -ProviderFallbackModel $OmniRouteFallbackModel
+
+    if ($Model -eq $OmniRouteFallbackModel) {
+        $EnableProviderFallback = $true
+        $UngateModelDefinitions = @($UngateModelDefinitions) + @($OmniRouteFallbackModelDefinition)
+    }
 }
 
 $selectedModelDefinition = $UngateModelDefinitions |
@@ -1681,11 +2297,17 @@ foreach ($provider in (Get-ProviderDefinitions)) {
 Ensure-CliProxyBridge -Key $providerKeys[$CliProxyProviderName]
 
 $selectedKey = $providerKeys[$selectedModelDefinition.ProviderName]
-$preflightAttempts = 2
+$preflightAttempts = if ($EnableProviderFallback) { 1 } else { 2 }
 $preflightFailure = $null
 for ($attempt = 1; $attempt -le $preflightAttempts; $attempt++) {
     try {
-        if ($selectedModelDefinition.RequiresUngate) {
+        if ($EnableProviderFallback) {
+            Invoke-OmniRoutePreflight `
+                -Key $selectedKey `
+                -Model $Model `
+                -ProxyBaseUrl $selectedModelDefinition.ProxyBaseUrl
+        }
+        elseif ($selectedModelDefinition.RequiresUngate) {
             Invoke-UngatePreflight `
                 -Key $selectedKey `
                 -Model $Model `
