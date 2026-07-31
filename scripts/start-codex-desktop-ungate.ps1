@@ -162,12 +162,46 @@ Images / vision:
 - Only use filesystem tools for non-image files, or when the user asks to inspect binary/metadata
   offline and no vision attachment is present.
 '@
+function Get-UngateModelIdentity {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$DisplayName,
+        [Parameter()][string]$UpstreamModel,
+        [Parameter(Mandatory = $true)]
+        [string]$ProviderDisplayName,
+        [Parameter(Mandatory = $true)]
+        [string]$TransportDescription
+    )
+
+    # Anthropic-prefixed models already get the canonical "You are Claude Code,
+    # Anthropic's official CLI for Claude." identity from the proxy in
+    # apps/api/src/proxy/request-builder.ts (prepareClaudeCodeBody). The Codex
+    # self-identification layer ("don't claim to be a GPT model") is pure
+    # overhead for them, so we send only the environment instructions.
+    $isAnthropicModel = $DisplayName -like 'Claude *' -or $DisplayName -like 'Anthropic *'
+
+    if ($isAnthropicModel) {
+        return $UngateEnvironmentInstruction
+    }
+
+    $upstreamClause = if ($UpstreamModel) { " (upstream model $UpstreamModel)" } else { '' }
+
+    return (
+        "You are Codex, a coding agent powered by $DisplayName$upstreamClause through $TransportDescription. " +
+        "When asked which model you are using, identify it as $DisplayName via $ProviderDisplayName and do not claim to be a GPT model." +
+        "`r`n`r`n" +
+        $UngateEnvironmentInstruction
+    )
+}
+
 $BuiltInUngateModelDefinitions = @(
     [pscustomobject][ordered]@{
         Slug = 'ungate-opus-4-8'
         DisplayName = 'Claude Opus 4.8 (Ungate)'
         Description = 'Claude Opus 4.8 through the local Ungate Responses proxy.'
-        Identity = ('You are Codex, a coding agent powered by Claude Opus 4.8 through the local Ungate proxy. When asked which model you are using, identify it as Claude Opus 4.8 via Ungate and do not claim to be a GPT model.' + "`r`n`r`n" + $UngateEnvironmentInstruction)
+        UpstreamModel = 'claude-opus-4-8'
+        TransportDescription = 'the local Ungate Responses proxy'
         DefaultReasoningLevel = 'high'
         Priority = 0
         InputModalities = @('text', 'image')
@@ -183,7 +217,8 @@ $BuiltInUngateModelDefinitions = @(
         Slug = 'ungate-fable-5'
         DisplayName = 'Claude Fable 5 (Ungate)'
         Description = 'Claude Fable 5 through the local Ungate Responses proxy.'
-        Identity = ('You are Codex, a coding agent powered by Claude Fable 5 through the local Ungate proxy. When asked which model you are using, identify it as Claude Fable 5 via Ungate and do not claim to be a GPT model.' + "`r`n`r`n" + $UngateEnvironmentInstruction)
+        UpstreamModel = 'claude-fable-5'
+        TransportDescription = 'the local Ungate Responses proxy'
         DefaultReasoningLevel = 'high'
         Priority = 1
         InputModalities = @('text', 'image')
@@ -199,7 +234,10 @@ $BuiltInUngateModelDefinitions = @(
         Slug = 'miniMax-M3'
         DisplayName = 'MiniMax M3 (Ungate)'
         Description = 'MiniMax M3 through the local Ungate Responses proxy with image input support.'
-        Identity = ('You are Codex, a coding agent powered by MiniMax M3 through the local Ungate proxy. When asked which model you are using, identify it as MiniMax M3 via Ungate and do not claim to be a GPT model.' + "`r`n`r`n" + $UngateEnvironmentInstruction)
+        # UpstreamModel intentionally left blank: MiniMax provider normalises
+        # the model id from Codex's request body itself, so the launcher does
+        # not need to know the literal id to put it in the identity string.
+        TransportDescription = 'the local Ungate Responses proxy'
         DefaultReasoningLevel = 'xhigh'
         Priority = 2
         InputModalities = @('text', 'image')
@@ -216,7 +254,8 @@ $BuiltInUngateModelDefinitions = @(
         Slug = 'grok-4.5'
         DisplayName = 'Grok 4.5 (CLIProxyAPI)'
         Description = 'Grok 4.5 through the local CLIProxyAPI compatibility bridge on port 8318.'
-        Identity = ('You are Codex, a coding agent powered by Grok 4.5 through the local CLIProxyAPI proxy. When asked which model you are using, identify it as Grok 4.5 via CLIProxyAPI and do not claim to be a GPT model.' + "`r`n`r`n" + $UngateEnvironmentInstruction)
+        UpstreamModel = 'grok-4.5'
+        TransportDescription = 'the local CLIProxyAPI compatibility bridge'
         DefaultReasoningLevel = 'high'
         Priority = 3
         InputModalities = @('text', 'image')
@@ -229,6 +268,45 @@ $BuiltInUngateModelDefinitions = @(
         RequiresUngate = $false
     }
 )
+
+# Populate Identity uniformly through Get-UngateModelIdentity so built-ins and
+# the registry path share the same format. The helper drops the Codex
+# self-identification layer for Anthropic-prefixed models and keeps it for
+# everything else.
+$BuiltInUngateModelDefinitions = @(
+    foreach ($def in $BuiltInUngateModelDefinitions) {
+        $upstreamModelValue = $null
+        if ($def.PSObject.Properties['UpstreamModel'] -and $def.UpstreamModel) {
+            $upstreamModelValue = [string]$def.UpstreamModel
+        }
+
+        $identity = Get-UngateModelIdentity `
+            -DisplayName ([string]$def.DisplayName) `
+            -UpstreamModel $upstreamModelValue `
+            -ProviderDisplayName ([string]$def.ProviderDisplayName) `
+            -TransportDescription ([string]$def.TransportDescription)
+
+        [pscustomobject][ordered]@{
+            Slug = $def.Slug
+            DisplayName = $def.DisplayName
+            Description = $def.Description
+            UpstreamModel = $upstreamModelValue
+            TransportDescription = $def.TransportDescription
+            Identity = $identity
+            DefaultReasoningLevel = $def.DefaultReasoningLevel
+            Priority = $def.Priority
+            InputModalities = $def.InputModalities
+            SupportsImageDetailOriginal = $def.SupportsImageDetailOriginal
+            WebSearchToolType = $def.WebSearchToolType
+            ProviderName = $def.ProviderName
+            ProviderDisplayName = $def.ProviderDisplayName
+            ProxyBaseUrl = $def.ProxyBaseUrl
+            EnvKey = $def.EnvKey
+            RequiresUngate = $def.RequiresUngate
+        }
+    }
+)
+
 $OmniRouteFallbackModelDefinition = [pscustomobject][ordered]@{
     Slug = $OmniRouteFallbackModel
     DisplayName = 'Codex Provider Fallback (OmniRoute)'
@@ -323,12 +401,11 @@ function ConvertTo-UngateModelDefinition {
     $inputModalities = if ($supportsImageInput) { @('text', 'image') } else { @('text') }
     $webSearchToolType = if ($supportsImageInput) { 'text_and_image' } else { 'text' }
     $description = "$displayName maps to upstream model '$upstreamModel' through $transportDescription."
-    $identity = (
-        "You are Codex, a coding agent powered by $displayName (upstream model $upstreamModel) through $transportDescription. " +
-        "When asked which model you are using, identify it as $displayName via $providerDisplayName and do not claim to be a GPT model." +
-        "`r`n`r`n" +
-        $UngateEnvironmentInstruction
-    )
+    $identity = Get-UngateModelIdentity `
+        -DisplayName $displayName `
+        -UpstreamModel $upstreamModel `
+        -ProviderDisplayName $providerDisplayName `
+        -TransportDescription $transportDescription
 
     return [pscustomobject][ordered]@{
         Slug = $slug

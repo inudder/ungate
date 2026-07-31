@@ -12,6 +12,7 @@ BeforeAll {
     }
 
     $functionNames = @(
+        'Get-UngateModelIdentity',
         'ConvertTo-UngateModelDefinition',
         'Read-UngateCustomModelDefinitions',
         'Write-UngateCustomModelDefinitions',
@@ -335,7 +336,10 @@ Describe 'Custom launcher model registry' {
         $definition.SupportsImageDetailOriginal | Should -BeTrue
         $definition.WebSearchToolType | Should -BeExactly 'text_and_image'
         $definition.Description | Should -Match 'claude-opus-5'
-        $definition.Identity | Should -Match 'claude-opus-5'
+        # Anthropic-prefixed models skip the Codex self-identification layer;
+        # Identity is just the shared environment instruction.
+        $definition.Identity | Should -Match 'environment instructions'
+        $definition.Identity | Should -Not -Match 'GPT model'
     }
 
     It 'runs the AddModel wizard without preparing or launching Codex' {
@@ -420,7 +424,10 @@ Describe 'Custom launcher model registry' {
         $opus5.display_name | Should -BeExactly 'Claude Opus 5 (Ungate)'
         $opus5.default_reasoning_level | Should -BeExactly 'high'
         @($opus5.input_modalities) | Should -Be @('text', 'image')
-        $opus5.base_instructions | Should -Match 'claude-opus-5'
+        # Anthropic-prefixed models store only the env instruction as their
+        # base_instructions; the Codex self-identification layer is omitted.
+        $opus5.base_instructions | Should -Match 'environment instructions'
+        $opus5.base_instructions | Should -Not -Match 'GPT model'
 
         $config = Get-Content -LiteralPath $script:CustomConfigPath -Raw
         $config | Should -Match '(?m)^model = "ungate-opus-5"\r?$'
