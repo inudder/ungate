@@ -355,6 +355,13 @@ function inputToItems(input: OpenAIResponsesRequest['input']): Record<string, un
 
 	const expanded = CodexInputUtils.expandInput(input);
 	if (!expanded) {
+		const reasoningOnly =
+			Array.isArray(input) && input.length > 0 && input.every((item) => isRecord(item) && item.type === 'reasoning');
+
+		if (reasoningOnly) {
+			throw new ResponsesRequestValidationError('empty_input', 'Responses input must not be empty');
+		}
+
 		throw new Error('Responses input must be a string or an array of supported input items');
 	}
 

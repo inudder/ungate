@@ -202,6 +202,65 @@ describe('routes-responses', () => {
 		await app.close();
 	});
 
+	it('ignores reasoning items in continuation input before routing tool calls', async () => {
+		resolveForChatCompletionMock.mockReturnValueOnce({ provider: 'minimax', upstreamModel: 'mini-up' });
+		proxyMiniMaxRequestMock.mockResolvedValueOnce({
+			response: new Response(
+				JSON.stringify({
+					id: 'chatcmpl-continuation',
+					object: 'chat.completion',
+					created: 123,
+					model: 'mini-up',
+					choices: [{ index: 0, message: { role: 'assistant', content: 'continued' }, finish_reason: 'stop' }],
+					usage: { prompt_tokens: 4, completion_tokens: 2, total_tokens: 6 }
+				}),
+				{ status: 200, headers: { 'content-type': 'application/json' } }
+			),
+			context: {
+				startTime: Date.now(),
+				model: 'mini-up',
+				source: 'minimax',
+				reverseToolMapping: {},
+				inputTokens: 4,
+				outputTokens: 2
+			}
+		});
+
+		const app = await withPlugin(responsesPlugin, { apiKey: 'secret' });
+		const response = await app.inject({
+			method: 'POST',
+			url: '/v1/responses',
+			headers: { authorization: 'Bearer secret' },
+			payload: {
+				model: 'minimax-alias',
+				input: [
+					{ type: 'reasoning', id: 'rs_1', summary: [{ type: 'summary_text', text: 'private' }] },
+					{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'continue' }] },
+					{ type: 'function_call', call_id: 'call_1', name: 'Read', arguments: '{}' },
+					{ type: 'reasoning', id: 'rs_2', summary: [{ type: 'summary_text', text: 'private again' }] },
+					{ type: 'function_call_output', call_id: 'call_1', output: 'done' }
+				]
+			}
+		});
+
+		expect(response.statusCode).toBe(200);
+		expect(response.json()).toMatchObject({ status: 'completed', model: 'minimax-alias' });
+		expect(proxyMiniMaxRequestMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				messages: [
+					{ role: 'user', content: 'continue' },
+					{
+						role: 'assistant',
+						content: null,
+						tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'Read', arguments: '{}' } }]
+					},
+					{ role: 'tool', tool_call_id: 'call_1', content: 'done' }
+				]
+			})
+		);
+		await app.close();
+	});
+
 	it('flattens MCP namespace tools for MiniMax and restores the namespace in streaming tool calls', async () => {
 		resolveForChatCompletionMock.mockReturnValueOnce({ provider: 'minimax', upstreamModel: 'mini-up' });
 		proxyMiniMaxRequestMock.mockResolvedValueOnce({

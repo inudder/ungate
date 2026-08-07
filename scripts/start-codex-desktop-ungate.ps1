@@ -92,6 +92,7 @@ $CustomConfigPath = Join-Path $CustomCodexHome 'config.toml'
 $DefaultModelCachePath = Join-Path $DefaultCodexHome 'models_cache.json'
 $CustomModelCatalogPath = Join-Path $CustomCodexHome 'ungate-models.json'
 $CustomModelDefinitionsPath = Join-Path $CustomCodexHome 'ungate-model-definitions.json'
+$PickerModelSelectionPath = Join-Path $CustomCodexHome 'ungate-picker-models.json'
 $CustomGlobalStatePath = Join-Path $CustomCodexHome '.codex-global-state.json'
 $ProxyBaseUrl = 'http://127.0.0.1:47821'
 $ProviderName = 'ungate_proxy'
@@ -101,6 +102,27 @@ $CliProxyProviderName = 'cliproxyapi'
 $OmniRouteBaseUrl = 'http://127.0.0.1:20128'
 $OmniRouteProviderName = 'omniroute'
 $OmniRouteFallbackModel = 'codex-fallback'
+$CodexModelShellRouterBaseUrl = 'http://127.0.0.1:8319'
+$CodexModelShellRouterProviderName = 'ungate_model_shell_router'
+$CodexModelShellRouterPath = Join-Path $PSScriptRoot 'codex-model-shell-router.mjs'
+$CodexModelShellRouterServiceName = 'codex-model-shell-router'
+$CodexDesktopPickerCapacity = 8
+$CodexModelShellPool = @(
+    'gpt-5.6-sol',
+    'gpt-5.6-terra',
+    'gpt-5.6-luna',
+    'gpt-5.5',
+    'gpt-5.4',
+    'gpt-5.4-mini',
+    'gpt-5.3-codex',
+    'gpt-5.3-codex-spark'
+)
+$CodexModelShellRouterProviderDefinition = [pscustomobject][ordered]@{
+    Name = $CodexModelShellRouterProviderName
+    DisplayName = 'Ungate Codex Model Router'
+    ProxyBaseUrl = $CodexModelShellRouterBaseUrl
+    EnvKey = 'UNGATE_API_KEY'
+}
 $CliProxyConfigPath = 'J:\Sandbox\CLIProxyAPI\config.yaml'
 $CliProxyBridgePath = Join-Path $PSScriptRoot 'cliproxy-namespace-bridge.mjs'
 $CliProxyBridgeServiceName = 'cliproxy-namespace-bridge'
@@ -267,6 +289,84 @@ $BuiltInUngateModelDefinitions = @(
         EnvKey = 'CLIPROXYAPI_API_KEY'
         RequiresUngate = $false
     }
+    [pscustomobject][ordered]@{
+        Slug = 'apikey-fun/kimi-k3'
+        DisplayName = 'Kimi K3 (OmniRoute)'
+        Description = 'Kimi K3 through the local OmniRoute proxy on port 20128.'
+        UpstreamModel = 'apikey-fun/kimi-k3'
+        TransportDescription = 'the local OmniRoute proxy'
+        DefaultReasoningLevel = 'high'
+        Priority = 4
+        InputModalities = @('text', 'image')
+        SupportsImageDetailOriginal = $true
+        WebSearchToolType = 'text_and_image'
+        ProviderName = $OmniRouteProviderName
+        ProviderDisplayName = 'OmniRoute'
+        ProxyBaseUrl = $OmniRouteBaseUrl
+        EnvKey = 'OMNIROUTE_API_KEY'
+        RequiresUngate = $false
+    }
+    [pscustomobject][ordered]@{
+        Slug = 'apikey-fun/grok-4.5'
+        DisplayName = 'Grok 4.5 (apikey.fun)'
+        Description = 'Grok 4.5 via apikey.fun through the local OmniRoute proxy on port 20128.'
+        UpstreamModel = 'apikey-fun/grok-4.5'
+        TransportDescription = 'the local OmniRoute proxy'
+        DefaultReasoningLevel = 'high'
+        Priority = 5
+        InputModalities = @('text', 'image')
+        SupportsImageDetailOriginal = $true
+        WebSearchToolType = 'text_and_image'
+        ProviderName = $OmniRouteProviderName
+        ProviderDisplayName = 'OmniRoute'
+        ProxyBaseUrl = $OmniRouteBaseUrl
+        EnvKey = 'OMNIROUTE_API_KEY'
+        RequiresUngate = $false
+    }
+    [pscustomobject][ordered]@{
+        Slug = 'apikey-fun/claude-opus-5'
+        DisplayName = 'Claude Opus 5 (apikey.fun)'
+        Description = 'Claude Opus 5 via apikey.fun through the local OmniRoute proxy on port 20128.'
+        UpstreamModel = 'apikey-fun/claude-opus-5'
+        TransportDescription = 'the local OmniRoute proxy'
+        DefaultReasoningLevel = 'high'
+        Priority = 6
+        InputModalities = @('text', 'image')
+        SupportsImageDetailOriginal = $true
+        WebSearchToolType = 'text_and_image'
+        ProviderName = $OmniRouteProviderName
+        ProviderDisplayName = 'OmniRoute'
+        ProxyBaseUrl = $OmniRouteBaseUrl
+        EnvKey = 'OMNIROUTE_API_KEY'
+        RequiresUngate = $false
+    }
+    [pscustomobject][ordered]@{
+        Slug = 'mimo-v2.5-pro'
+        DisplayName = 'Mimo v2.5 Pro (OmniRoute)'
+        Description = 'Mimo v2.5 Pro through the local OmniRoute proxy on port 20128.'
+        UpstreamModel = 'mimo-v2.5-pro'
+        TransportDescription = 'the local OmniRoute proxy'
+        DefaultReasoningLevel = 'high'
+        Priority = 7
+        InputModalities = @('text')
+        SupportsImageDetailOriginal = $false
+        WebSearchToolType = 'text'
+        ProviderName = $OmniRouteProviderName
+        ProviderDisplayName = 'OmniRoute'
+        ProxyBaseUrl = $OmniRouteBaseUrl
+        EnvKey = 'OMNIROUTE_API_KEY'
+        RequiresUngate = $false
+        ContextWindow = 1048576
+        MaxContextWindow = 1048576
+        EffectiveContextWindowPercent = 95
+        SupportsReasoningSummaries = $true
+        SupportsParallelToolCalls = $false
+        TruncationPolicy = @{ mode = 'bytes'; limit = 10000 }
+        SupportedReasoningLevels = @(
+            @{ effort = 'none'; description = 'Disable Thinking' },
+            @{ effort = 'high'; description = 'Enabled Thinking' }
+        )
+    }
 )
 
 # Populate Identity uniformly through Get-UngateModelIdentity so built-ins and
@@ -303,6 +403,13 @@ $BuiltInUngateModelDefinitions = @(
             ProxyBaseUrl = $def.ProxyBaseUrl
             EnvKey = $def.EnvKey
             RequiresUngate = $def.RequiresUngate
+            ContextWindow = $def.ContextWindow
+            MaxContextWindow = $def.MaxContextWindow
+            EffectiveContextWindowPercent = $def.EffectiveContextWindowPercent
+            SupportsReasoningSummaries = $def.SupportsReasoningSummaries
+            SupportsParallelToolCalls = $def.SupportsParallelToolCalls
+            TruncationPolicy = $def.TruncationPolicy
+            SupportedReasoningLevels = $def.SupportedReasoningLevels
         }
     }
 )
@@ -590,6 +697,328 @@ function Get-UngateModelDefinitions {
     return @($BuiltInDefinitions) + $customDefinitions
 }
 
+function Get-DefaultUngatePickerModelSlugs {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object[]]$Definitions,
+        [Parameter(Mandatory = $true)]
+        [int]$Capacity
+    )
+
+    return @(
+        $Definitions |
+            Select-Object -First $Capacity |
+            ForEach-Object { [string]$_.Slug }
+    )
+}
+
+function Read-UngatePickerModelSelection {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SettingsPath,
+        [Parameter(Mandatory = $true)]
+        [object[]]$Definitions,
+        [Parameter(Mandatory = $true)]
+        [int]$Capacity
+    )
+
+    if (-not (Test-Path -LiteralPath $SettingsPath)) {
+        return @(Get-DefaultUngatePickerModelSlugs -Definitions $Definitions -Capacity $Capacity)
+    }
+    if (-not (Test-Path -LiteralPath $SettingsPath -PathType Leaf)) {
+        throw "Desktop picker settings path is not a file: $SettingsPath"
+    }
+
+    try {
+        $settings = Get-Content -LiteralPath $SettingsPath -Raw -Encoding utf8 |
+            ConvertFrom-Json -Depth 20 -ErrorAction Stop
+    }
+    catch {
+        throw "Failed to parse Desktop picker settings at $SettingsPath : $($_.Exception.Message)"
+    }
+
+    if ('Version' -notin $settings.PSObject.Properties.Name -or [int]$settings.Version -ne 1) {
+        throw "Desktop picker settings at $SettingsPath have an unsupported or missing version."
+    }
+    if ('ModelSlugs' -notin $settings.PSObject.Properties.Name) {
+        throw "Desktop picker settings at $SettingsPath are missing the modelSlugs array."
+    }
+
+    $configuredSlugs = @($settings.ModelSlugs)
+    if ($configuredSlugs.Count -eq 0) {
+        throw 'Desktop picker must contain at least one model.'
+    }
+    if ($configuredSlugs.Count -gt $Capacity) {
+        throw "Desktop picker can contain at most $Capacity models."
+    }
+
+    $requestedSlugs = [System.Collections.Generic.HashSet[string]]::new(
+        [System.StringComparer]::OrdinalIgnoreCase
+    )
+    foreach ($configuredSlug in $configuredSlugs) {
+        if ($configuredSlug -isnot [string] -or [string]::IsNullOrWhiteSpace($configuredSlug)) {
+            throw 'Desktop picker modelSlugs entries must be non-empty strings.'
+        }
+        if (-not $requestedSlugs.Add($configuredSlug)) {
+            throw "Desktop picker model '$configuredSlug' is duplicated."
+        }
+    }
+
+    $knownSlugs = [System.Collections.Generic.HashSet[string]]::new(
+        [System.StringComparer]::OrdinalIgnoreCase
+    )
+    foreach ($definition in $Definitions) {
+        [void]$knownSlugs.Add([string]$definition.Slug)
+    }
+
+    $staleSlugs = @($configuredSlugs | Where-Object { -not $knownSlugs.Contains($_) })
+    if ($staleSlugs.Count -gt 0) {
+        Write-Host (
+            "[ungate] Warning: picker models no longer configured and ignored: $($staleSlugs -join ', ')."
+        ) -ForegroundColor Yellow
+    }
+
+    $resolvedSlugs = @(
+        $Definitions |
+            Where-Object { $requestedSlugs.Contains([string]$_.Slug) } |
+            ForEach-Object { [string]$_.Slug }
+    )
+    if ($resolvedSlugs.Count -gt 0) {
+        return $resolvedSlugs
+    }
+
+    Write-Host '[ungate] Warning: no saved picker models remain; using the default selection.' -ForegroundColor Yellow
+    return @(Get-DefaultUngatePickerModelSlugs -Definitions $Definitions -Capacity $Capacity)
+}
+
+function Write-UngatePickerModelSelection {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SettingsPath,
+        [AllowEmptyCollection()]
+        [Parameter(Mandatory = $true)]
+        [string[]]$ModelSlugs,
+        [Parameter(Mandatory = $true)]
+        [object[]]$Definitions,
+        [Parameter(Mandatory = $true)]
+        [int]$Capacity
+    )
+
+    if ($ModelSlugs.Count -eq 0) {
+        throw 'Desktop picker must contain at least one model.'
+    }
+    if ($ModelSlugs.Count -gt $Capacity) {
+        throw "Desktop picker can contain at most $Capacity models."
+    }
+
+    $requestedSlugs = [System.Collections.Generic.HashSet[string]]::new(
+        [System.StringComparer]::OrdinalIgnoreCase
+    )
+    foreach ($modelSlug in $ModelSlugs) {
+        if ([string]::IsNullOrWhiteSpace($modelSlug)) {
+            throw 'Desktop picker model IDs cannot be empty.'
+        }
+        if (-not $requestedSlugs.Add($modelSlug)) {
+            throw "Desktop picker model '$modelSlug' is duplicated."
+        }
+    }
+
+    $canonicalSlugs = @(
+        $Definitions |
+            Where-Object { $requestedSlugs.Contains([string]$_.Slug) } |
+            ForEach-Object { [string]$_.Slug }
+    )
+    if ($canonicalSlugs.Count -ne $requestedSlugs.Count) {
+        $knownSlugs = @($Definitions | ForEach-Object { [string]$_.Slug })
+        $unknownSlugs = @($ModelSlugs | Where-Object { $_ -notin $knownSlugs })
+        throw "Desktop picker contains unknown models: $($unknownSlugs -join ', ')."
+    }
+
+    $json = [ordered]@{
+        version = 1
+        modelSlugs = $canonicalSlugs
+    } | ConvertTo-Json -Depth 10
+
+    $absoluteSettingsPath = [System.IO.Path]::GetFullPath($SettingsPath)
+    if (
+        (Test-Path -LiteralPath $absoluteSettingsPath) -and
+        -not (Test-Path -LiteralPath $absoluteSettingsPath -PathType Leaf)
+    ) {
+        throw "Desktop picker settings target is not a file: $absoluteSettingsPath"
+    }
+
+    $settingsDirectory = Split-Path -Parent $absoluteSettingsPath
+    New-Item -ItemType Directory -Path $settingsDirectory -Force | Out-Null
+    $transactionId = [guid]::NewGuid().ToString('N')
+    $temporaryPath = Join-Path $settingsDirectory ".ungate-picker-models.$transactionId.tmp"
+    $backupPath = Join-Path $settingsDirectory ".ungate-picker-models.$transactionId.bak"
+    $writeCompleted = $false
+
+    try {
+        [System.IO.File]::WriteAllText(
+            $temporaryPath,
+            $json + "`r`n",
+            [System.Text.UTF8Encoding]::new($false)
+        )
+        if (Test-Path -LiteralPath $absoluteSettingsPath -PathType Leaf) {
+            [System.IO.File]::Replace(
+                $temporaryPath,
+                $absoluteSettingsPath,
+                $backupPath,
+                $true
+            )
+        }
+        else {
+            [System.IO.File]::Move($temporaryPath, $absoluteSettingsPath)
+        }
+        $writeCompleted = $true
+    }
+    finally {
+        if (Test-Path -LiteralPath $temporaryPath -PathType Leaf) {
+            Remove-Item -LiteralPath $temporaryPath -Force
+        }
+        if ($writeCompleted -and (Test-Path -LiteralPath $backupPath -PathType Leaf)) {
+            Remove-Item -LiteralPath $backupPath -Force
+        }
+    }
+
+    return $absoluteSettingsPath
+}
+
+function Get-UngatePickerModelDefinitions {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object[]]$Definitions,
+        [Parameter(Mandatory = $true)]
+        [string]$SettingsPath,
+        [Parameter(Mandatory = $true)]
+        [int]$Capacity
+    )
+
+    $selectedSlugs = [System.Collections.Generic.HashSet[string]]::new(
+        [System.StringComparer]::OrdinalIgnoreCase
+    )
+    foreach ($slug in @(
+        Read-UngatePickerModelSelection `
+            -SettingsPath $SettingsPath `
+            -Definitions $Definitions `
+            -Capacity $Capacity
+    )) {
+        [void]$selectedSlugs.Add($slug)
+    }
+
+    return @($Definitions | Where-Object { $selectedSlugs.Contains([string]$_.Slug) })
+}
+
+function Read-UngatePickerKey {
+    $keyInfo = [Console]::ReadKey($true)
+    switch ($keyInfo.Key) {
+        'UpArrow' { return 'up' }
+        'DownArrow' { return 'down' }
+        'Spacebar' { return 'toggle' }
+        'Enter' { return 'save' }
+        'Escape' { return 'cancel' }
+        default { return 'none' }
+    }
+}
+
+function Invoke-UngatePickerConfiguration {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object[]]$Definitions,
+        [Parameter(Mandatory = $true)]
+        [string]$SettingsPath,
+        [Parameter(Mandatory = $true)]
+        [int]$Capacity
+    )
+
+    if ($Definitions.Count -eq 0) {
+        throw 'No models are available for the Desktop picker.'
+    }
+
+    $selectedSlugs = [System.Collections.Generic.HashSet[string]]::new(
+        [System.StringComparer]::OrdinalIgnoreCase
+    )
+    foreach ($slug in @(
+        Read-UngatePickerModelSelection `
+            -SettingsPath $SettingsPath `
+            -Definitions $Definitions `
+            -Capacity $Capacity
+    )) {
+        [void]$selectedSlugs.Add($slug)
+    }
+
+    $cursorIndex = 0
+    $statusMessage = $null
+    while ($true) {
+        Clear-Host
+        Write-Host 'Configure Codex Desktop model picker:' -ForegroundColor Cyan
+        Write-Host ''
+        for ($index = 0; $index -lt $Definitions.Count; $index++) {
+            $cursor = if ($index -eq $cursorIndex) { '>' } else { ' ' }
+            $checked = if ($selectedSlugs.Contains([string]$Definitions[$index].Slug)) { 'x' } else { ' ' }
+            $line = "  $cursor [$checked] $($Definitions[$index].DisplayName)"
+            if ($index -eq $cursorIndex) {
+                Write-Host $line -ForegroundColor Cyan
+            }
+            else {
+                Write-Host $line
+            }
+        }
+        Write-Host ''
+        Write-Host "Selected: $($selectedSlugs.Count)/$Capacity"
+        Write-Host 'Up/Down: move  Space: toggle  Enter: save  Esc: cancel' -ForegroundColor DarkGray
+        if ($statusMessage) {
+            Write-Host $statusMessage -ForegroundColor Yellow
+        }
+
+        $statusMessage = $null
+        switch (Read-UngatePickerKey) {
+            'up' {
+                $cursorIndex = if ($cursorIndex -eq 0) { $Definitions.Count - 1 } else { $cursorIndex - 1 }
+            }
+            'down' {
+                $cursorIndex = if ($cursorIndex -eq $Definitions.Count - 1) { 0 } else { $cursorIndex + 1 }
+            }
+            'toggle' {
+                $slug = [string]$Definitions[$cursorIndex].Slug
+                if ($selectedSlugs.Contains($slug)) {
+                    [void]$selectedSlugs.Remove($slug)
+                }
+                elseif ($selectedSlugs.Count -ge $Capacity) {
+                    $statusMessage = "Select at most $Capacity models. Disable one before adding another."
+                }
+                else {
+                    [void]$selectedSlugs.Add($slug)
+                }
+            }
+            'save' {
+                if ($selectedSlugs.Count -eq 0) {
+                    $statusMessage = 'Select at least one model.'
+                    continue
+                }
+
+                $modelSlugs = @(
+                    $Definitions |
+                        Where-Object { $selectedSlugs.Contains([string]$_.Slug) } |
+                        ForEach-Object { [string]$_.Slug }
+                )
+                $savedPath = Write-UngatePickerModelSelection `
+                    -SettingsPath $SettingsPath `
+                    -ModelSlugs $modelSlugs `
+                    -Definitions $Definitions `
+                    -Capacity $Capacity
+                Write-Host "[ungate] Desktop picker selection saved: $savedPath" -ForegroundColor Green
+                return $true
+            }
+            'cancel' {
+                Write-Host '[ungate] Desktop picker selection unchanged.' -ForegroundColor Yellow
+                return $false
+            }
+        }
+    }
+}
+
 function Read-UngateMenuChoice {
     param(
         [Parameter(Mandatory = $true)]
@@ -722,6 +1151,7 @@ function Invoke-AddUngateModelMode {
         -BuiltInDefinitions $BuiltInDefinitions
     Write-Host "[ungate] Model '$($candidate.Slug)' added: $savedPath" -ForegroundColor Green
     Write-Host '[ungate] Run the launcher normally to select the new model.' -ForegroundColor Green
+    return $candidate.Slug
 }
 
 function Get-ProviderDefinitions {
@@ -737,6 +1167,79 @@ function Get-ProviderDefinitions {
         }
     }
     return @($byName.Values)
+}
+
+function Set-CodexModelShellSlugs {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object[]]$Definitions
+    )
+
+    if ($CodexModelShellPool.Count -lt $CodexDesktopPickerCapacity) {
+        throw "Codex shell pool has $($CodexModelShellPool.Count) slots, but the picker requires $CodexDesktopPickerCapacity."
+    }
+    if ($Definitions.Count -gt $CodexDesktopPickerCapacity) {
+        throw "Codex Beta can expose at most $CodexDesktopPickerCapacity custom provider models in its native picker. Remove a model or increase the picker capacity."
+    }
+
+    $withShellSlugs = [System.Collections.Generic.List[object]]::new()
+    for ($index = 0; $index -lt $Definitions.Count; $index++) {
+        $properties = [ordered]@{}
+        foreach ($property in $Definitions[$index].PSObject.Properties) {
+            $properties[$property.Name] = $property.Value
+        }
+        $properties['ShellSlug'] = $CodexModelShellPool[$index]
+        [void]$withShellSlugs.Add([pscustomobject]$properties)
+    }
+
+    return @($withShellSlugs)
+}
+
+function Get-CodexCatalogModelSlug {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Definition
+    )
+
+    if ($EnableProviderFallback) {
+        return [string]$Definition.Slug
+    }
+
+    if (-not $Definition.PSObject.Properties['ShellSlug'] -or [string]::IsNullOrWhiteSpace($Definition.ShellSlug)) {
+        throw "Model '$($Definition.Slug)' does not have a Codex shell model ID."
+    }
+
+    return [string]$Definition.ShellSlug
+}
+
+function Get-CodexConfigProviderDefinitions {
+    if ($EnableProviderFallback) {
+        return @(
+            [pscustomobject][ordered]@{
+                Name = $OmniRouteFallbackModelDefinition.ProviderName
+                DisplayName = $OmniRouteFallbackModelDefinition.ProviderDisplayName
+                ProxyBaseUrl = $OmniRouteFallbackModelDefinition.ProxyBaseUrl
+                EnvKey = $OmniRouteFallbackModelDefinition.EnvKey
+            }
+        )
+    }
+
+    return @($CodexModelShellRouterProviderDefinition)
+}
+
+function Get-CodexModelShellRoutes {
+    $routes = [System.Collections.Generic.List[object]]::new()
+    foreach ($definition in $UngateModelDefinitions) {
+        $shellSlug = Get-CodexCatalogModelSlug -Definition $definition
+        [void]$routes.Add([ordered]@{
+            clientModel = $shellSlug
+            upstreamModel = [string]$definition.Slug
+            upstreamBaseUrl = [string]$definition.ProxyBaseUrl
+            apiKeyEnv = [string]$definition.EnvKey
+        })
+    }
+
+    return @($routes)
 }
 
 function Resolve-CliProxyApiKey {
@@ -946,6 +1449,144 @@ function Ensure-CliProxyBridge {
     Write-Host '[ungate] CLIProxy compatibility bridge proxy check passed.' -ForegroundColor Green
 }
 
+function Get-CodexModelShellRouterHealth {
+    try {
+        return Invoke-RestMethod `
+            -Uri "$CodexModelShellRouterBaseUrl/_shell-router/health" `
+            -TimeoutSec 2 `
+            -ErrorAction Stop
+    }
+    catch {
+        return $null
+    }
+}
+
+function Test-CodexModelShellRouterProcessIdentity {
+    param(
+        [Parameter(Mandatory = $true)]
+        [int]$ProcessId
+    )
+
+    $process = Get-CimInstance `
+        -ClassName Win32_Process `
+        -Filter "ProcessId = $ProcessId" `
+        -ErrorAction SilentlyContinue
+    if (-not $process -or [string]::IsNullOrWhiteSpace($process.CommandLine)) {
+        return $false
+    }
+
+    $expectedPath = [System.IO.Path]::GetFullPath($CodexModelShellRouterPath)
+    return $process.CommandLine.IndexOf(
+        $expectedPath,
+        [System.StringComparison]::OrdinalIgnoreCase
+    ) -ge 0
+}
+
+function Ensure-CodexModelShellRouter {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object[]]$Routes,
+        [Parameter(Mandatory = $true)]
+        [hashtable]$ProviderKeys
+    )
+
+    if (-not (Test-Path -LiteralPath $CodexModelShellRouterPath -PathType Leaf)) {
+        throw "Codex model-shell router not found at $CodexModelShellRouterPath."
+    }
+
+    $routerPort = ([uri]$CodexModelShellRouterBaseUrl).Port
+    $routerListening = Test-LocalTcpListener -Port $routerPort
+    $health = if ($routerListening) { Get-CodexModelShellRouterHealth } else { $null }
+    if ($health) {
+        if ($health.status -ne 'ok' -or $health.service -ne $CodexModelShellRouterServiceName) {
+            throw "Port $routerPort is occupied by an unexpected HTTP service. Refusing to stop it."
+        }
+
+        $routerProcessId = [int]$health.pid
+        if (-not (Test-CodexModelShellRouterProcessIdentity -ProcessId $routerProcessId)) {
+            throw "Port $routerPort reports the model-shell router, but PID $routerProcessId does not run $CodexModelShellRouterPath. Refusing to stop it."
+        }
+
+        Write-Host "[ungate] Restarting Codex model-shell router (PID $routerProcessId) to refresh model routes." -ForegroundColor DarkGray
+        Stop-Process -Id $routerProcessId -Force -ErrorAction Stop
+        $stopDeadline = (Get-Date).AddSeconds(5)
+        do {
+            Start-Sleep -Milliseconds 100
+        } while (
+            (Test-LocalTcpListener -Port $routerPort) -and
+            (Get-Date) -lt $stopDeadline
+        )
+        if (Test-LocalTcpListener -Port $routerPort) {
+            throw "The Codex model-shell router did not release port $routerPort."
+        }
+    }
+    elseif ($routerListening) {
+        throw "Port $routerPort is occupied, but /_shell-router/health did not identify the Codex model-shell router. Refusing to stop it."
+    }
+
+    $nodeCommand = Get-Command node -ErrorAction SilentlyContinue
+    if (-not $nodeCommand -or -not (Test-Path -LiteralPath $nodeCommand.Source -PathType Leaf)) {
+        throw 'node.exe is required to run the Codex model-shell router.'
+    }
+
+    $routerEnvironment = @{
+        CODEX_SHELL_ROUTER_HOST = '127.0.0.1'
+        CODEX_SHELL_ROUTER_PORT = [string]$routerPort
+        CODEX_SHELL_ROUTER_BUILD_ID = (Get-FileHash -LiteralPath $CodexModelShellRouterPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        CODEX_SHELL_ROUTER_MAX_BODY_BYTES = '134217728'
+        CODEX_SHELL_ROUTER_ROUTES_JSON = ([ordered]@{ routes = @($Routes) } | ConvertTo-Json -Depth 20 -Compress)
+    }
+    foreach ($provider in (Get-ProviderDefinitions)) {
+        $providerKey = $ProviderKeys[$provider.Name]
+        if ([string]::IsNullOrWhiteSpace($providerKey)) {
+            throw "Missing API key for model-shell route provider '$($provider.Name)'."
+        }
+        $routerEnvironment[$provider.EnvKey] = $providerKey
+    }
+
+    $logDirectory = Join-Path $CustomCodexHome 'logs'
+    New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
+    $stdoutPath = Join-Path $logDirectory 'codex-model-shell-router.out.log'
+    $stderrPath = Join-Path $logDirectory 'codex-model-shell-router.err.log'
+    Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
+    $routerProcess = Start-Process `
+        -FilePath ([string]$nodeCommand.Source) `
+        -ArgumentList @("`"$CodexModelShellRouterPath`"") `
+        -WorkingDirectory $RepoRoot `
+        -WindowStyle Hidden `
+        -Environment $routerEnvironment `
+        -RedirectStandardOutput $stdoutPath `
+        -RedirectStandardError $stderrPath `
+        -PassThru
+
+    $startDeadline = (Get-Date).AddSeconds(10)
+    do {
+        Start-Sleep -Milliseconds 200
+        $routerProcess.Refresh()
+        if ($routerProcess.HasExited) {
+            $routerError = Get-Content -LiteralPath $stderrPath -Tail 20 -ErrorAction SilentlyContinue
+            throw "Codex model-shell router exited with code $($routerProcess.ExitCode). $($routerError -join ' ')"
+        }
+        $health = Get-CodexModelShellRouterHealth
+    } while (-not $health -and (Get-Date) -lt $startDeadline)
+
+    $expectedShells = @($Routes | ForEach-Object { [string]$_.clientModel })
+    $actualShells = @($health.route_models | ForEach-Object { [string]$_ })
+    $sameShells = (
+        $health -and
+        $health.status -eq 'ok' -and
+        $health.service -eq $CodexModelShellRouterServiceName -and
+        $actualShells.Count -eq $expectedShells.Count -and
+        -not (Compare-Object -ReferenceObject $expectedShells -DifferenceObject $actualShells)
+    )
+    if (-not $sameShells) {
+        Stop-Process -Id $routerProcess.Id -Force -ErrorAction SilentlyContinue
+        throw "Codex model-shell router failed its startup health check at $CodexModelShellRouterBaseUrl."
+    }
+
+    Write-Host "[ungate] Codex model-shell router ready at $CodexModelShellRouterBaseUrl (PID $($health.pid))." -ForegroundColor Green
+}
+
 function Resolve-ModelApiKey {
     param(
         [Parameter(Mandatory = $true)]
@@ -1081,7 +1722,16 @@ function Ensure-ModelProvidersInConfig {
     )
 
     $updated = $Content
-    foreach ($provider in (Get-ProviderDefinitions)) {
+    $managedProviderNames = @(
+        $ProviderName,
+        $CliProxyProviderName,
+        $OmniRouteProviderName,
+        $CodexModelShellRouterProviderName
+    )
+    foreach ($providerNameToRemove in $managedProviderNames) {
+        $updated = Remove-TomlTable -Content $updated -TableName "model_providers.$providerNameToRemove"
+    }
+    foreach ($provider in (Get-CodexConfigProviderDefinitions)) {
         $updated = Remove-TomlTable -Content $updated -TableName "model_providers.$($provider.Name)"
         $updated = $updated.TrimEnd() + "`r`n" + (Get-ProviderTomlBlock -Provider $provider).TrimStart() + "`r`n"
     }
@@ -1096,25 +1746,37 @@ function Select-UngateDesktopModel {
         [object[]]$BuiltInDefinitions,
         [Parameter(Mandatory = $true)]
         [string]$RegistryPath,
+        [Parameter(Mandatory = $true)]
+        [string]$PickerSettingsPath,
+        [Parameter(Mandatory = $true)]
+        [int]$PickerCapacity,
         [switch]$IncludeProviderFallback,
         [string]$ProviderFallbackModel = 'codex-fallback'
     )
 
     while ($true) {
+        $pickerDefinitions = @(
+            Get-UngatePickerModelDefinitions `
+                -Definitions $Definitions `
+                -SettingsPath $PickerSettingsPath `
+                -Capacity $PickerCapacity
+        )
         Write-Host ''
         Write-Host 'Select a mode for Codex Beta:' -ForegroundColor Cyan
-        for ($index = 0; $index -lt $Definitions.Count; $index++) {
+        for ($index = 0; $index -lt $pickerDefinitions.Count; $index++) {
             $defaultLabel = if ($index -eq 0) { ' (default)' } else { '' }
-            Write-Host ("  {0}) {1}{2}" -f ($index + 1), $Definitions[$index].DisplayName, $defaultLabel)
+            Write-Host ("  {0}) {1}{2}" -f ($index + 1), $pickerDefinitions[$index].DisplayName, $defaultLabel)
         }
-        $providerFallbackIndex = if ($IncludeProviderFallback) { $Definitions.Count + 1 } else { $null }
+        $configurePickerIndex = $pickerDefinitions.Count + 1
+        Write-Host ("  {0}) Configure Desktop model picker" -f $configurePickerIndex) -ForegroundColor DarkCyan
+        $providerFallbackIndex = if ($IncludeProviderFallback) { $configurePickerIndex + 1 } else { $null }
         if ($IncludeProviderFallback) {
             Write-Host (
                 "  {0}) [ ] Enable provider fallback (OmniRoute) — Claude → Grok → MiniMax → Gemini" -f
                     $providerFallbackIndex
             ) -ForegroundColor Yellow
         }
-        $addModelIndex = $Definitions.Count + $(if ($IncludeProviderFallback) { 2 } else { 1 })
+        $addModelIndex = $configurePickerIndex + $(if ($IncludeProviderFallback) { 2 } else { 1 })
         Write-Host ("  {0}) Add a new model" -f $addModelIndex) -ForegroundColor DarkCyan
         Write-Host ''
 
@@ -1126,7 +1788,7 @@ function Select-UngateDesktopModel {
         }
         $choice = Read-Host $choicePrompt
         if ([string]::IsNullOrWhiteSpace($choice)) {
-            return $Definitions[0].Slug
+            return $pickerDefinitions[0].Slug
         }
 
         if ($IncludeProviderFallback -and $choice.Trim().Equals('f', [System.StringComparison]::OrdinalIgnoreCase)) {
@@ -1140,8 +1802,16 @@ function Select-UngateDesktopModel {
             $selectedNumber -ge 1 -and
             $selectedNumber -le $addModelIndex
         ) {
-            if ($selectedNumber -le $Definitions.Count) {
-                return $Definitions[$selectedNumber - 1].Slug
+            if ($selectedNumber -le $pickerDefinitions.Count) {
+                return $pickerDefinitions[$selectedNumber - 1].Slug
+            }
+
+            if ($selectedNumber -eq $configurePickerIndex) {
+                $null = Invoke-UngatePickerConfiguration `
+                    -Definitions $Definitions `
+                    -SettingsPath $PickerSettingsPath `
+                    -Capacity $PickerCapacity
+                continue
             }
 
             if ($IncludeProviderFallback -and $selectedNumber -eq $providerFallbackIndex) {
@@ -1149,14 +1819,20 @@ function Select-UngateDesktopModel {
                 return $ProviderFallbackModel
             }
 
-            Invoke-AddUngateModelMode `
+            $addedModelSlug = Invoke-AddUngateModelMode `
                 -RegistryPath $RegistryPath `
                 -BuiltInDefinitions $BuiltInDefinitions
-            $Definitions = @(
-                Get-UngateModelDefinitions `
-                    -BuiltInDefinitions $BuiltInDefinitions `
-                    -RegistryPath $RegistryPath
-            )
+            if ($addedModelSlug) {
+                $Definitions = @(
+                    Get-UngateModelDefinitions `
+                        -BuiltInDefinitions $BuiltInDefinitions `
+                        -RegistryPath $RegistryPath
+                )
+                $null = Invoke-UngatePickerConfiguration `
+                    -Definitions $Definitions `
+                    -SettingsPath $PickerSettingsPath `
+                    -Capacity $PickerCapacity
+            }
             continue
         }
 
@@ -1317,11 +1993,11 @@ function Initialize-UngateCodexConfig {
     New-Item -ItemType Directory -Path $CustomCodexHome -Force | Out-Null
 
     $config = Get-Content -LiteralPath $DefaultConfigPath -Raw
-    $config = Set-TopLevelTomlValue -Content $config -Key 'model' -TomlValue "`"$Model`""
+    $config = Set-TopLevelTomlValue -Content $config -Key 'model' -TomlValue "`"$CodexLaunchModel`""
     $config = Set-TopLevelTomlValue `
         -Content $config `
         -Key 'model_provider' `
-        -TomlValue "`"$($selectedModelDefinition.ProviderName)`""
+        -TomlValue "`"$($CodexLaunchProvider.Name)`""
     $config = Set-TopLevelTomlValue `
         -Content $config `
         -Key 'model_reasoning_effort' `
@@ -1354,29 +2030,43 @@ function Set-ModelIdentity {
 }
 
 function Write-UngateModelCatalog {
-    if (-not (Test-Path -LiteralPath $DefaultModelCachePath)) {
-        throw "Default Codex model cache not found at $DefaultModelCachePath. Launch normal Codex Desktop once, then retry."
+    $catalogTemplatePath = if (Test-Path -LiteralPath $DefaultModelCachePath -PathType Leaf) {
+        $DefaultModelCachePath
+    } elseif (Test-Path -LiteralPath $CustomModelCatalogPath -PathType Leaf) {
+        # Cockpit-managed normal profiles do not always retain a default
+        # models_cache.json. A prior launcher catalog has the same schema and
+        # is safe as the template for replacing its managed entries.
+        $CustomModelCatalogPath
+    } else {
+        throw "No Codex model catalog template was found at $DefaultModelCachePath or $CustomModelCatalogPath. Launch normal Codex Desktop once, then retry."
     }
 
-    $defaultCatalog = Get-Content -LiteralPath $DefaultModelCachePath -Raw |
+    $defaultCatalog = Get-Content -LiteralPath $catalogTemplatePath -Raw |
         ConvertFrom-Json -Depth 100
-    $modelTemplate = $defaultCatalog.models |
+    $fallbackModelTemplate = $defaultCatalog.models |
         Where-Object { $_.slug -eq 'gpt-5.4' } |
         Select-Object -First 1
-    if (-not $modelTemplate) {
-        $modelTemplate = $defaultCatalog.models | Select-Object -First 1
+    if (-not $fallbackModelTemplate) {
+        $fallbackModelTemplate = $defaultCatalog.models | Select-Object -First 1
     }
-    if (-not $modelTemplate) {
-        throw "Default Codex model cache at $DefaultModelCachePath contains no models."
+    if (-not $fallbackModelTemplate) {
+        throw "Codex model catalog template at $catalogTemplatePath contains no models."
     }
 
     $catalogModels = [System.Collections.Generic.List[object]]::new()
     foreach ($definition in $UngateModelDefinitions) {
+        $catalogSlug = Get-CodexCatalogModelSlug -Definition $definition
+        $modelTemplate = $defaultCatalog.models |
+            Where-Object { $_.slug -eq $catalogSlug } |
+            Select-Object -First 1
+        if (-not $modelTemplate) {
+            $modelTemplate = $fallbackModelTemplate
+        }
         $modelInfo = $modelTemplate |
             ConvertTo-Json -Depth 100 |
             ConvertFrom-Json -Depth 100
         $overrides = [ordered]@{
-            slug = $definition.Slug
+            slug = $catalogSlug
             display_name = $definition.DisplayName
             description = $definition.Description
             default_reasoning_level = $definition.DefaultReasoningLevel
@@ -1391,12 +2081,13 @@ function Write-UngateModelCatalog {
             base_instructions = Set-ModelIdentity `
                 -Instructions $modelInfo.base_instructions `
                 -Identity $definition.Identity
-            supports_reasoning_summaries = $false
+            supports_reasoning_summaries = if ($null -ne $definition.SupportsReasoningSummaries) { [bool]$definition.SupportsReasoningSummaries } else { $false }
             default_reasoning_summary = 'none'
             support_verbosity = $false
             default_verbosity = $null
-            context_window = 200000
-            max_context_window = 200000
+            context_window = if ($null -ne $definition.ContextWindow) { [int]$definition.ContextWindow } else { 200000 }
+            max_context_window = if ($null -ne $definition.MaxContextWindow) { [int]$definition.MaxContextWindow } else { 200000 }
+            effective_context_window_percent = if ($null -ne $definition.EffectiveContextWindowPercent) { [int]$definition.EffectiveContextWindowPercent } else { 100 }
             auto_compact_token_limit = $null
             comp_hash = $null
             supports_search_tool = $false
@@ -1404,6 +2095,16 @@ function Write-UngateModelCatalog {
             input_modalities = @($definition.InputModalities)
             supports_image_detail_original = [bool]$definition.SupportsImageDetailOriginal
             web_search_tool_type = [string]$definition.WebSearchToolType
+        }
+
+        if ($null -ne $definition.SupportsParallelToolCalls) {
+            $overrides.supports_parallel_tool_calls = [bool]$definition.SupportsParallelToolCalls
+        }
+        if ($null -ne $definition.TruncationPolicy) {
+            $overrides.truncation_policy = $definition.TruncationPolicy
+        }
+        if ($null -ne $definition.SupportedReasoningLevels) {
+            $overrides.supported_reasoning_levels = $definition.SupportedReasoningLevels
         }
         foreach ($override in $overrides.GetEnumerator()) {
             $modelInfo | Add-Member `
@@ -1436,11 +2137,11 @@ function Write-UngateModelCatalog {
     $updatedConfig = Set-TopLevelTomlValue `
         -Content $config `
         -Key 'model' `
-        -TomlValue "`"$Model`""
+        -TomlValue "`"$CodexLaunchModel`""
     $updatedConfig = Set-TopLevelTomlValue `
         -Content $updatedConfig `
         -Key 'model_provider' `
-        -TomlValue "`"$($selectedModelDefinition.ProviderName)`""
+        -TomlValue "`"$($CodexLaunchProvider.Name)`""
     $updatedConfig = Set-TopLevelTomlValue `
         -Content $updatedConfig `
         -Key 'model_reasoning_effort' `
@@ -1770,11 +2471,11 @@ function Assert-UngateCodexConfig {
     )
 
     $config = Get-Content -LiteralPath $CustomConfigPath -Raw
-    $selectedProvider = $selectedModelDefinition.ProviderName
-    $selectedBaseUrl = $selectedModelDefinition.ProxyBaseUrl
-    $selectedEnvKey = $selectedModelDefinition.EnvKey
+    $selectedProvider = $CodexLaunchProvider.Name
+    $selectedBaseUrl = $CodexLaunchProvider.ProxyBaseUrl
+    $selectedEnvKey = $CodexLaunchProvider.EnvKey
     $checks = @(
-        "(?m)^model\s*=\s*`"$([regex]::Escape($Model))`"\s*$",
+        "(?m)^model\s*=\s*`"$([regex]::Escape($CodexLaunchModel))`"\s*$",
         "(?m)^model_provider\s*=\s*`"$([regex]::Escape($selectedProvider))`"\s*$",
         '(?m)^model_catalog_json\s*=',
         "(?m)^\[model_providers\.$([regex]::Escape($selectedProvider))\]\s*$",
@@ -1789,7 +2490,7 @@ function Assert-UngateCodexConfig {
         }
     }
 
-    foreach ($provider in (Get-ProviderDefinitions)) {
+    foreach ($provider in (Get-CodexConfigProviderDefinitions)) {
         $providerChecks = @(
             "(?m)^\[model_providers\.$([regex]::Escape($provider.Name))\]\s*$",
             "(?m)^base_url\s*=\s*`"$([regex]::Escape($provider.ProxyBaseUrl))/v1`"\s*$",
@@ -1809,8 +2510,9 @@ function Assert-UngateCodexConfig {
         throw "Custom model catalog failed validation: $CustomModelCatalogPath"
     }
     foreach ($definition in $UngateModelDefinitions) {
+        $catalogSlug = Get-CodexCatalogModelSlug -Definition $definition
         $catalogModel = $catalogModels |
-            Where-Object { $_.slug -eq $definition.Slug } |
+            Where-Object { $_.slug -eq $catalogSlug } |
             Select-Object -First 1
         $catalogModalities = @($catalogModel.input_modalities | ForEach-Object { [string]$_ })
         $expectedModalities = @($definition.InputModalities | ForEach-Object { [string]$_ })
@@ -1827,7 +2529,7 @@ function Assert-UngateCodexConfig {
             [bool]$catalogModel.supports_image_detail_original -ne [bool]$definition.SupportsImageDetailOriginal -or
             [string]$catalogModel.web_search_tool_type -ne [string]$definition.WebSearchToolType
         ) {
-            throw "Custom model '$($definition.Slug)' failed validation: $CustomModelCatalogPath"
+            throw "Custom model '$($definition.DisplayName)' failed validation: $CustomModelCatalogPath"
         }
     }
 
@@ -1845,7 +2547,10 @@ function Assert-UngateCodexConfig {
                 -TimeoutSec 5 `
                 -ErrorAction Stop
             $availableModelIds = @($availableModels.data | ForEach-Object { $_.id })
-            $missingModelIds = @($providerModels.Slug | Where-Object { $_ -notin $availableModelIds })
+            $missingModelIds = @($providerModels.Slug | Where-Object {
+                $slug = $_
+                -not ($availableModelIds | Where-Object { $_ -eq $slug -or $_ -like "*/$slug" -or $slug -like "*/$_" })
+            })
             if ($missingModelIds.Count -gt 0) {
                 Write-Host `
                     "[ungate] Warning: catalog models not found in $($provider.Name) /v1/models: $($missingModelIds -join ', ')" `
@@ -1885,11 +2590,12 @@ function Assert-UngateCodexConfig {
                         throw 'Codex loaded an unexpected model catalog.'
                     }
                     foreach ($definition in $UngateModelDefinitions) {
+                        $catalogSlug = Get-CodexCatalogModelSlug -Definition $definition
                         $resolvedModel = $resolvedModels |
-                            Where-Object { $_.slug -eq $definition.Slug } |
+                            Where-Object { $_.slug -eq $catalogSlug } |
                             Select-Object -First 1
                         if (-not $resolvedModel -or $resolvedModel.display_name -ne $definition.DisplayName) {
-                            throw "Codex did not load model '$($definition.Slug)' as expected."
+                            throw "Codex did not load model '$($definition.DisplayName)' as expected."
                         }
                     }
                 }
@@ -2300,17 +3006,18 @@ if ($AddModel) {
         throw "-AddModel cannot be combined with: $($conflictingParameters -join ', ')."
     }
 
-    Invoke-AddUngateModelMode `
+    $null = Invoke-AddUngateModelMode `
         -RegistryPath $CustomModelDefinitionsPath `
         -BuiltInDefinitions $BuiltInUngateModelDefinitions
     exit 0
 }
 
-$UngateModelDefinitions = @(
+$AllUngateModelDefinitions = @(
     Get-UngateModelDefinitions `
         -BuiltInDefinitions $BuiltInUngateModelDefinitions `
         -RegistryPath $CustomModelDefinitionsPath
 )
+$UngateModelDefinitions = @($AllUngateModelDefinitions)
 
 if ($EnableProviderFallback) {
     if ($PSBoundParameters.ContainsKey('Model')) {
@@ -2318,29 +3025,86 @@ if ($EnableProviderFallback) {
     }
 
     $Model = $OmniRouteFallbackModel
-    $UngateModelDefinitions = @($UngateModelDefinitions) + @($OmniRouteFallbackModelDefinition)
+    $UngateModelDefinitions = @($AllUngateModelDefinitions) + @($OmniRouteFallbackModelDefinition)
+}
+else {
+    # Codex Beta only renders custom catalog labels for its own known model
+    # IDs. The local shell router reverses these official IDs to the real
+    # provider model before the request reaches Ungate or CLIProxyAPI.
+    $UngateModelDefinitions = @(
+        Get-UngatePickerModelDefinitions `
+            -Definitions $AllUngateModelDefinitions `
+            -SettingsPath $PickerModelSelectionPath `
+            -Capacity $CodexDesktopPickerCapacity
+    )
+    $UngateModelDefinitions = @(
+        Set-CodexModelShellSlugs -Definitions $UngateModelDefinitions
+    )
 }
 
 if (-not $EnableProviderFallback -and -not $PrepareOnly -and -not $PSBoundParameters.ContainsKey('Model')) {
     $Model = Select-UngateDesktopModel `
-        -Definitions $UngateModelDefinitions `
+        -Definitions $AllUngateModelDefinitions `
         -BuiltInDefinitions $BuiltInUngateModelDefinitions `
         -RegistryPath $CustomModelDefinitionsPath `
+        -PickerSettingsPath $PickerModelSelectionPath `
+        -PickerCapacity $CodexDesktopPickerCapacity `
         -IncludeProviderFallback `
         -ProviderFallbackModel $OmniRouteFallbackModel
 
     if ($Model -eq $OmniRouteFallbackModel) {
         $EnableProviderFallback = $true
-        $UngateModelDefinitions = @($UngateModelDefinitions) + @($OmniRouteFallbackModelDefinition)
+        $UngateModelDefinitions = @($AllUngateModelDefinitions) + @($OmniRouteFallbackModelDefinition)
     }
+    else {
+        $AllUngateModelDefinitions = @(
+            Get-UngateModelDefinitions `
+                -BuiltInDefinitions $BuiltInUngateModelDefinitions `
+                -RegistryPath $CustomModelDefinitionsPath
+        )
+        $UngateModelDefinitions = @(
+            Get-UngatePickerModelDefinitions `
+                -Definitions $AllUngateModelDefinitions `
+                -SettingsPath $PickerModelSelectionPath `
+                -Capacity $CodexDesktopPickerCapacity
+        )
+        $UngateModelDefinitions = @(
+            Set-CodexModelShellSlugs -Definitions $UngateModelDefinitions
+        )
+    }
+}
+
+if (-not $EnableProviderFallback -and [string]::IsNullOrWhiteSpace($Model)) {
+    $Model = [string]$UngateModelDefinitions[0].Slug
 }
 
 $selectedModelDefinition = $UngateModelDefinitions |
     Where-Object { $_.Slug -eq $Model } |
     Select-Object -First 1
 if (-not $selectedModelDefinition) {
+    $knownModelDefinition = $AllUngateModelDefinitions |
+        Where-Object { $_.Slug -eq $Model } |
+        Select-Object -First 1
+    if ($knownModelDefinition -and -not $EnableProviderFallback) {
+        throw "Model '$($knownModelDefinition.DisplayName)' is not enabled in the Desktop picker. Run the launcher and choose 'Configure Desktop model picker'."
+    }
     $supportedModels = @($UngateModelDefinitions.Slug) -join ', '
     throw "Unsupported Desktop model '$Model'. Configured models: $supportedModels"
+}
+$CodexLaunchModel = if ($EnableProviderFallback) {
+    $Model
+} else {
+    Get-CodexCatalogModelSlug -Definition $selectedModelDefinition
+}
+$CodexLaunchProvider = if ($EnableProviderFallback) {
+    [pscustomobject][ordered]@{
+        Name = $selectedModelDefinition.ProviderName
+        DisplayName = $selectedModelDefinition.ProviderDisplayName
+        ProxyBaseUrl = $selectedModelDefinition.ProxyBaseUrl
+        EnvKey = $selectedModelDefinition.EnvKey
+    }
+} else {
+    $CodexModelShellRouterProviderDefinition
 }
 Write-Host `
     "[ungate] Selected model: $($selectedModelDefinition.DisplayName) [$Model]." `
@@ -2371,14 +3135,21 @@ foreach ($provider in (Get-ProviderDefinitions)) {
         -ForegroundColor DarkGray
 }
 
-Ensure-CliProxyBridge -Key $providerKeys[$CliProxyProviderName]
+if ($providerKeys.ContainsKey($CliProxyProviderName)) {
+    Ensure-CliProxyBridge -Key $providerKeys[$CliProxyProviderName]
+}
+if (-not $EnableProviderFallback) {
+    Ensure-CodexModelShellRouter `
+        -Routes (Get-CodexModelShellRoutes) `
+        -ProviderKeys $providerKeys
+}
 
 $selectedKey = $providerKeys[$selectedModelDefinition.ProviderName]
 $preflightAttempts = if ($EnableProviderFallback) { 1 } else { 2 }
 $preflightFailure = $null
 for ($attempt = 1; $attempt -le $preflightAttempts; $attempt++) {
     try {
-        if ($EnableProviderFallback) {
+        if ($EnableProviderFallback -or $selectedModelDefinition.ProviderName -eq $OmniRouteProviderName) {
             Invoke-OmniRoutePreflight `
                 -Key $selectedKey `
                 -Model $Model `
@@ -2477,7 +3248,12 @@ if ($PrepareOnly) {
     exit 0
 }
 
-Write-Host "[ungate] Launching Codex Beta with model '$Model' via $($selectedModelDefinition.ProviderName)." -ForegroundColor Green
+$launchTransport = if ($EnableProviderFallback) {
+    $selectedModelDefinition.ProviderName
+} else {
+    'the local Codex model-shell router'
+}
+Write-Host "[ungate] Launching Codex Beta with $($selectedModelDefinition.DisplayName) via $launchTransport." -ForegroundColor Green
 $launchEnv = @{
     CODEX_HOME = $CustomCodexHome
 }

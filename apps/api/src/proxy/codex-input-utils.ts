@@ -102,6 +102,10 @@ export class CodexInputUtils {
 			const itemRecord = item as Record<string, unknown>;
 			const itemType = itemRecord.type;
 
+			if (itemType === 'reasoning') {
+				continue;
+			}
+
 			if (
 				itemType === 'function_call' ||
 				itemType === 'function_call_output' ||
@@ -123,10 +127,14 @@ export class CodexInputUtils {
 				continue;
 			}
 
+			console.error('[CodexInputUtils] Invalid item caused expandInput to fail:', JSON.stringify(item));
+
 			return null;
 		}
 
-		return [...developerItems, ...mainItems];
+		const expandedItems = [...developerItems, ...mainItems];
+
+		return expandedItems.length > 0 ? expandedItems : null;
 	}
 
 	public static coerceMessages(body: { messages?: OpenAIMessage[]; input?: unknown }): OpenAIMessage[] {

@@ -251,3 +251,98 @@ function Invoke-UngatePreflight {
         -ProxyOpenAiBaseUrl "$ProxyBaseUrl/v1"
     Write-Host '[ungate] /v1/responses bridge available.' -ForegroundColor Green
 }
+
+function Resolve-OmniRouteApiKey {
+    param(
+        [string]$ApiKey
+    )
+
+    if ($ApiKey) { return $ApiKey }
+    if ($env:OMNIROUTE_API_KEY) { return $env:OMNIROUTE_API_KEY }
+
+    throw 'OmniRoute client key is required. Pass -ApiKey or set OMNIROUTE_API_KEY.'
+}
+
+function Invoke-OmniRoutePreflight {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Key,
+        [Parameter(Mandatory = $true)]
+        [string]$Model,
+        [Parameter(Mandatory = $true)]
+        [string]$ProxyBaseUrl
+    )
+
+    try {
+        $health = Invoke-RestMethod `
+            -Uri "$ProxyBaseUrl/api/health/ping" `
+            -TimeoutSec 3 `
+            -ErrorAction Stop
+        if ($health.status -ne 'ok') {
+            throw 'health.status != ok'
+        }
+    }
+    catch {
+        throw "OmniRoute is not reachable at $ProxyBaseUrl. Start OmniRoute manually."
+    }
+    Write-Host "[ungate] OmniRoute healthy at $ProxyBaseUrl." -ForegroundColor Green
+
+    try {
+        $models = Invoke-RestMethod `
+            -Uri "$ProxyBaseUrl/v1/models" `
+            -Headers @{ Authorization = "Bearer $Key" } `
+            -TimeoutSec 5 `
+            -ErrorAction Stop
+    }
+    catch {
+        throw "Could not list OmniRoute /v1/models. Verify OMNIROUTE_API_KEY and key permissions: $($_.Exception.Message)"
+    }
+
+    $ids = @($models.data | ForEach-Object { $_.id })
+    if ($Model -notin $ids) {
+        throw "OmniRoute model/combo '$Model' was not found in /v1/models. Available: $($ids -join ', ')"
+    }
+    Write-Host "[ungate] OmniRoute model/combo '$Model' available." -ForegroundColor Green
+
+    $body = [ordered]@{
+        model = $Model
+        input = 'Reply with exactly OK.'
+        max_output_tokens = 16
+        stream = $false
+        store = $false
+    } | ConvertTo-Json -Compress
+
+    try {
+        $response = Invoke-WebRequest `
+            -Method Post `
+            -Uri "$ProxyBaseUrl/v1/responses" `
+            -Headers @{ Authorization = "Bearer $Key" } `
+            -ContentType 'application/json' `
+            -Body $body `
+            -TimeoutSec 60 `
+            -SkipHttpErrorCheck `
+            -ErrorAction Stop
+    }
+    catch {
+        throw "Could not reach OmniRoute /v1/responses: $($_.Exception.Message)"
+    }
+
+    $statusCode = [int]$response.StatusCode
+    if ($statusCode -lt 200 -or $statusCode -ge 300) {
+        $detail = Get-CliProxyHttpErrorDetail -Content ([string]$response.Content)
+        throw "OmniRoute /v1/responses preflight failed with HTTP ${statusCode}: $detail"
+    }
+
+    try {
+        $payload = ([string]$response.Content) | ConvertFrom-Json -Depth 100 -ErrorAction Stop
+    }
+    catch {
+        throw "OmniRoute /v1/responses returned invalid JSON: $($_.Exception.Message)"
+    }
+    if (-not $payload.id -and -not $payload.output) {
+        throw "OmniRoute /v1/responses returned an unexpected response for model/combo '$Model'."
+    }
+
+    Write-Host "[ungate] Live OmniRoute /v1/responses preflight passed for '$Model'." -ForegroundColor Green
+}
+

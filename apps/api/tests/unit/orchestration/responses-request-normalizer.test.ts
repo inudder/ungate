@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { ResponsesRequestNormalizer, itemsToChatMessages } from 'src/orchestration/responses';
+import { ResponsesRequestNormalizer, ResponsesRequestValidationError, itemsToChatMessages } from 'src/orchestration/responses';
 
 const resolveForChatCompletionMock = vi.fn();
 
@@ -57,6 +57,36 @@ describe('ResponsesRequestNormalizer', () => {
 		});
 
 		expect(result.body.max_completion_tokens).toBe(12000);
+	});
+
+	it('ignores reasoning items when normalizing a continuation input', () => {
+		resolveForChatCompletionMock.mockReturnValueOnce(null);
+
+		const result = ResponsesRequestNormalizer.toChatRequest({
+			model: 'gpt-alias',
+			input: [
+				{ type: 'reasoning', id: 'rs_1', summary: [{ type: 'summary_text', text: 'private' }] },
+				{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'continue' }] }
+			]
+		});
+
+		expect(result.body.messages).toEqual([{ role: 'user', content: 'continue' }]);
+	});
+
+	it('treats reasoning-only continuation input as empty input', () => {
+		resolveForChatCompletionMock.mockReturnValueOnce(null);
+
+		expect(() =>
+			ResponsesRequestNormalizer.toChatRequest({
+				model: 'gpt-alias',
+				input: [{ type: 'reasoning', id: 'rs_only', summary: [{ type: 'summary_text', text: 'private' }] }]
+			})
+		).toThrow(
+			expect.objectContaining<ResponsesRequestValidationError>({
+				code: 'empty_input',
+				message: 'Responses input must not be empty'
+			})
+		);
 	});
 
 	it('passes flattened MCP namespace tools to chat providers', () => {

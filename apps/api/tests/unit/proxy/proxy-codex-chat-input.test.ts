@@ -54,4 +54,27 @@ describe('proxy-codex-chat-input', () => {
 		expect(coerced).toHaveLength(1);
 		expect(coerced[0].role).toBe('user');
 	});
+
+	it('ignores reasoning items while preserving supported input order', () => {
+		const expanded = CodexInputUtils.expandInput([
+			{ type: 'reasoning', id: 'rs_1', summary: [{ type: 'summary_text', text: 'private' }] },
+			{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'run tool' }] },
+			{ type: 'reasoning', id: 'rs_2', summary: [{ type: 'summary_text', text: 'private again' }] },
+			{ type: 'function_call', call_id: 'call_1', name: 'Read', arguments: '{}' },
+			{ type: 'function_call_output', call_id: 'call_1', output: 'done' }
+		]);
+
+		expect(expanded).toEqual([
+			{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'run tool' }] },
+			{ type: 'function_call', call_id: 'call_1', name: 'Read', arguments: '{}' },
+			{ type: 'function_call_output', call_id: 'call_1', output: 'done' }
+		]);
+	});
+
+	it('rejects reasoning-only and unknown input items', () => {
+		expect(
+			CodexInputUtils.expandInput([{ type: 'reasoning', id: 'rs_only', summary: [{ type: 'summary_text', text: 'private' }] }])
+		).toBeNull();
+		expect(CodexInputUtils.expandInput([{ type: 'unsupported_item' }])).toBeNull();
+	});
 });

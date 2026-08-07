@@ -226,6 +226,10 @@ const plugin: FastifyPluginCallback = (app) => {
 						userAgent: request.headers['user-agent'],
 						originator: request.headers.originator
 					});
+				} else if (error instanceof Error && error.message.includes('Responses input must be')) {
+					logger.error(
+						`Responses request handling error: ${error.message} \nPayload input: ${JSON.stringify(responsesBody.input)}`
+					);
 				} else {
 					logger.error(`Responses request handling error: ${String(error)}`);
 				}

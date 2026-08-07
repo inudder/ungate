@@ -17,11 +17,20 @@ BeforeAll {
         'Read-UngateCustomModelDefinitions',
         'Write-UngateCustomModelDefinitions',
         'Get-UngateModelDefinitions',
+        'Get-DefaultUngatePickerModelSlugs',
+        'Read-UngatePickerModelSelection',
+        'Write-UngatePickerModelSelection',
+        'Get-UngatePickerModelDefinitions',
+        'Read-UngatePickerKey',
+        'Invoke-UngatePickerConfiguration',
         'Read-UngateMenuChoice',
         'Read-UngateYesNo',
         'Invoke-AddUngateModelMode',
         'Select-UngateDesktopModel',
         'Get-ProviderDefinitions',
+        'Set-CodexModelShellSlugs',
+        'Get-CodexCatalogModelSlug',
+        'Get-CodexConfigProviderDefinitions',
         'Resolve-ModelApiKey',
         'Invoke-OmniRoutePreflight',
         'Get-ProviderTomlBlock',
@@ -106,6 +115,13 @@ Describe 'Optional OmniRoute provider fallback' {
     BeforeEach {
         $script:OmniRouteProviderName = 'omniroute'
         $script:RepoRoot = $TestDrive
+        $script:EnableProviderFallback = $false
+        $script:CodexModelShellRouterProviderDefinition = [pscustomobject][ordered]@{
+            Name = 'ungate_model_shell_router'
+            DisplayName = 'Ungate Codex Model Router'
+            ProxyBaseUrl = 'http://127.0.0.1:8319'
+            EnvKey = 'UNGATE_API_KEY'
+        }
         $script:previousOmniRouteApiKey = $env:OMNIROUTE_API_KEY
         Remove-Item Env:\OMNIROUTE_API_KEY -ErrorAction SilentlyContinue
     }
@@ -147,6 +163,19 @@ Describe 'Optional OmniRoute provider fallback' {
         )
 
         @((Get-ProviderDefinitions).Name) | Should -Be @('ungate_proxy')
+        @((Get-CodexConfigProviderDefinitions).Name) | Should -Be @('ungate_model_shell_router')
+    }
+
+    It 'keeps OmniRoute as the only active provider in fallback mode' {
+        $script:EnableProviderFallback = $true
+        $script:OmniRouteFallbackModelDefinition = [pscustomobject][ordered]@{
+            ProviderName = 'omniroute'
+            ProviderDisplayName = 'OmniRoute'
+            ProxyBaseUrl = 'http://127.0.0.1:20128'
+            EnvKey = 'OMNIROUTE_API_KEY'
+        }
+
+        @((Get-CodexConfigProviderDefinitions).Name) | Should -Be @('omniroute')
     }
 
     It 'rejects an explicit model together with provider fallback' {
@@ -174,6 +203,18 @@ Describe 'Custom launcher model registry' {
         $script:ProxyBaseUrl = 'http://127.0.0.1:47821'
         $script:CliProxyProviderName = 'cliproxyapi'
         $script:CliProxyBaseUrl = 'http://127.0.0.1:8318'
+        $script:OmniRouteProviderName = 'omniroute'
+        $script:CodexModelShellRouterProviderName = 'ungate_model_shell_router'
+        $script:CodexModelShellRouterBaseUrl = 'http://127.0.0.1:8319'
+        $script:CodexModelShellRouterProviderDefinition = [pscustomobject][ordered]@{
+            Name = $script:CodexModelShellRouterProviderName
+            DisplayName = 'Ungate Codex Model Router'
+            ProxyBaseUrl = $script:CodexModelShellRouterBaseUrl
+            EnvKey = 'UNGATE_API_KEY'
+        }
+        $script:CodexModelShellPool = @('gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna')
+        $script:CodexDesktopPickerCapacity = 3
+        $script:EnableProviderFallback = $false
         $script:builtInDefinitions = @(
             [pscustomobject][ordered]@{
                 Slug = 'ungate-opus-4-8'
@@ -187,6 +228,7 @@ Describe 'Custom launcher model registry' {
             }
         )
         $script:registryPath = Join-Path $TestDrive 'ungate-model-definitions.json'
+        $script:pickerSettingsPath = Join-Path $TestDrive 'ungate-picker-models.json'
     }
 
     It 'returns only built-in definitions when the registry does not exist' {
@@ -386,9 +428,15 @@ Describe 'Custom launcher model registry' {
         $customDefinition = ConvertTo-UngateModelDefinition `
             -Record (New-CustomModelTestRecord) `
             -Priority 1
-        $script:UngateModelDefinitions = @($builtInDefinition, $customDefinition)
+        $script:UngateModelDefinitions = @(
+            Set-CodexModelShellSlugs -Definitions @($builtInDefinition, $customDefinition)
+        )
         $script:Model = 'ungate-opus-5'
-        $script:selectedModelDefinition = $customDefinition
+        $script:selectedModelDefinition = $script:UngateModelDefinitions |
+            Where-Object { $_.Slug -eq $script:Model } |
+            Select-Object -First 1
+        $script:CodexLaunchModel = $script:selectedModelDefinition.ShellSlug
+        $script:CodexLaunchProvider = $script:CodexModelShellRouterProviderDefinition
         $script:DefaultModelCachePath = Join-Path $TestDrive 'models_cache.json'
         $script:CustomModelCatalogPath = Join-Path $TestDrive 'ungate-models.json'
         $script:CustomConfigPath = Join-Path $TestDrive 'config.toml'
@@ -411,7 +459,14 @@ Describe 'Custom launcher model registry' {
             -Content $defaultCatalog
         Write-Utf8TestFile `
             -LiteralPath $script:CustomConfigPath `
-            -Content 'model = "gpt-template"'
+            -Content @'
+model = "gpt-template"
+
+[model_providers.omniroute]
+name = "OmniRoute"
+base_url = "http://127.0.0.1:20128/v1"
+env_key = "OMNIROUTE_API_KEY"
+'@
 
         Write-UngateModelCatalog
 
@@ -419,7 +474,7 @@ Describe 'Custom launcher model registry' {
             ConvertFrom-Json -Depth 100
         @($catalog.Models) | Should -HaveCount 2
         $opus5 = $catalog.Models |
-            Where-Object { $_.slug -eq 'ungate-opus-5' } |
+            Where-Object { $_.slug -eq 'gpt-5.6-terra' } |
             Select-Object -First 1
         $opus5.display_name | Should -BeExactly 'Claude Opus 5 (Ungate)'
         $opus5.default_reasoning_level | Should -BeExactly 'high'
@@ -430,10 +485,24 @@ Describe 'Custom launcher model registry' {
         $opus5.base_instructions | Should -Not -Match 'GPT model'
 
         $config = Get-Content -LiteralPath $script:CustomConfigPath -Raw
-        $config | Should -Match '(?m)^model = "ungate-opus-5"\r?$'
-        $config | Should -Match '(?m)^model_provider = "ungate_proxy"\r?$'
+        $config | Should -Match '(?m)^model = "gpt-5.6-terra"\r?$'
+        $config | Should -Match '(?m)^model_provider = "ungate_model_shell_router"\r?$'
         $config | Should -Match '(?m)^model_reasoning_effort = "high"\r?$'
-        $config | Should -Match '(?m)^\[model_providers\.ungate_proxy\]\r?$'
+        $config | Should -Match '(?m)^\[model_providers\.ungate_model_shell_router\]\r?$'
+        $config | Should -Not -Match '(?m)^\[model_providers\.omniroute\]\r?$'
+    }
+
+    It 'allocates stable official shell IDs for provider models' {
+        $definitions = @(
+            [pscustomobject]@{ Slug = 'ungate-opus-4-8' },
+            [pscustomobject]@{ Slug = 'grok-4.5' },
+            [pscustomobject]@{ Slug = 'miniMax-M3' }
+        )
+
+        $mapped = @(Set-CodexModelShellSlugs -Definitions $definitions)
+
+        @($mapped.Slug) | Should -Be @('ungate-opus-4-8', 'grok-4.5', 'miniMax-M3')
+        @($mapped.ShellSlug) | Should -Be @('gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna')
     }
 
     It 'rejects launch parameters combined with AddModel before writing the registry' {
@@ -462,7 +531,7 @@ Describe 'Custom launcher model registry' {
             }
         )
         $script:selectionInputs = [System.Collections.Generic.Queue[string]]::new()
-        $script:selectionInputs.Enqueue('2')
+        $script:selectionInputs.Enqueue('3')
         $script:selectionInputs.Enqueue('2')
         $script:selectionDefinitionsAfterAdd = @(
             $script:selectionDefinitions
@@ -474,7 +543,8 @@ Describe 'Custom launcher model registry' {
         Mock Read-Host {
             return $script:selectionInputs.Dequeue()
         }
-        Mock Invoke-AddUngateModelMode {}
+        Mock Invoke-AddUngateModelMode { return 'ungate-opus-5' }
+        Mock Invoke-UngatePickerConfiguration {}
         Mock Get-UngateModelDefinitions {
             return @($script:selectionDefinitionsAfterAdd)
         }
@@ -482,10 +552,13 @@ Describe 'Custom launcher model registry' {
         $selected = Select-UngateDesktopModel `
             -Definitions $script:selectionDefinitions `
             -BuiltInDefinitions $script:builtInDefinitions `
-            -RegistryPath $script:registryPath
+            -RegistryPath $script:registryPath `
+            -PickerSettingsPath $script:pickerSettingsPath `
+            -PickerCapacity $script:CodexDesktopPickerCapacity
 
         $selected | Should -BeExactly 'ungate-opus-5'
         Should -Invoke Invoke-AddUngateModelMode -Times 1 -Exactly
+        Should -Invoke Invoke-UngatePickerConfiguration -Times 1 -Exactly
         Should -Invoke Get-UngateModelDefinitions -Times 1 -Exactly
     }
 
@@ -500,10 +573,193 @@ Describe 'Custom launcher model registry' {
             -Definitions $script:selectionDefinitions `
             -BuiltInDefinitions $script:builtInDefinitions `
             -RegistryPath $script:registryPath `
+            -PickerSettingsPath $script:pickerSettingsPath `
+            -PickerCapacity $script:CodexDesktopPickerCapacity `
             -IncludeProviderFallback `
             -ProviderFallbackModel 'codex-fallback'
 
         $selected | Should -BeExactly 'codex-fallback'
+    }
+}
+
+Describe 'Desktop picker model selection' {
+    BeforeEach {
+        $script:pickerDefinitions = @(
+            1..8 | ForEach-Object {
+                [pscustomobject]@{
+                    Slug = "model-$_"
+                    DisplayName = "Model $_"
+                }
+            }
+        )
+        $script:pickerSettingsPath = Join-Path $TestDrive 'ungate-picker-models.json'
+        $script:pickerCapacity = 7
+        Remove-Item -LiteralPath $script:pickerSettingsPath -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'defaults to seven models and round-trips a custom selection in source order' {
+        $defaultSelection = @(
+            Read-UngatePickerModelSelection `
+                -SettingsPath $script:pickerSettingsPath `
+                -Definitions $script:pickerDefinitions `
+                -Capacity $script:pickerCapacity
+        )
+
+        $defaultSelection | Should -HaveCount 7
+        $defaultSelection | Should -Be @('model-1', 'model-2', 'model-3', 'model-4', 'model-5', 'model-6', 'model-7')
+
+        $null = Write-UngatePickerModelSelection `
+            -SettingsPath $script:pickerSettingsPath `
+            -ModelSlugs @('model-8', 'model-2', 'model-1') `
+            -Definitions $script:pickerDefinitions `
+            -Capacity $script:pickerCapacity
+
+        $savedSelection = @(
+            Read-UngatePickerModelSelection `
+                -SettingsPath $script:pickerSettingsPath `
+                -Definitions $script:pickerDefinitions `
+                -Capacity $script:pickerCapacity
+        )
+        $savedSelection | Should -Be @('model-1', 'model-2', 'model-8')
+    }
+
+    It 'rejects an empty, oversized, duplicated, or unknown selection' {
+        {
+            Write-UngatePickerModelSelection `
+                -SettingsPath $script:pickerSettingsPath `
+                -ModelSlugs ([string[]]@()) `
+                -Definitions $script:pickerDefinitions `
+                -Capacity $script:pickerCapacity
+        } | Should -Throw '*at least one model*'
+
+        {
+            Write-UngatePickerModelSelection `
+                -SettingsPath $script:pickerSettingsPath `
+                -ModelSlugs (1..8 | ForEach-Object { "model-$_" }) `
+                -Definitions $script:pickerDefinitions `
+                -Capacity $script:pickerCapacity
+        } | Should -Throw '*at most 7 models*'
+
+        {
+            Write-UngatePickerModelSelection `
+                -SettingsPath $script:pickerSettingsPath `
+                -ModelSlugs @('model-1', 'MODEL-1') `
+                -Definitions $script:pickerDefinitions `
+                -Capacity $script:pickerCapacity
+        } | Should -Throw '*duplicated*'
+
+        {
+            Write-UngatePickerModelSelection `
+                -SettingsPath $script:pickerSettingsPath `
+                -ModelSlugs @('model-missing') `
+                -Definitions $script:pickerDefinitions `
+                -Capacity $script:pickerCapacity
+        } | Should -Throw '*unknown models*'
+    }
+
+    It 'ignores stale saved models and falls back when none remain' {
+        Write-Utf8TestFile `
+            -LiteralPath $script:pickerSettingsPath `
+            -Content '{"version":1,"modelSlugs":["model-missing"]}'
+
+        $selection = @(
+            Read-UngatePickerModelSelection `
+                -SettingsPath $script:pickerSettingsPath `
+                -Definitions $script:pickerDefinitions `
+                -Capacity $script:pickerCapacity
+        )
+
+        $selection | Should -HaveCount 7
+        $selection[0] | Should -BeExactly 'model-1'
+        $selection[6] | Should -BeExactly 'model-7'
+    }
+
+    It 'filters the active definitions to the persisted picker selection' {
+        $null = Write-UngatePickerModelSelection `
+            -SettingsPath $script:pickerSettingsPath `
+            -ModelSlugs @('model-8', 'model-2') `
+            -Definitions $script:pickerDefinitions `
+            -Capacity $script:pickerCapacity
+
+        $activeDefinitions = @(
+            Get-UngatePickerModelDefinitions `
+                -Definitions $script:pickerDefinitions `
+                -SettingsPath $script:pickerSettingsPath `
+                -Capacity $script:pickerCapacity
+        )
+
+        @($activeDefinitions.Slug) | Should -Be @('model-2', 'model-8')
+    }
+
+    It 'does not write picker settings when the interactive screen is cancelled' {
+        $null = Write-UngatePickerModelSelection `
+            -SettingsPath $script:pickerSettingsPath `
+            -ModelSlugs @('model-1', 'model-2') `
+            -Definitions $script:pickerDefinitions `
+            -Capacity $script:pickerCapacity
+        $beforeHash = (Get-FileHash -LiteralPath $script:pickerSettingsPath -Algorithm SHA256).Hash
+
+        Mock Read-UngatePickerKey { return 'cancel' }
+        Mock Clear-Host {}
+
+        $result = Invoke-UngatePickerConfiguration `
+            -Definitions $script:pickerDefinitions `
+            -SettingsPath $script:pickerSettingsPath `
+            -Capacity $script:pickerCapacity
+
+        $result | Should -BeFalse
+        (Get-FileHash -LiteralPath $script:pickerSettingsPath -Algorithm SHA256).Hash |
+            Should -BeExactly $beforeHash
+    }
+
+    It 'toggles picker models with keyboard input and saves in source order' {
+        $script:pickerKeyInputs = [System.Collections.Generic.Queue[string]]::new()
+        foreach ($key in @('down', 'toggle', 'down', 'toggle', 'save')) {
+            $script:pickerKeyInputs.Enqueue($key)
+        }
+        Mock Read-UngatePickerKey {
+            return $script:pickerKeyInputs.Dequeue()
+        }
+        Mock Clear-Host {}
+
+        $result = Invoke-UngatePickerConfiguration `
+            -Definitions $script:pickerDefinitions `
+            -SettingsPath $script:pickerSettingsPath `
+            -Capacity $script:pickerCapacity
+
+        $result | Should -BeTrue
+        $selection = @(
+            Read-UngatePickerModelSelection `
+                -SettingsPath $script:pickerSettingsPath `
+                -Definitions $script:pickerDefinitions `
+                -Capacity $script:pickerCapacity
+        )
+        $selection | Should -Be @('model-1', 'model-4', 'model-5', 'model-6', 'model-7')
+    }
+
+    It 'prevents selecting an eighth model until a selected model is disabled' {
+        $script:pickerKeyInputs = [System.Collections.Generic.Queue[string]]::new()
+        foreach ($key in @('up', 'toggle', 'down', 'toggle', 'up', 'toggle', 'save')) {
+            $script:pickerKeyInputs.Enqueue($key)
+        }
+        Mock Read-UngatePickerKey {
+            return $script:pickerKeyInputs.Dequeue()
+        }
+        Mock Clear-Host {}
+
+        $result = Invoke-UngatePickerConfiguration `
+            -Definitions $script:pickerDefinitions `
+            -SettingsPath $script:pickerSettingsPath `
+            -Capacity $script:pickerCapacity
+
+        $result | Should -BeTrue
+        $selection = @(
+            Read-UngatePickerModelSelection `
+                -SettingsPath $script:pickerSettingsPath `
+                -Definitions $script:pickerDefinitions `
+                -Capacity $script:pickerCapacity
+        )
+        $selection | Should -Be @('model-2', 'model-3', 'model-4', 'model-5', 'model-6', 'model-7', 'model-8')
     }
 }
 
