@@ -1,3 +1,81 @@
+## Launcher model routing contract
+
+The Desktop launcher is implemented in
+`J:\Dev\ungate-local\scripts\start-codex-desktop-ungate.ps1`. The complete
+model/provider matrix and external-directory map are maintained in
+`J:\Dev\ungate-local\docs\model-routing.md`.
+
+When investigating a model, follow its actual route before changing code:
+
+- Mode 3, Grok 4.5 (CLIProxyAPI): model-shell router `8319` -> local
+  namespace bridge `8318` -> CLIProxyAPI upstream `8317`; inspect
+  `J:\Sandbox\CLIProxyAPI` first, then
+  `scripts\cliproxy-namespace-bridge.mjs` and
+  `scripts\codex-model-shell-router.mjs`.
+- Mode 7, Mimo v2.5 Pro (OmniRoute): model-shell router `8319` -> OmniRoute
+  `20128`; inspect `%APPDATA%\omniroute` call logs, then
+  `scripts\mimo-responses-stream-adapter.mjs` and the router.
+- Modes 4-6, Kimi K3, Grok 4.5, and Claude Opus 5 (apikey.fun): model-shell
+  router `8319` -> OmniRoute `20128`; no CLIProxy bridge and no Mimo adapter.
+- Modes 1-2, Claude Fable 5 and MiniMax M3 (Ungate): model-shell router
+  `8319` -> Ungate Responses proxy `47821`; inspect `apps\api` and its
+  provider-specific Responses handlers. Do not use the CLIProxy bridge or
+  Mimo adapter for these routes.
+
+If the launcher, this file, and the detailed matrix disagree, the launcher
+route definitions are authoritative. Keep this contract short and update the
+detailed matrix whenever a route, port, adapter, or external project changes.
+
+## Codex Beta and Mimo session logs
+
+When diagnosing a Codex Desktop session routed through Mimo, inspect the logs
+in this order:
+
+1. Session transcript (model-visible events, tool calls, turn lifecycle):
+   `C:\Users\kalvinclein\.codex-ungate\sessions\YYYY\MM\DD\rollout-*.jsonl`
+2. Codex Beta desktop/app-server log (renderer and CLI bridge errors):
+   `C:\Users\kalvinclein\AppData\Local\Packages\OpenAI.CodexBeta_2p2nqsd0c76g0\LocalCache\Local\Codex\Logs\YYYY\MM\DD\codex-desktop-*.log`
+3. OmniRoute request/response record (upstream status, timing, token counts,
+   finish reason and disconnect errors):
+   `C:\Users\kalvinclein\AppData\Roaming\omniroute\call_logs\YYYY-MM-DD\*.json`
+4. Local model-shell router lifecycle and request timings:
+   `C:\Users\kalvinclein\.codex-ungate\logs\codex-model-shell-router.out.log`
+
+Correlate records by UTC timestamp, then by `turn_id`/`threadId` and the
+OmniRoute request timestamp. Useful search terms are
+`turn_aborted`, `task_complete`, `OutputTextDelta without active item`,
+`turn_completed_with_incomplete_plan`, `mimo-responses-adapter`,
+`mimo_tool_call_parse_error`, `request_signal_aborted` and `finish_reason`.
+
+Interpretation rules:
+
+- OmniRoute status `499` with `Client disconnected: request_signal_aborted` and
+  zero output tokens means Codex cancelled the request; it is not an upstream
+  tool-call parsing failure.
+- Status `200` with `finish_reason=stop` means Mimo completed its response. If
+  no tool call follows, inspect the session transcript for why the model only
+  emitted text or reasoning.
+- OmniRoute `504` with `Stream produced no non-ping SSE event within 95000ms`
+  (often followed by `[504] Combo ... all targets exhausted`) is the
+  OmniRoute-to-Mimo upstream watchdog. A local router heartbeat cannot reset
+  that upstream timer; distinguish it from a local `mimo_tool_call_parse_error`.
+- Repeated `OutputTextDelta without active item` indicates an invalid Responses
+  SSE lifecycle reaching Codex. For Mimo, also check the adapter diagnostic;
+  it logs the model, tool name and input byte count, never patch contents or
+  API keys.
+
+PowerShell commands for the newest records:
+
+```powershell
+$sessionRoot = Join-Path $env:USERPROFILE '.codex-ungate\sessions'
+Get-ChildItem -LiteralPath $sessionRoot -Recurse -File -Filter '*.jsonl' |
+    Sort-Object LastWriteTime -Descending | Select-Object -First 1
+
+$desktopLogRoot = Join-Path $env:LOCALAPPDATA 'Packages\OpenAI.CodexBeta_2p2nqsd0c76g0\LocalCache\Local\Codex\Logs'
+Get-ChildItem -LiteralPath $desktopLogRoot -Recurse -File -Filter '*.log' |
+    Sort-Object LastWriteTime -Descending | Select-Object -First 1
+```
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.

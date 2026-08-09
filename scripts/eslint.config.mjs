@@ -14,7 +14,13 @@ export default [
 		}
 	},
 	{
-		files: ['cliproxy-namespace-bridge*.mjs', 'codex-model-shell-router*.mjs', 'ungate-patch-mcp*.mjs'],
+		files: [
+			'cliproxy-namespace-bridge*.mjs',
+			'codex-model-shell-router*.mjs',
+			'mimo-responses-namespace*.mjs',
+			'mimo-responses-stream-adapter*.mjs',
+			'ungate-patch-mcp*.mjs'
+		],
 		rules: {
 			'@typescript-eslint/no-floating-promises': 'off',
 			'@typescript-eslint/no-misused-promises': 'off',

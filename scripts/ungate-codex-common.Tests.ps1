@@ -95,6 +95,13 @@ Describe 'Test-UngateResponsesBridge' {
 Describe 'Test-CliProxyResponsesInference' {
     It 'sends a minimal non-streaming inference request and accepts OK' {
         Mock Invoke-WebRequest {
+            if ($Body -match 'cliproxy_preflight') {
+                return [pscustomobject]@{
+                    StatusCode = 200
+                    Content = '{"status":"completed","output":[{"type":"function_call","name":"bridge_preflight","namespace":"cliproxy_preflight","arguments":"{}"}]}'
+                }
+            }
+
             [pscustomobject]@{
                 StatusCode = 200
                 Content = '{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"OK"}]}]}'
@@ -115,8 +122,39 @@ Describe 'Test-CliProxyResponsesInference' {
             $Body -match '"model":"grok-4.5"' -and
             $Body -match '"max_output_tokens":16' -and
             $Body -match '"stream":false' -and
-            $Body -match '"store":false'
+            $Body -match '"store":false' -and
+            $Body -notmatch 'cliproxy_preflight'
         }
+        Should -Invoke Invoke-WebRequest -Times 1 -Exactly -ParameterFilter {
+            $Method -eq 'Post' -and
+            $Uri -eq 'http://127.0.0.1:8318/v1/responses' -and
+            $Body -match 'cliproxy_preflight' -and
+            $Body -match 'bridge_preflight' -and
+            $Body -match '"tool_choice"'
+        }
+    }
+
+    It 'rejects an invalid tool-call preflight response' {
+        Mock Invoke-WebRequest {
+            if ($Body -match 'cliproxy_preflight') {
+                return [pscustomobject]@{
+                    StatusCode = 200
+                    Content = '{"status":"completed","output":[{"type":"function_call","name":"bridge_preflight","namespace":"cliproxy_preflight","arguments":"{\"incomplete\":"}]}'
+                }
+            }
+
+            [pscustomobject]@{
+                StatusCode = 200
+                Content = '{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"OK"}]}]}'
+            }
+        }
+
+        {
+            Test-CliProxyResponsesInference `
+                -Key 'test-key' `
+                -Model 'grok-4.5' `
+                -ProxyOpenAiBaseUrl 'http://127.0.0.1:8318/v1'
+        } | Should -Throw '*invalid function-call arguments*'
     }
 
     It 'explains when xAI authorization is unavailable' {

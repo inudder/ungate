@@ -5,9 +5,13 @@ import test from 'node:test';
 
 import {
 	canonicalizeArguments,
+	convertChatCompletionToResponse,
 	createBridgeServer,
+	createResponsesSseTransform,
 	createSseTransform,
+	flattenOpenAiRequest,
 	flattenResponsesRequest,
+	rewriteChatCompletionForClient,
 	rewriteResponseForCodex
 } from './cliproxy-namespace-bridge.mjs';
 
@@ -53,6 +57,32 @@ function withTimeout(promise, timeoutMs = 2_000) {
 			timer.unref();
 		})
 	]);
+}
+
+function sse(type, data) {
+	return `event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`;
+}
+
+function eventData(stream) {
+	return stream
+		.split(/\r?\n\r?\n/u)
+		.filter(Boolean)
+		.map((frame) => {
+			const line = frame.split(/\r?\n/u).find((item) => item.startsWith('data:'));
+			if (!line) return null;
+			const value = line.slice(5).trim();
+
+			return value === '[DONE]' ? { type: '[DONE]' } : JSON.parse(value);
+		})
+		.filter(Boolean);
+}
+
+async function transformResponsesChat(chunks, options = {}) {
+	const transform = createResponsesSseTransform(options);
+	let output = '';
+	for await (const chunk of Readable.from(chunks).pipe(transform)) output += chunk.toString('utf8');
+
+	return output;
 }
 
 test('flattens namespace tools, history, schemas, and tool choice', () => {
@@ -107,6 +137,10 @@ test('restores full and unique bare names but leaves ambiguous bare names untouc
 		unique
 	);
 	const restoredBare = rewriteResponseForCodex({ type: 'function_call', name: 'js', arguments: '{"timeout":16185.0}' }, unique);
+	const restoredNamespaceOnly = rewriteResponseForCodex(
+		{ type: 'function_call', name: 'mcp__node_repl', arguments: '{"timeout":16185.0}' },
+		unique
+	);
 
 	assert.deepEqual(restoredFull, {
 		type: 'function_call',
@@ -115,6 +149,7 @@ test('restores full and unique bare names but leaves ambiguous bare names untouc
 		arguments: '{"timeout":16185}'
 	});
 	assert.deepEqual(restoredBare, restoredFull);
+	assert.deepEqual(restoredNamespaceOnly, restoredFull);
 
 	const ambiguous = flattenResponsesRequest({
 		tools: [namespaceTool('mcp__one', 'js'), namespaceTool('mcp__two', 'js')]
@@ -302,4 +337,427 @@ test('aborts the upstream response when the downstream client disconnects', asyn
 	await withTimeout(upstreamStarted);
 	downstreamSocket.destroy();
 	await withTimeout(bridgeAborted);
+});
+
+test('flattens Chat history and namespace tool choice', () => {
+	const request = {
+		model: 'grok-4.5',
+		tools: [namespaceTool('mcp__node_repl', 'js')],
+		messages: [
+			{
+				role: 'assistant',
+				tool_calls: [
+					{
+						id: 'call_1',
+						type: 'function',
+						function: { name: 'js', namespace: 'mcp__node_repl', arguments: '{"code":"1+1"}' }
+					}
+				]
+			},
+			{ role: 'tool', tool_call_id: 'call_1', content: '2' }
+		],
+		tool_choice: { type: 'function', name: 'js', namespace: 'mcp__node_repl' }
+	};
+	const { body } = flattenOpenAiRequest(request);
+
+	assert.equal(body.messages[0].tool_calls[0].function.name, 'mcp__node_repl__js');
+	assert.equal('namespace' in body.messages[0].tool_calls[0].function, false);
+	assert.deepEqual(body.tool_choice, { type: 'function', name: 'mcp__node_repl__js' });
+	assert.equal(body.messages[1].tool_call_id, 'call_1');
+});
+
+test('converts one native Chat SSE tool call with fragmented fields and arguments', async () => {
+	const mapping = flattenResponsesRequest({ tools: [namespaceTool('mcp__node_repl', 'js')] }).mapping;
+	const output = await transformResponsesChat(
+		[
+			sse('chat.completion.chunk', {
+				id: 'chat_1',
+				choices: [{ index: 0, delta: { content: 'Checking.' }, finish_reason: null }]
+			}),
+			sse('chat.completion.chunk', {
+				id: 'chat_1',
+				choices: [
+					{
+						index: 0,
+						delta: {
+							tool_calls: [
+								{
+									index: 0,
+									id: 'call_',
+									type: 'function',
+									function: { name: 'mcp__node_', arguments: '{"code":"1' }
+								}
+							]
+						},
+						finish_reason: null
+					}
+				]
+			}),
+			sse('chat.completion.chunk', {
+				id: 'chat_1',
+				choices: [
+					{
+						index: 0,
+						delta: {
+							tool_calls: [
+								{
+									index: 0,
+									id: 'call_1',
+									function: { name: 'mcp__node_repl__js', arguments: '+1"}' }
+								}
+							]
+						},
+						finish_reason: 'tool_calls'
+					}
+				]
+			}),
+			'data: [DONE]\n\n'
+		],
+		{ mapping, model: 'grok-4.5', logger: { error() {} } }
+	);
+	const events = eventData(output);
+
+	assert.equal(events[0].type, 'response.created');
+	assert.equal(events.filter((event) => event.type === 'response.output_text.delta').length, 1);
+	assert.deepEqual(
+		events.find((event) => event.type === 'response.output_item.added' && event.item?.type === 'function_call').item,
+		{
+			type: 'function_call',
+			id: 'call_1',
+			call_id: 'call_1',
+			name: 'js',
+			namespace: 'mcp__node_repl',
+			arguments: '',
+			status: 'in_progress'
+		}
+	);
+	assert.equal(events.find((event) => event.type === 'response.function_call_arguments.done').arguments, '{"code":"1+1"}');
+	assert.equal(events.at(-2).type, 'response.completed');
+	assert.equal(events.at(-1).type, '[DONE]');
+	assert.equal(output.includes('chat.completion.chunk'), false);
+});
+
+test('converts legacy Chat SSE delta.function_call', async () => {
+	const output = await transformResponsesChat(
+		[
+			sse('chat.completion.chunk', {
+				id: 'chat_legacy_stream',
+				choices: [
+					{
+						index: 0,
+						delta: { function_call: { name: 'shell_command', arguments: '{"command":"pw' } },
+						finish_reason: null
+					}
+				]
+			}),
+			sse('chat.completion.chunk', {
+				id: 'chat_legacy_stream',
+				choices: [
+					{
+						index: 0,
+						delta: { function_call: { name: 'shell_command', arguments: 'd"}' } },
+						finish_reason: 'function_call'
+					}
+				]
+			}),
+			'data: [DONE]\n\n'
+		],
+		{ model: 'grok-4.5', logger: { error() {} } }
+	);
+	const events = eventData(output);
+	const functionCall = events.find(
+		(event) => event.type === 'response.output_item.added' && event.item?.type === 'function_call'
+	);
+
+	assert.equal(functionCall.item.name, 'shell_command');
+	assert.equal(events.find((event) => event.type === 'response.function_call_arguments.done').arguments, '{"command":"pwd"}');
+	assert.equal(events.filter((event) => event.type === 'response.completed').length, 1);
+});
+
+test('converts multiple parallel Chat SSE tool calls without mixing arguments', async () => {
+	const output = await transformResponsesChat(
+		[
+			sse('chat.completion.chunk', {
+				id: 'chat_parallel',
+				choices: [
+					{
+						index: 0,
+						delta: {
+							tool_calls: [
+								{ index: 0, id: 'call_a', type: 'function', function: { name: 'shell_command' } },
+								{ index: 1, id: 'call_b', type: 'function', function: { name: 'view_image' } }
+							]
+						},
+						finish_reason: null
+					}
+				]
+			}),
+			sse('chat.completion.chunk', {
+				id: 'chat_parallel',
+				choices: [
+					{
+						index: 0,
+						delta: {
+							tool_calls: [
+								{ index: 1, function: { arguments: '{"path":"image.png"}' } },
+								{ index: 0, function: { arguments: '{"command":"pwd"}' } }
+							]
+						},
+						finish_reason: 'tool_calls'
+					}
+				]
+			}),
+			'data: [DONE]\n\n'
+		],
+		{ model: 'grok-4.5', logger: { error() {} } }
+	);
+	const events = eventData(output);
+	const completed = events.filter((event) => event.type === 'response.function_call_arguments.done');
+
+	assert.deepEqual(
+		completed.map((event) => [event.call_id, event.arguments]),
+		[
+			['call_a', '{"command":"pwd"}'],
+			['call_b', '{"path":"image.png"}']
+		]
+	);
+	assert.equal(events.filter((event) => event.type === 'response.completed').length, 1);
+});
+
+test('converts completion-only tool_calls and legacy function_call JSON', () => {
+	const mapping = flattenResponsesRequest({ tools: [namespaceTool('mcp__node_repl', 'js')] }).mapping;
+	const result = convertChatCompletionToResponse(
+		{
+			id: 'chat_json',
+			model: 'grok-4.5',
+			choices: [
+				{
+					index: 0,
+					finish_reason: 'tool_calls',
+					message: {
+						role: 'assistant',
+						tool_calls: [
+							{
+								id: 'call_namespace',
+								type: 'function',
+								function: { name: 'mcp__node_repl__js', arguments: '{"code":"1+1"}' }
+							}
+						]
+					}
+				}
+			]
+		},
+		mapping
+	);
+	assert.deepEqual(result.output[0], {
+		type: 'function_call',
+		id: 'call_namespace',
+		call_id: 'call_namespace',
+		name: 'js',
+		namespace: 'mcp__node_repl',
+		arguments: '{"code":"1+1"}',
+		status: 'completed'
+	});
+
+	const legacy = convertChatCompletionToResponse(
+		{
+			id: 'chat_legacy',
+			choices: [
+				{ finish_reason: 'function_call', message: { function_call: { name: 'shell_command', arguments: '{"command":"pwd"}' } } }
+			]
+		},
+		mapping
+	);
+	assert.equal(legacy.output[0].type, 'function_call');
+	assert.match(legacy.output[0].id, /^chat_legacy_call_/u);
+});
+
+test('keeps ordinary Chat text on stop and preserves direct Chat schema', async () => {
+	const output = await transformResponsesChat(
+		[
+			sse('chat.completion.chunk', {
+				id: 'chat_text',
+				choices: [{ index: 0, delta: { content: 'Done.' }, finish_reason: 'stop' }]
+			}),
+			'data: [DONE]\n\n'
+		],
+		{ model: 'grok-4.5', logger: { error() {} } }
+	);
+	const events = eventData(output);
+
+	assert.equal(events.filter((event) => event.type === 'response.function_call_arguments.done').length, 0);
+	assert.equal(events.at(-2).type, 'response.completed');
+	assert.equal(events.at(-1).type, '[DONE]');
+	assert.deepEqual(
+		rewriteChatCompletionForClient(
+			{
+				choices: [{ message: { tool_calls: [{ type: 'function', function: { name: 'mcp__node_repl__js', arguments: '{}' } }] } }]
+			},
+			flattenResponsesRequest({ tools: [namespaceTool('mcp__node_repl', 'js')] }).mapping
+		).choices[0].message.tool_calls[0].function,
+		{ name: 'js', arguments: '{}' }
+	);
+});
+
+test('fails closed on malformed or incomplete Chat calls without logging arguments', async () => {
+	const logs = [];
+	const output = await transformResponsesChat(
+		[
+			sse('chat.completion.chunk', {
+				id: 'chat_bad',
+				choices: [
+					{
+						index: 0,
+						delta: {
+							tool_calls: [
+								{ index: 0, id: 'call_bad', type: 'function', function: { name: 'shell_command', arguments: '{"secret":' } }
+							]
+						},
+						finish_reason: 'tool_calls'
+					}
+				]
+			}),
+			'data: [DONE]\n\n'
+		],
+		{
+			model: 'grok-4.5',
+			logger: {
+				error(message) {
+					logs.push(message);
+				}
+			}
+		}
+	);
+	const events = eventData(output);
+
+	assert.equal(events.filter((event) => event.type === 'response.failed').length, 1);
+	assert.equal(events.filter((event) => event.type === 'response.completed').length, 0);
+	assert.equal(output.includes('chat.completion.chunk'), false);
+	assert.equal(output.includes('secret'), true);
+	assert.equal(logs.length, 1);
+	assert.equal(logs[0].includes('{"secret":'), false);
+	assert.equal(logs[0].includes('Authorization'), false);
+
+	const noCall = await transformResponsesChat(
+		[
+			sse('chat.completion.chunk', { id: 'chat_no_call', choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] }),
+			'data: [DONE]\n\n'
+		],
+		{ model: 'grok-4.5', logger: { error() {} } }
+	);
+	assert.equal(eventData(noCall).filter((event) => event.type === 'response.failed').length, 1);
+	assert.throws(
+		() =>
+			convertChatCompletionToResponse(
+				{
+					choices: [
+						{
+							message: {
+								tool_calls: [{ type: 'function', function: { name: 'shell_command', arguments: '{}' } }]
+							}
+						}
+					]
+				},
+				{ fullToOriginal: new Map(), uniqueBareToOriginal: new Map() }
+			),
+		(error) => error.code === 'tool_call_invalid'
+	);
+
+	const conflict = await transformResponsesChat(
+		[
+			sse('chat.completion.chunk', {
+				id: 'chat_conflict',
+				choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 'call_conflict', function: { name: 'first' } }] } }]
+			}),
+			sse('chat.completion.chunk', {
+				id: 'chat_conflict',
+				choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { name: 'second' } }] }, finish_reason: 'tool_calls' }]
+			})
+		],
+		{ model: 'grok-4.5', logger: { error() {} } }
+	);
+	assert.equal(eventData(conflict).filter((event) => event.type === 'response.failed').length, 1);
+	assert.equal(eventData(conflict).filter((event) => event.type === 'response.completed').length, 0);
+
+	const missingDone = await transformResponsesChat(
+		[
+			sse('chat.completion.chunk', {
+				id: 'chat_no_done',
+				choices: [{ index: 0, delta: { content: 'partial' }, finish_reason: 'stop' }]
+			})
+		],
+		{ model: 'grok-4.5', logger: { error() {} } }
+	);
+	assert.equal(eventData(missingDone).filter((event) => event.type === 'response.failed').length, 1);
+	assert.equal(eventData(missingDone).filter((event) => event.type === 'response.completed').length, 0);
+});
+
+test('handles response.completed and [DONE] exactly once', async () => {
+	const output = await transformResponsesChat(
+		[
+			sse('chat.completion.chunk', {
+				id: 'chat_terminal',
+				choices: [{ index: 0, delta: { content: 'ok' }, finish_reason: 'stop' }]
+			}),
+			'data: [DONE]\n\n',
+			sse('response.completed', { response: { id: 'chat_terminal', output: [] } })
+		],
+		{ model: 'grok-4.5', logger: { error() {} } }
+	);
+	const events = eventData(output);
+
+	assert.equal(events.filter((event) => event.type === 'response.completed').length, 1);
+	assert.equal(events.filter((event) => event.type === '[DONE]').length, 1);
+});
+
+test('converts Chat SSE through the Responses bridge endpoint and preserves direct Chat endpoint', async (t) => {
+	const upstream = http.createServer(async (request, response) => {
+		await readRequestBody(request);
+		const payload = [
+			sse('chat.completion.chunk', {
+				id: 'chat_http',
+				choices: [
+					{
+						index: 0,
+						delta: {
+							tool_calls: [
+								{ index: 0, id: 'call_http', type: 'function', function: { name: 'mcp__node_repl__js', arguments: '{}' } }
+							]
+						},
+						finish_reason: 'tool_calls'
+					}
+				]
+			}),
+			'data: [DONE]\n\n'
+		].join('');
+		response.writeHead(200, { 'content-type': 'text/event-stream' });
+		response.end(payload);
+	});
+	const upstreamPort = await listen(upstream);
+	const bridge = createBridgeServer({ upstreamUrl: `http://127.0.0.1:${upstreamPort}`, buildId: 'chat-test' });
+	const bridgePort = await listen(bridge);
+	t.after(async () => {
+		await close(bridge);
+		await close(upstream);
+	});
+
+	const responses = await fetch(`http://127.0.0.1:${bridgePort}/v1/responses`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ model: 'grok-4.5', stream: true, tools: [namespaceTool('mcp__node_repl', 'js')] })
+	});
+	const responsesText = await responses.text();
+	assert.equal(responses.status, 200);
+	assert.match(responsesText, /response.completed/u);
+	assert.match(responsesText, /"namespace":"mcp__node_repl"/u);
+
+	const chat = await fetch(`http://127.0.0.1:${bridgePort}/v1/chat/completions`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ model: 'grok-4.5', stream: true, tools: [namespaceTool('mcp__node_repl', 'js')] })
+	});
+	const chatText = await chat.text();
+	assert.equal(chat.status, 200);
+	assert.match(chatText, /chat.completion.chunk/u);
+	assert.doesNotMatch(chatText, /response.created/u);
 });

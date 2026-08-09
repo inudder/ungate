@@ -106,7 +106,7 @@ $CodexModelShellRouterBaseUrl = 'http://127.0.0.1:8319'
 $CodexModelShellRouterProviderName = 'ungate_model_shell_router'
 $CodexModelShellRouterPath = Join-Path $PSScriptRoot 'codex-model-shell-router.mjs'
 $CodexModelShellRouterServiceName = 'codex-model-shell-router'
-$CodexDesktopPickerCapacity = 8
+$CodexDesktopPickerCapacity = 7
 $CodexModelShellPool = @(
     'gpt-5.6-sol',
     'gpt-5.6-terra',
@@ -114,8 +114,7 @@ $CodexModelShellPool = @(
     'gpt-5.5',
     'gpt-5.4',
     'gpt-5.4-mini',
-    'gpt-5.3-codex',
-    'gpt-5.3-codex-spark'
+    'gpt-5.3-codex'
 )
 $CodexModelShellRouterProviderDefinition = [pscustomobject][ordered]@{
     Name = $CodexModelShellRouterProviderName
@@ -361,6 +360,7 @@ $BuiltInUngateModelDefinitions = @(
         EffectiveContextWindowPercent = 95
         SupportsReasoningSummaries = $true
         SupportsParallelToolCalls = $false
+        ResponsesAdapter = 'mimo-textual-tools'
         TruncationPolicy = @{ mode = 'bytes'; limit = 10000 }
         SupportedReasoningLevels = @(
             @{ effort = 'none'; description = 'Disable Thinking' },
@@ -408,6 +408,7 @@ $BuiltInUngateModelDefinitions = @(
             EffectiveContextWindowPercent = $def.EffectiveContextWindowPercent
             SupportsReasoningSummaries = $def.SupportsReasoningSummaries
             SupportsParallelToolCalls = $def.SupportsParallelToolCalls
+            ResponsesAdapter = if ($def.PSObject.Properties['ResponsesAdapter']) { [string]$def.ResponsesAdapter } else { $null }
             TruncationPolicy = $def.TruncationPolicy
             SupportedReasoningLevels = $def.SupportedReasoningLevels
         }
@@ -749,7 +750,9 @@ function Read-UngatePickerModelSelection {
         throw 'Desktop picker must contain at least one model.'
     }
     if ($configuredSlugs.Count -gt $Capacity) {
-        throw "Desktop picker can contain at most $Capacity models."
+        Write-Host (
+            "[ungate] Warning: saved picker selection contains $($configuredSlugs.Count) models; only the first $Capacity valid models will be loaded. Open 'Configure Desktop model picker' to choose the final set."
+        ) -ForegroundColor Yellow
     }
 
     $requestedSlugs = [System.Collections.Generic.HashSet[string]]::new(
@@ -783,6 +786,9 @@ function Read-UngatePickerModelSelection {
             Where-Object { $requestedSlugs.Contains([string]$_.Slug) } |
             ForEach-Object { [string]$_.Slug }
     )
+    if ($resolvedSlugs.Count -gt $Capacity) {
+        $resolvedSlugs = @($resolvedSlugs | Select-Object -First $Capacity)
+    }
     if ($resolvedSlugs.Count -gt 0) {
         return $resolvedSlugs
     }
@@ -1236,6 +1242,7 @@ function Get-CodexModelShellRoutes {
             upstreamModel = [string]$definition.Slug
             upstreamBaseUrl = [string]$definition.ProxyBaseUrl
             apiKeyEnv = [string]$definition.EnvKey
+            responsesAdapter = if ($definition.PSObject.Properties['ResponsesAdapter']) { [string]$definition.ResponsesAdapter } else { $null }
         })
     }
 

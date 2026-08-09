@@ -5,6 +5,7 @@
 	"scripts": {
 		"bridge:start": "node cliproxy-namespace-bridge.mjs",
 		"bridge:test": "node --test cliproxy-namespace-bridge.test.mjs",
+		"mimo-adapter:test": "node --test mimo-responses-stream-adapter.test.mjs",
 		"shell-router:test": "node --test codex-model-shell-router.test.mjs",
 		"patch-mcp:test": "node --test ungate-patch-mcp.test.mjs",
 		"plugin-isolation:test": "pwsh -NoProfile -Command \"$result = Invoke-Pester -Path ./codex-plugin-isolation.Tests.ps1 -Output Detailed -PassThru; if ($result.FailedCount -gt 0) { exit 1 }\"",

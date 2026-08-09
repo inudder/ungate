@@ -20,6 +20,7 @@ const HOP_BY_HOP_HEADERS = new Set([
 	'transfer-encoding',
 	'upgrade'
 ]);
+const EXPECTED_DISCONNECT_CODES = new Set(['ECONNRESET', 'ERR_STREAM_PREMATURE_CLOSE', 'ERR_STREAM_UNABLE_TO_PIPE']);
 
 class BridgeRequestError extends Error {
 	constructor(statusCode, code, message) {
@@ -29,12 +30,39 @@ class BridgeRequestError extends Error {
 	}
 }
 
+class BridgeResponseError extends Error {
+	constructor(code, message = 'CLIProxyAPI returned an invalid tool call.') {
+		super(message);
+		this.code = code;
+	}
+}
+
 function isObject(value) {
 	return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+function namespaceKey(namespace, name) {
+	return `${namespace}\u0000${name}`;
+}
+
 function makeFlatToolName(namespace, name) {
 	return `${namespace.replace(/__+$/u, '')}__${name}`;
+}
+
+function emptyMapping() {
+	return {
+		fullToOriginal: new Map(),
+		namespaceToolToFlat: new Map(),
+		uniqueBareToOriginal: new Map(),
+		namespaceOnlyToOriginal: new Map()
+	};
+}
+
+function directToolName(tool) {
+	if (typeof tool?.name === 'string') return tool.name;
+	if (isObject(tool?.function) && typeof tool.function.name === 'string') return tool.function.name;
+
+	return undefined;
 }
 
 function cloneFunctionTool(innerTool, flatName) {
@@ -44,38 +72,97 @@ function cloneFunctionTool(innerTool, flatName) {
 	delete flattened.namespace;
 	delete flattened.input_schema;
 	delete flattened.inputSchema;
-	if (parameters !== undefined) {
-		flattened.parameters = parameters;
-	}
+	if (parameters !== undefined) flattened.parameters = parameters;
 
 	return flattened;
 }
 
-function addBareCandidate(candidates, name, original) {
-	const current = candidates.get(name);
-	if (!current) {
-		candidates.set(name, original);
+function addBareCandidate(candidates, original) {
+	const current = candidates.get(original.name);
+	if (current === undefined) {
+		candidates.set(original.name, original);
 
 		return;
 	}
-	if (current.namespace !== original.namespace || current.name !== original.name) {
-		candidates.set(name, null);
+	if (current && (current.namespace !== original.namespace || current.name !== original.name)) {
+		candidates.set(original.name, null);
 	}
 }
 
-export function flattenResponsesRequest(body) {
+function resolveOriginal(name, mapping) {
+	return (
+		mapping?.fullToOriginal?.get(name) ??
+		mapping?.uniqueBareToOriginal?.get(name) ??
+		mapping?.namespaceOnlyToOriginal?.get(name) ??
+		null
+	);
+}
+
+function flattenNamespacedName(value, mapping) {
+	if (!isObject(value) || typeof value.namespace !== 'string' || typeof value.name !== 'string') return value;
+	const flatName = mapping.namespaceToolToFlat.get(namespaceKey(value.namespace, value.name));
+	if (!flatName) return value;
+
+	const rewritten = { ...value, name: flatName };
+	delete rewritten.namespace;
+
+	return rewritten;
+}
+
+function rewriteValueForUpstream(value, mapping) {
+	if (Array.isArray(value)) return value.map((item) => rewriteValueForUpstream(item, mapping));
+	if (!isObject(value)) return value;
+
+	let rewritten = {};
+	for (const [key, child] of Object.entries(value)) rewritten[key] = rewriteValueForUpstream(child, mapping);
+
+	if (isObject(rewritten.function)) rewritten.function = flattenNamespacedName(rewritten.function, mapping);
+	if (isObject(rewritten.function_call)) rewritten.function_call = flattenNamespacedName(rewritten.function_call, mapping);
+	if (
+		(rewritten.type === 'function_call' || rewritten.type === 'function') &&
+		typeof rewritten.namespace === 'string' &&
+		typeof rewritten.name === 'string'
+	) {
+		rewritten = flattenNamespacedName(rewritten, mapping);
+	}
+
+	return rewritten;
+}
+
+function rewriteToolChoiceForUpstream(toolChoice, mapping) {
+	if (!isObject(toolChoice)) return toolChoice;
+
+	const namespaced =
+		typeof toolChoice.namespace === 'string' && typeof toolChoice.name === 'string'
+			? mapping.namespaceToolToFlat.get(namespaceKey(toolChoice.namespace, toolChoice.name))
+			: null;
+	if (namespaced) {
+		const rewritten = { ...toolChoice, type: 'function', name: namespaced };
+		delete rewritten.namespace;
+
+		return rewritten;
+	}
+
+	return rewriteValueForUpstream(toolChoice, mapping);
+}
+
+export function flattenOpenAiRequest(body) {
 	if (!isObject(body)) {
-		throw new BridgeRequestError(400, 'invalid_request_body', 'Responses request body must be a JSON object.');
+		throw new BridgeRequestError(400, 'invalid_request_body', 'OpenAI request body must be a JSON object.');
 	}
 
 	const tools = Array.isArray(body.tools) ? body.tools : [];
 	const directNames = new Set(
-		tools.filter((tool) => isObject(tool) && tool.type !== 'namespace' && typeof tool.name === 'string').map((tool) => tool.name)
+		tools
+			.filter((tool) => isObject(tool) && tool.type !== 'namespace')
+			.map(directToolName)
+			.filter((name) => typeof name === 'string')
 	);
 	const usedNames = new Set(directNames);
 	const fullToOriginal = new Map();
 	const namespaceToolToFlat = new Map();
 	const bareCandidates = new Map();
+	const namespaceOnlyCandidates = new Map();
 	const flattenedTools = [];
 
 	for (const tool of tools) {
@@ -86,114 +173,58 @@ export function flattenResponsesRequest(body) {
 
 		const namespace = tool.name;
 		const innerTools = Array.isArray(tool.tools) ? tool.tools : tool.functions;
-		if (typeof namespace !== 'string' || namespace.length === 0 || !Array.isArray(innerTools)) {
+		if (typeof namespace !== 'string' || namespace.trim() === '' || !Array.isArray(innerTools)) {
 			throw new BridgeRequestError(400, 'invalid_namespace_tool', 'Namespace tools require a non-empty name and a tools array.');
 		}
 
 		for (const innerTool of innerTools) {
-			if (!isObject(innerTool) || typeof innerTool.name !== 'string' || innerTool.name.length === 0) {
-				throw new BridgeRequestError(
-					400,
-					'invalid_namespace_tool',
-					`Namespace '${namespace}' contains a tool without a valid name.`
-				);
+			if (!isObject(innerTool) || typeof innerTool.name !== 'string' || innerTool.name.trim() === '') {
+				throw new BridgeRequestError(400, 'invalid_namespace_tool', 'Namespace tool contains an invalid function name.');
 			}
 
 			const flatName = makeFlatToolName(namespace, innerTool.name);
 			if (usedNames.has(flatName)) {
-				throw new BridgeRequestError(400, 'tool_name_collision', `Flattened tool name '${flatName}' collides with another tool.`);
+				throw new BridgeRequestError(400, 'tool_name_collision', 'Flattened tool name collides with another tool.');
 			}
 
 			const original = { namespace, name: innerTool.name };
 			usedNames.add(flatName);
 			fullToOriginal.set(flatName, original);
-			namespaceToolToFlat.set(`${namespace}\u0000${innerTool.name}`, flatName);
-			addBareCandidate(bareCandidates, innerTool.name, original);
+			namespaceToolToFlat.set(namespaceKey(namespace, innerTool.name), flatName);
+			addBareCandidate(bareCandidates, original);
+			const namespaceCandidate = namespaceOnlyCandidates.get(namespace);
+			if (namespaceCandidate === undefined) namespaceOnlyCandidates.set(namespace, original);
+			else namespaceOnlyCandidates.set(namespace, null);
 			flattenedTools.push(cloneFunctionTool(innerTool, flatName));
 		}
 	}
 
 	for (const directName of directNames) {
-		if (bareCandidates.has(directName)) {
-			bareCandidates.set(directName, null);
-		}
+		if (bareCandidates.has(directName)) bareCandidates.set(directName, null);
+		if (namespaceOnlyCandidates.has(directName)) namespaceOnlyCandidates.set(directName, null);
 	}
 
-	const uniqueBareToOriginal = new Map([...bareCandidates.entries()].filter(([, original]) => original !== null));
-	const mapping = { fullToOriginal, namespaceToolToFlat, uniqueBareToOriginal };
+	const mapping = {
+		fullToOriginal,
+		namespaceToolToFlat,
+		uniqueBareToOriginal: new Map([...bareCandidates.entries()].filter(([, original]) => original !== null)),
+		namespaceOnlyToOriginal: new Map([...namespaceOnlyCandidates.entries()].filter(([, original]) => original !== null))
+	};
 	const rewritten = { ...body };
-
-	if (Array.isArray(body.tools)) {
-		rewritten.tools = flattenedTools;
-	}
-	if (body.input !== undefined) {
-		rewritten.input = rewriteValueForUpstream(body.input, mapping);
-	}
-	if (body.tool_choice !== undefined) {
-		rewritten.tool_choice = rewriteToolChoiceForUpstream(body.tool_choice, mapping);
-	}
+	if (Array.isArray(body.tools)) rewritten.tools = flattenedTools;
+	if (body.input !== undefined) rewritten.input = rewriteValueForUpstream(body.input, mapping);
+	if (body.messages !== undefined) rewritten.messages = rewriteValueForUpstream(body.messages, mapping);
+	if (body.tool_choice !== undefined) rewritten.tool_choice = rewriteToolChoiceForUpstream(body.tool_choice, mapping);
 
 	return { body: rewritten, mapping };
 }
 
-function rewriteValueForUpstream(value, mapping) {
-	if (Array.isArray(value)) {
-		return value.map((item) => rewriteValueForUpstream(item, mapping));
-	}
-	if (!isObject(value)) {
-		return value;
-	}
-
-	const rewritten = {};
-	for (const [key, child] of Object.entries(value)) {
-		rewritten[key] = rewriteValueForUpstream(child, mapping);
-	}
-
-	if (rewritten.type === 'function_call' && typeof rewritten.namespace === 'string' && typeof rewritten.name === 'string') {
-		const flatName = mapping.namespaceToolToFlat.get(`${rewritten.namespace}\u0000${rewritten.name}`);
-		if (flatName) {
-			rewritten.name = flatName;
-			delete rewritten.namespace;
-		}
-	}
-
-	return rewritten;
-}
-
-function rewriteToolChoiceForUpstream(toolChoice, mapping) {
-	if (!isObject(toolChoice)) {
-		return toolChoice;
-	}
-
-	const rewritten = { ...toolChoice };
-	if (typeof rewritten.namespace === 'string' && typeof rewritten.name === 'string') {
-		const flatName = mapping.namespaceToolToFlat.get(`${rewritten.namespace}\u0000${rewritten.name}`);
-		if (flatName) {
-			rewritten.type = 'function';
-			rewritten.name = flatName;
-			delete rewritten.namespace;
-		}
-	}
-
-	if (
-		isObject(rewritten.function) &&
-		typeof rewritten.function.namespace === 'string' &&
-		typeof rewritten.function.name === 'string'
-	) {
-		const flatName = mapping.namespaceToolToFlat.get(`${rewritten.function.namespace}\u0000${rewritten.function.name}`);
-		if (flatName) {
-			rewritten.function = { ...rewritten.function, name: flatName };
-			delete rewritten.function.namespace;
-		}
-	}
-
-	return rewritten;
+export function flattenResponsesRequest(body) {
+	return flattenOpenAiRequest(body);
 }
 
 export function canonicalizeArguments(argumentsJson) {
-	if (typeof argumentsJson !== 'string' || argumentsJson.length === 0) {
-		return argumentsJson;
-	}
+	if (typeof argumentsJson !== 'string' || argumentsJson.length === 0) return argumentsJson;
 	try {
 		return JSON.stringify(JSON.parse(argumentsJson));
 	} catch {
@@ -201,110 +232,736 @@ export function canonicalizeArguments(argumentsJson) {
 	}
 }
 
-export function rewriteResponseForCodex(value, mapping) {
-	if (Array.isArray(value)) {
-		return value.map((item) => rewriteResponseForCodex(item, mapping));
-	}
-	if (!isObject(value)) {
-		return value;
-	}
+function restoreFunctionName(value, mapping, includeNamespace) {
+	if (!isObject(value) || typeof value.name !== 'string') return value;
+	const original = resolveOriginal(value.name, mapping);
+	if (!original) return value;
 
-	const rewritten = {};
+	const restored = { ...value, name: original.name };
+	if (includeNamespace) restored.namespace = original.namespace;
+
+	return restored;
+}
+
+function rewriteValueForClient(value, mapping, { includeNamespace = true } = {}) {
+	if (Array.isArray(value)) return value.map((item) => rewriteValueForClient(item, mapping, { includeNamespace }));
+	if (!isObject(value)) return value;
+
+	let rewritten = {};
 	for (const [key, child] of Object.entries(value)) {
-		rewritten[key] = rewriteResponseForCodex(child, mapping);
+		rewritten[key] = rewriteValueForClient(child, mapping, { includeNamespace });
 	}
 
-	if (typeof rewritten.arguments === 'string') {
-		if (rewritten.type === 'function_call' || rewritten.type === 'response.function_call_arguments.done') {
-			rewritten.arguments = canonicalizeArguments(rewritten.arguments);
+	if (isObject(rewritten.function) && typeof rewritten.function.name === 'string') {
+		const original = resolveOriginal(rewritten.function.name, mapping);
+		rewritten.function = restoreFunctionName(rewritten.function, mapping, false);
+		if (original && includeNamespace) rewritten.namespace = original.namespace;
+		if (typeof rewritten.function.arguments === 'string' && rewritten.type === 'function') {
+			rewritten.function.arguments = canonicalizeArguments(rewritten.function.arguments);
 		}
 	}
-
-	if (rewritten.type === 'function_call' && typeof rewritten.name === 'string') {
-		const original = mapping.fullToOriginal.get(rewritten.name) ?? mapping.uniqueBareToOriginal.get(rewritten.name);
-		if (original) {
-			rewritten.name = original.name;
-			rewritten.namespace = original.namespace;
+	if (isObject(rewritten.function_call)) {
+		rewritten.function_call = restoreFunctionName(rewritten.function_call, mapping, includeNamespace);
+		if (typeof rewritten.function_call.arguments === 'string') {
+			rewritten.function_call.arguments = canonicalizeArguments(rewritten.function_call.arguments);
 		}
+	}
+	const isFunctionCall = rewritten.type === 'function_call';
+	const isCompletedArguments = rewritten.type === 'response.function_call_arguments.done';
+	if (isFunctionCall || isCompletedArguments) {
+		if (typeof rewritten.name === 'string') rewritten = restoreFunctionName(rewritten, mapping, includeNamespace);
+		if (typeof rewritten.arguments === 'string') rewritten.arguments = canonicalizeArguments(rewritten.arguments);
 	}
 
 	return rewritten;
 }
 
-function transformSseBlock(block, mapping) {
-	const lines = block.split(/\r?\n/u);
-	const dataIndexes = [];
-	const dataParts = [];
+export function rewriteResponseForCodex(value, mapping) {
+	return rewriteValueForClient(value, mapping, { includeNamespace: true });
+}
 
-	for (let index = 0; index < lines.length; index += 1) {
-		if (!lines[index].startsWith('data:')) {
-			continue;
-		}
-		dataIndexes.push(index);
-		dataParts.push(lines[index].slice(5).replace(/^ /u, ''));
+export function rewriteChatCompletionForClient(value, mapping) {
+	return rewriteValueForClient(value, mapping, { includeNamespace: false });
+}
+
+function parseSseBlock(raw) {
+	const lines = raw.split(/\r?\n/u);
+	const dataLines = [];
+	let eventName = null;
+	for (const line of lines) {
+		if (line.startsWith('event:')) eventName = line.slice(6).trim();
+		if (line.startsWith('data:')) dataLines.push(line.slice(5).replace(/^ /u, ''));
 	}
+	if (dataLines.length === 0) return { raw, eventName, data: null, dataText: null };
 
-	if (dataIndexes.length === 0) {
-		return block;
-	}
-
-	const data = dataParts.join('\n');
-	if (data.trim() === '[DONE]') {
-		return block;
-	}
-
-	let rewrittenData;
+	const dataText = dataLines.join('\n');
+	if (dataText.trim() === '[DONE]') return { raw, eventName, data: null, dataText, doneToken: true };
 	try {
-		rewrittenData = JSON.stringify(rewriteResponseForCodex(JSON.parse(data), mapping));
+		return { raw, eventName, data: JSON.parse(dataText), dataText };
 	} catch {
-		return block;
+		return { raw, eventName, data: null, dataText, invalidJson: true };
+	}
+}
+
+function encodeSse(eventName, data) {
+	return `event: ${eventName}\ndata: ${JSON.stringify(data)}\n\n`;
+}
+
+function responseEvent(type, responseId, data = {}) {
+	return { type, response_id: responseId, ...data };
+}
+
+function responseItemName(name, mapping) {
+	const original = resolveOriginal(name, mapping);
+
+	return original ? { name: original.name, namespace: original.namespace } : { name: name ?? '' };
+}
+
+function hasMappedNamePrefix(name, mapping) {
+	if (typeof name !== 'string' || name === '') return false;
+	const candidates = [
+		...(mapping?.fullToOriginal?.keys?.() ?? []),
+		...(mapping?.uniqueBareToOriginal?.keys?.() ?? []),
+		...(mapping?.namespaceOnlyToOriginal?.keys?.() ?? [])
+	];
+
+	return candidates.some((candidate) => candidate !== name && candidate.startsWith(name));
+}
+
+function completionMessageText(message) {
+	if (typeof message?.content === 'string') return message.content;
+	if (!Array.isArray(message?.content)) return '';
+
+	return message.content
+		.map((part) => (typeof part === 'string' ? part : typeof part?.text === 'string' ? part.text : ''))
+		.join('');
+}
+
+function completionToolCalls(message) {
+	if (Array.isArray(message?.tool_calls)) return message.tool_calls;
+	if (isObject(message?.function_call)) return [{ type: 'function', function: message.function_call, legacy: true }];
+
+	return [];
+}
+
+function newResponseId(prefix = 'resp_cliproxy') {
+	return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function validateToolCall({ id, name, argumentsJson, outputIndex }) {
+	if (typeof id !== 'string' || id.trim() === '') {
+		throw new BridgeResponseError('tool_call_invalid', `Tool call at output index ${outputIndex} is missing an id.`);
+	}
+	if (typeof name !== 'string' || name.trim() === '') {
+		throw new BridgeResponseError('tool_call_invalid', `Tool call at output index ${outputIndex} is missing a function name.`);
+	}
+	if (typeof argumentsJson !== 'string' || argumentsJson.trim() === '') {
+		throw new BridgeResponseError('tool_call_invalid', `Tool call at output index ${outputIndex} is missing arguments.`);
+	}
+	try {
+		JSON.parse(argumentsJson);
+	} catch {
+		throw new BridgeResponseError('tool_call_invalid', `Tool call at output index ${outputIndex} has invalid arguments.`);
+	}
+}
+
+export function convertChatCompletionToResponse(completion, mapping) {
+	if (!isObject(completion) || !Array.isArray(completion.choices)) {
+		throw new BridgeResponseError('invalid_chat_completion', 'CLIProxyAPI returned an invalid Chat Completions response.');
 	}
 
-	const firstDataIndex = dataIndexes[0];
-	const removedIndexes = new Set(dataIndexes.slice(1));
+	const responseId = typeof completion.id === 'string' && completion.id.trim() ? completion.id : newResponseId();
+	const output = [];
+	let generatedCallOrdinal = 0;
+	for (const choice of completion.choices) {
+		const message = isObject(choice?.message) ? choice.message : {};
+		const text = completionMessageText(message);
+		if (text !== '') {
+			output.push({
+				type: 'message',
+				id: `${responseId}_message_${choice?.index ?? output.length}`,
+				role: 'assistant',
+				status: 'completed',
+				content: [{ type: 'output_text', text }]
+			});
+		}
 
-	return lines
-		.map((line, index) => (index === firstDataIndex ? `data: ${rewrittenData}` : line))
-		.filter((_, index) => !removedIndexes.has(index))
-		.join('\n');
+		const calls = completionToolCalls(message);
+		if (choice?.finish_reason === 'tool_calls' && calls.length === 0) {
+			throw new BridgeResponseError('tool_call_invalid', 'CLIProxyAPI finished with tool_calls but supplied no tool call.');
+		}
+		for (const call of calls) {
+			const safeCall = call ?? {};
+			const functionData = isObject(safeCall.function) ? safeCall.function : {};
+			const id =
+				typeof safeCall.id === 'string' && safeCall.id
+					? safeCall.id
+					: safeCall.legacy === true
+						? `${responseId}_call_${generatedCallOrdinal++}`
+						: safeCall.id;
+			const name = functionData.name;
+			const argumentsJson = functionData.arguments;
+			validateToolCall({ id, name, argumentsJson, outputIndex: output.length });
+			const restored = responseItemName(name, mapping);
+			output.push({
+				type: 'function_call',
+				id,
+				call_id: id,
+				...restored,
+				arguments: canonicalizeArguments(argumentsJson),
+				status: 'completed'
+			});
+		}
+	}
+
+	return {
+		id: responseId,
+		object: 'response',
+		status: 'completed',
+		...(typeof completion.model === 'string' ? { model: completion.model } : {}),
+		...(typeof completion.created === 'number' ? { created_at: completion.created } : {}),
+		output,
+		output_count: output.length,
+		...(completion.usage ? { usage: completion.usage } : {})
+	};
+}
+
+function rewriteJsonResponse(parsed, protocol, mapping) {
+	if (protocol === 'responses' && Array.isArray(parsed.choices)) return convertChatCompletionToResponse(parsed, mapping);
+	if (protocol === 'responses') return rewriteResponseForCodex(parsed, mapping);
+
+	return rewriteChatCompletionForClient(parsed, mapping);
+}
+
+class RewritingSseTransform extends Transform {
+	constructor(mapping, rewrite) {
+		super();
+		this.mapping = mapping;
+		this.rewrite = rewrite;
+		this.buffer = '';
+		this.decoder = new StringDecoder('utf8');
+	}
+
+	_transform(chunk, _encoding, callback) {
+		try {
+			this.buffer += this.decoder.write(chunk);
+			this.drainFrames();
+			callback();
+		} catch (error) {
+			callback(error);
+		}
+	}
+
+	_flush(callback) {
+		try {
+			this.buffer += this.decoder.end();
+			this.drainFrames(true);
+			callback();
+		} catch (error) {
+			callback(error);
+		}
+	}
+
+	drainFrames(flush = false) {
+		while (true) {
+			const separator = /\r?\n\r?\n/u.exec(this.buffer);
+			if (!separator) break;
+			const raw = this.buffer.slice(0, separator.index + separator[0].length);
+			this.buffer = this.buffer.slice(separator.index + separator[0].length);
+			this.rewriteFrame(parseSseBlock(raw));
+		}
+		if (flush && this.buffer.length > 0) {
+			this.rewriteFrame(parseSseBlock(this.buffer));
+			this.buffer = '';
+		}
+	}
+
+	rewriteFrame(frame) {
+		if (!frame.data || frame.invalidJson || frame.doneToken) {
+			this.push(Buffer.from(frame.raw, 'utf8'));
+
+			return;
+		}
+		const rewritten = this.rewrite(frame.data, this.mapping);
+		this.push(Buffer.from(encodeSse(frame.eventName ?? rewritten.type ?? '', rewritten), 'utf8'));
+	}
 }
 
 export function createSseTransform(mapping) {
-	let buffer = '';
-	const decoder = new StringDecoder('utf8');
+	return new RewritingSseTransform(mapping, rewriteResponseForCodex);
+}
 
-	return new Transform({
-		transform(chunk, encoding, callback) {
-			buffer += Buffer.isBuffer(chunk) ? decoder.write(chunk) : chunk;
-			let match = /\r?\n\r?\n/u.exec(buffer);
-			while (match) {
-				const block = buffer.slice(0, match.index);
-				this.push(transformSseBlock(block, mapping) + match[0]);
-				buffer = buffer.slice(match.index + match[0].length);
-				match = /\r?\n\r?\n/u.exec(buffer);
-			}
-			callback();
-		},
-		flush(callback) {
-			buffer += decoder.end();
-			if (buffer.length > 0) {
-				this.push(transformSseBlock(buffer, mapping));
-			}
-			callback();
+function createChatSseTransform(mapping) {
+	return new RewritingSseTransform(mapping, rewriteChatCompletionForClient);
+}
+
+class ChatCompletionsResponsesTransform extends Transform {
+	constructor(options = {}) {
+		super();
+		this.mapping = options.mapping ?? emptyMapping();
+		this.logger = options.logger ?? console;
+		this.model = typeof options.model === 'string' ? options.model : 'unknown';
+		this.decoder = new StringDecoder('utf8');
+		this.buffer = '';
+		this.mode = 'unknown';
+		this.responseId = newResponseId();
+		this.started = false;
+		this.completed = false;
+		this.failed = false;
+		this.messages = new Map();
+		this.tools = new Map();
+		this.output = [];
+		this.finishReasons = new Map();
+		this.usage = null;
+		this.anonymousToolOrdinal = 0;
+	}
+
+	emitRaw(raw) {
+		this.push(Buffer.from(raw, 'utf8'));
+	}
+
+	emitEvent(type, data) {
+		this.emitRaw(encodeSse(type, data));
+	}
+
+	startResponse(data) {
+		if (this.started) return;
+		this.started = true;
+		if (typeof data.id === 'string' && data.id.trim()) this.responseId = data.id;
+		this.emitEvent(
+			'response.created',
+			responseEvent('response.created', this.responseId, {
+				response: { id: this.responseId, object: 'response', status: 'in_progress', output: [] }
+			})
+		);
+	}
+
+	messageKey(choiceIndex) {
+		return String(choiceIndex ?? 0);
+	}
+
+	startMessage(choiceIndex) {
+		const key = this.messageKey(choiceIndex);
+		let state = this.messages.get(key);
+		if (state) return state;
+
+		const item = {
+			type: 'message',
+			id: `${this.responseId}_message_${key}`,
+			role: 'assistant',
+			status: 'in_progress',
+			content: []
+		};
+		state = { item, outputIndex: this.output.length, text: '', contentStarted: false, done: false };
+		this.messages.set(key, state);
+		this.output.push(item);
+		this.emitEvent(
+			'response.output_item.added',
+			responseEvent('response.output_item.added', this.responseId, { output_index: state.outputIndex, item })
+		);
+
+		return state;
+	}
+
+	appendMessageText(choiceIndex, delta) {
+		if (typeof delta !== 'string' || delta === '') return;
+		const state = this.startMessage(choiceIndex);
+		state.text += delta;
+		if (!state.contentStarted) {
+			state.contentStarted = true;
+			this.emitEvent(
+				'response.content_part.added',
+				responseEvent('response.content_part.added', this.responseId, {
+					output_index: state.outputIndex,
+					content_index: 0,
+					part: { type: 'output_text', text: '' }
+				})
+			);
 		}
-	});
+		this.emitEvent(
+			'response.output_text.delta',
+			responseEvent('response.output_text.delta', this.responseId, {
+				output_index: state.outputIndex,
+				content_index: 0,
+				delta
+			})
+		);
+	}
+
+	toolKey(choiceIndex, toolCall, ordinal) {
+		if (toolCall?.index !== undefined && toolCall?.index !== null) return `${choiceIndex ?? 0}:${toolCall.index}`;
+		if (typeof toolCall?.id === 'string' && toolCall.id !== '') return `${choiceIndex ?? 0}:id:${toolCall.id}`;
+
+		return `${choiceIndex ?? 0}:anonymous:${ordinal ?? this.anonymousToolOrdinal++}`;
+	}
+
+	findToolById(id) {
+		if (typeof id !== 'string' || id === '') return null;
+		for (const state of this.tools.values()) {
+			if (state.upstreamId === id) return state;
+		}
+
+		return null;
+	}
+
+	getTool(choiceIndex, toolCall, ordinal) {
+		const existingById = this.findToolById(toolCall?.id);
+		if (existingById) return existingById;
+
+		const key = this.toolKey(choiceIndex, toolCall, ordinal);
+		let state = this.tools.get(key);
+		if (state) return state;
+
+		state = {
+			key,
+			upstreamId: null,
+			name: null,
+			arguments: '',
+			argumentDeltas: [],
+			item: null,
+			outputIndex: null,
+			emitted: false,
+			done: false,
+			legacy: toolCall?.legacy === true
+		};
+		this.tools.set(key, state);
+
+		return state;
+	}
+
+	mergeScalar(state, property, value) {
+		if (typeof value !== 'string' || value === '') return true;
+		if (state[property] === null || state[property] === '') {
+			state[property] = value;
+
+			return true;
+		}
+		if (state[property] === value || state[property].startsWith(value)) return true;
+		if (value.startsWith(state[property])) {
+			state[property] = value;
+
+			return true;
+		}
+
+		this.fail(state);
+
+		return false;
+	}
+
+	activateTool(state) {
+		if (
+			state.emitted ||
+			this.failed ||
+			!state.upstreamId ||
+			!state.name ||
+			hasMappedNamePrefix(state.name, this.mapping) ||
+			(state.arguments === '' && /[_:-]$/u.test(state.upstreamId))
+		) {
+			return;
+		}
+		const restored = responseItemName(state.name, this.mapping);
+		state.outputIndex = this.output.length;
+		state.item = {
+			type: 'function_call',
+			id: state.upstreamId,
+			call_id: state.upstreamId,
+			...restored,
+			arguments: '',
+			status: 'in_progress'
+		};
+		state.emitted = true;
+		this.output.push(state.item);
+		this.emitEvent(
+			'response.output_item.added',
+			responseEvent('response.output_item.added', this.responseId, { output_index: state.outputIndex, item: state.item })
+		);
+		for (const delta of state.argumentDeltas) this.emitToolArgumentDelta(state, delta);
+	}
+
+	emitToolArgumentDelta(state, delta) {
+		if (!state.emitted || typeof delta !== 'string' || delta === '') return;
+		this.emitEvent(
+			'response.function_call_arguments.delta',
+			responseEvent('response.function_call_arguments.delta', this.responseId, {
+				output_index: state.outputIndex,
+				item_id: state.item.id,
+				call_id: state.item.call_id,
+				delta
+			})
+		);
+	}
+
+	appendToolArguments(state, delta) {
+		if (typeof delta !== 'string' || delta === '' || this.failed) return;
+		state.arguments += delta;
+		state.argumentDeltas.push(delta);
+		this.emitToolArgumentDelta(state, delta);
+	}
+
+	mergeCompleteArguments(state, argumentsJson) {
+		if (typeof argumentsJson !== 'string') return;
+		if (state.arguments === argumentsJson) return;
+		if (argumentsJson.startsWith(state.arguments)) {
+			this.appendToolArguments(state, argumentsJson.slice(state.arguments.length));
+
+			return;
+		}
+		if (state.arguments.startsWith(argumentsJson)) return;
+		this.fail(state);
+	}
+
+	processToolCall(choiceIndex, toolCall, ordinal, completionOnly = false) {
+		if (this.failed || !isObject(toolCall)) return;
+		const state = this.getTool(choiceIndex, toolCall, ordinal);
+		const functionData = isObject(toolCall.function) ? toolCall.function : {};
+		const generatedId = toolCall.legacy === true ? `${this.responseId}_call_${state.key.replace(/[^A-Za-z0-9_]/gu, '_')}` : null;
+		if (!this.mergeScalar(state, 'upstreamId', toolCall.id ?? generatedId)) return;
+		if (!this.mergeScalar(state, 'name', functionData.name)) return;
+		this.activateTool(state);
+		if (completionOnly) this.mergeCompleteArguments(state, functionData.arguments);
+		else this.appendToolArguments(state, functionData.arguments);
+	}
+
+	processChatMessage(choiceIndex, message) {
+		const text = completionMessageText(message);
+		if (text !== '') {
+			const state = this.messages.get(this.messageKey(choiceIndex));
+			const current = state?.text ?? '';
+			if (current === '') this.appendMessageText(choiceIndex, text);
+			else if (text === current) {
+				// Final Chat Completions messages commonly repeat already streamed text.
+			} else if (text.startsWith(current)) this.appendMessageText(choiceIndex, text.slice(current.length));
+			else this.fail(null);
+		}
+		for (let index = 0; index < completionToolCalls(message).length; index += 1) {
+			this.processToolCall(choiceIndex, completionToolCalls(message)[index], index, true);
+			if (this.failed) return;
+		}
+	}
+
+	processChatFrame(data) {
+		this.mode = 'chat';
+		this.startResponse(data);
+		if (data.usage) this.usage = data.usage;
+		for (const choice of data.choices ?? []) {
+			const choiceIndex = choice?.index ?? 0;
+			if (typeof choice?.finish_reason === 'string' && choice.finish_reason !== '') {
+				this.finishReasons.set(choiceIndex, choice.finish_reason);
+			}
+			this.appendMessageText(choiceIndex, choice?.delta?.content);
+			if (isObject(choice?.delta?.function_call)) {
+				this.processToolCall(choiceIndex, { type: 'function', function: choice.delta.function_call, legacy: true }, 0);
+			}
+			for (let index = 0; index < (choice?.delta?.tool_calls ?? []).length; index += 1) {
+				this.processToolCall(choiceIndex, choice.delta.tool_calls[index], index);
+				if (this.failed) return;
+			}
+			if (isObject(choice?.message)) this.processChatMessage(choiceIndex, choice.message);
+			if (this.failed) return;
+		}
+	}
+
+	finishMessages() {
+		for (const state of this.messages.values()) {
+			if (state.done) continue;
+			state.done = true;
+			if (state.contentStarted) {
+				this.emitEvent(
+					'response.output_text.done',
+					responseEvent('response.output_text.done', this.responseId, {
+						output_index: state.outputIndex,
+						content_index: 0,
+						text: state.text
+					})
+				);
+				this.emitEvent(
+					'response.content_part.done',
+					responseEvent('response.content_part.done', this.responseId, {
+						output_index: state.outputIndex,
+						content_index: 0,
+						part: { type: 'output_text', text: state.text }
+					})
+				);
+			}
+			state.item.content = state.contentStarted ? [{ type: 'output_text', text: state.text }] : [];
+			state.item.status = 'completed';
+			this.emitEvent(
+				'response.output_item.done',
+				responseEvent('response.output_item.done', this.responseId, { output_index: state.outputIndex, item: state.item })
+			);
+		}
+	}
+
+	finishTools() {
+		for (const state of this.tools.values()) {
+			if (state.done) continue;
+			if (!state.emitted || !state.upstreamId || !state.name) {
+				this.fail(state);
+
+				return;
+			}
+			try {
+				validateToolCall({
+					id: state.upstreamId,
+					name: state.name,
+					argumentsJson: state.arguments,
+					outputIndex: state.outputIndex
+				});
+			} catch {
+				this.fail(state);
+
+				return;
+			}
+			state.done = true;
+			state.item.arguments = canonicalizeArguments(state.arguments);
+			state.item.status = 'completed';
+			this.emitEvent(
+				'response.function_call_arguments.done',
+				responseEvent('response.function_call_arguments.done', this.responseId, {
+					output_index: state.outputIndex,
+					item_id: state.item.id,
+					call_id: state.item.call_id,
+					name: state.item.name,
+					...(state.item.namespace ? { namespace: state.item.namespace } : {}),
+					arguments: state.item.arguments
+				})
+			);
+			this.emitEvent(
+				'response.output_item.done',
+				responseEvent('response.output_item.done', this.responseId, { output_index: state.outputIndex, item: state.item })
+			);
+		}
+	}
+
+	finishChat() {
+		if (this.completed || this.failed) return;
+		if ([...this.finishReasons.values()].includes('tool_calls') && this.tools.size === 0) {
+			this.fail(null);
+
+			return;
+		}
+		this.finishMessages();
+		this.finishTools();
+		if (this.failed) return;
+
+		this.completed = true;
+		this.emitEvent(
+			'response.completed',
+			responseEvent('response.completed', this.responseId, {
+				response: {
+					id: this.responseId,
+					object: 'response',
+					status: 'completed',
+					output: this.output,
+					output_count: this.output.length,
+					...(this.usage ? { usage: this.usage } : {})
+				}
+			})
+		);
+	}
+
+	fail(state) {
+		if (this.failed || this.completed) return;
+		this.failed = true;
+		const tool = state?.name ? responseItemName(state.name, this.mapping).name : '(unknown)';
+		const outputIndex = state?.outputIndex ?? -1;
+		const inputBytes = Buffer.byteLength(state?.arguments ?? '', 'utf8');
+		this.logger.error?.(
+			`[${SERVICE_NAME}] invalid tool call model=${this.model} output_index=${outputIndex} tool=${tool} input_bytes=${inputBytes}`
+		);
+		this.emitEvent('response.failed', {
+			type: 'response.failed',
+			response_id: this.responseId,
+			error: { code: 'cliproxy_tool_call_parse_error', message: 'CLIProxyAPI returned an invalid tool call.' }
+		});
+	}
+
+	processFrame(frame) {
+		if (this.failed) return;
+		if (frame.doneToken) {
+			if (this.mode === 'chat') {
+				this.finishChat();
+				if (!this.failed) this.emitRaw(frame.raw);
+			} else {
+				this.emitRaw(frame.raw);
+			}
+
+			return;
+		}
+		if (frame.invalidJson) {
+			if (this.mode === 'chat') this.fail(null);
+			else this.emitRaw(frame.raw);
+
+			return;
+		}
+		if (!frame.data) {
+			this.emitRaw(frame.raw);
+
+			return;
+		}
+		if (Array.isArray(frame.data.choices)) {
+			this.processChatFrame(frame.data);
+
+			return;
+		}
+		if (this.mode === 'chat') {
+			if (frame.data.type === 'response.completed') this.finishChat();
+			else this.emitRaw(frame.raw);
+
+			return;
+		}
+
+		const rewritten = rewriteResponseForCodex(frame.data, this.mapping);
+		this.emitEvent(frame.eventName ?? rewritten.type ?? '', rewritten);
+	}
+
+	_transform(chunk, _encoding, callback) {
+		try {
+			this.buffer += this.decoder.write(chunk);
+			this.drainFrames();
+			callback();
+		} catch (error) {
+			callback(error);
+		}
+	}
+
+	_flush(callback) {
+		try {
+			this.buffer += this.decoder.end();
+			this.drainFrames(true);
+			if (this.mode === 'chat' && !this.completed && !this.failed) this.fail(null);
+			callback();
+		} catch (error) {
+			callback(error);
+		}
+	}
+
+	drainFrames(flush = false) {
+		while (true) {
+			const separator = /\r?\n\r?\n/u.exec(this.buffer);
+			if (!separator) break;
+			const raw = this.buffer.slice(0, separator.index + separator[0].length);
+			this.buffer = this.buffer.slice(separator.index + separator[0].length);
+			this.processFrame(parseSseBlock(raw));
+			if (this.failed) return;
+		}
+		if (flush && this.buffer.trim() !== '') {
+			this.processFrame(parseSseBlock(this.buffer));
+			this.buffer = '';
+		}
+	}
+}
+
+export function createResponsesSseTransform(options = {}) {
+	return new ChatCompletionsResponsesTransform(options);
 }
 
 function copyHeaders(headers, { transformed = false } = {}) {
 	const copied = {};
 	for (const [name, value] of Object.entries(headers)) {
 		const lowerName = name.toLowerCase();
-		if (HOP_BY_HOP_HEADERS.has(lowerName)) {
-			continue;
-		}
-		if (transformed && (lowerName === 'content-length' || lowerName === 'content-encoding')) {
-			continue;
-		}
+		if (HOP_BY_HOP_HEADERS.has(lowerName)) continue;
+		if (transformed && (lowerName === 'content-length' || lowerName === 'content-encoding')) continue;
 		copied[name] = value;
 	}
 
@@ -312,8 +969,8 @@ function copyHeaders(headers, { transformed = false } = {}) {
 }
 
 function sendError(response, statusCode, code, message) {
-	if (response.headersSent) {
-		response.destroy();
+	if (response.headersSent || response.destroyed || response.writableEnded) {
+		if (!response.destroyed) response.destroy();
 
 		return;
 	}
@@ -331,11 +988,7 @@ async function readBody(stream, maxBodyBytes) {
 	for await (const chunk of stream) {
 		totalBytes += chunk.length;
 		if (totalBytes > maxBodyBytes) {
-			throw new BridgeRequestError(
-				413,
-				'request_body_too_large',
-				`Responses request exceeds the ${maxBodyBytes} byte bridge limit.`
-			);
+			throw new BridgeRequestError(413, 'request_body_too_large', `Request exceeds the ${maxBodyBytes} byte bridge limit.`);
 		}
 		chunks.push(chunk);
 	}
@@ -343,21 +996,40 @@ async function readBody(stream, maxBodyBytes) {
 	return Buffer.concat(chunks);
 }
 
-function isResponsesRequest(request, targetUrl) {
-	return request.method === 'POST' && targetUrl.pathname === '/v1/responses';
+function requestProtocol(request, targetUrl) {
+	if (request.method !== 'POST') return null;
+	if (targetUrl.pathname === '/v1/responses') return 'responses';
+	if (targetUrl.pathname === '/v1/chat/completions') return 'chat';
+
+	return null;
 }
 
-function proxyUpstreamResponse(upstreamResponse, response, mapping, transformResponses) {
+function isExpectedDisconnect(error, state, response) {
+	return [
+		state.downstreamDisconnected,
+		response.destroyed,
+		response.writableEnded,
+		EXPECTED_DISCONNECT_CODES.has(error?.code)
+	].some(Boolean);
+}
+
+function proxyUpstreamResponse(upstreamResponse, response, options) {
+	const { mapping, protocol, model, logger, state } = options;
 	const contentType = String(upstreamResponse.headers['content-type'] ?? '').toLowerCase();
 	const contentEncoding = String(upstreamResponse.headers['content-encoding'] ?? '').toLowerCase();
-	const canTransform = transformResponses && (!contentEncoding || contentEncoding === 'identity');
+	const canTransform = protocol !== null && (!contentEncoding || contentEncoding === 'identity');
+	const transformedHeaders = copyHeaders(upstreamResponse.headers, { transformed: true });
 
 	if (canTransform && contentType.includes('text/event-stream')) {
-		response.writeHead(upstreamResponse.statusCode ?? 502, copyHeaders(upstreamResponse.headers, { transformed: true }));
-		pipeline(upstreamResponse, createSseTransform(mapping), response, (error) => {
-			if (error && !response.destroyed) {
-				response.destroy(error);
-			}
+		if (!response.destroyed && !response.writableEnded) {
+			response.writeHead(upstreamResponse.statusCode ?? 502, transformedHeaders);
+		}
+		const transform =
+			protocol === 'responses' ? createResponsesSseTransform({ mapping, model, logger }) : createChatSseTransform(mapping);
+		pipeline(upstreamResponse, transform, response, (error) => {
+			if (!error || isExpectedDisconnect(error, state, response)) return;
+			logger.error?.(`[${SERVICE_NAME}] pipeline error code=${error.code ?? 'unknown'}`);
+			if (!response.destroyed && !response.writableEnded) response.destroy(error);
 		});
 
 		return;
@@ -367,20 +1039,35 @@ function proxyUpstreamResponse(upstreamResponse, response, mapping, transformRes
 		const chunks = [];
 		upstreamResponse.on('data', (chunk) => chunks.push(chunk));
 		upstreamResponse.on('end', () => {
+			if (state.downstreamDisconnected || response.destroyed || response.writableEnded) return;
 			const originalBody = Buffer.concat(chunks);
 			let body = originalBody;
+			let statusCode = upstreamResponse.statusCode ?? 502;
 			try {
-				body = Buffer.from(JSON.stringify(rewriteResponseForCodex(JSON.parse(originalBody.toString('utf8')), mapping)));
-			} catch {
-				// Preserve malformed or non-JSON upstream payloads verbatim.
+				const parsed = JSON.parse(originalBody.toString('utf8'));
+				const rewritten = rewriteJsonResponse(parsed, protocol, mapping);
+				body = Buffer.from(JSON.stringify(rewritten));
+			} catch (error) {
+				if (error instanceof BridgeResponseError) {
+					statusCode = 502;
+					body = Buffer.from(
+						JSON.stringify({
+							error: {
+								message: 'CLIProxyAPI returned an invalid tool call.',
+								type: 'cliproxy_bridge_error',
+								code: error.code
+							}
+						})
+					);
+				}
 			}
-			const headers = copyHeaders(upstreamResponse.headers, { transformed: true });
-			headers['content-length'] = body.length;
-			response.writeHead(upstreamResponse.statusCode ?? 502, headers);
+			const headers = { ...transformedHeaders, 'content-length': body.length };
+			response.writeHead(statusCode, headers);
 			response.end(body);
 		});
 		upstreamResponse.on('error', (error) => {
-			if (!response.destroyed) {
+			if (!isExpectedDisconnect(error, state, response) && !response.destroyed && !response.writableEnded) {
+				logger.error?.(`[${SERVICE_NAME}] upstream response error code=${error.code ?? 'unknown'}`);
 				response.destroy(error);
 			}
 		});
@@ -388,17 +1075,20 @@ function proxyUpstreamResponse(upstreamResponse, response, mapping, transformRes
 		return;
 	}
 
-	response.writeHead(upstreamResponse.statusCode ?? 502, copyHeaders(upstreamResponse.headers));
+	if (!response.destroyed && !response.writableEnded) {
+		response.writeHead(upstreamResponse.statusCode ?? 502, copyHeaders(upstreamResponse.headers));
+	}
 	pipeline(upstreamResponse, response, (error) => {
-		if (error && !response.destroyed) {
-			response.destroy(error);
-		}
+		if (!error || isExpectedDisconnect(error, state, response)) return;
+		logger.error?.(`[${SERVICE_NAME}] pipeline error code=${error.code ?? 'unknown'}`);
+		if (!response.destroyed && !response.writableEnded) response.destroy(error);
 	});
 }
 
-function proxyRequest({ request, response, targetUrl, headers, body, mapping, transformResponses, onUpstreamAbort }) {
+function proxyRequest({ request, response, targetUrl, headers, body, mapping, protocol, model, onUpstreamAbort, logger }) {
 	const transport = targetUrl.protocol === 'https:' ? https : http;
 	const startedAt = Date.now();
+	const state = { downstreamDisconnected: false, aborted: false };
 	const upstreamRequest = transport.request(
 		{
 			protocol: targetUrl.protocol,
@@ -409,38 +1099,34 @@ function proxyRequest({ request, response, targetUrl, headers, body, mapping, tr
 			headers
 		},
 		(upstreamResponse) => {
-			response.on('finish', () => {
-				console.log(
+			response.once('finish', () => {
+				logger.log?.(
 					`[${SERVICE_NAME}] ${request.method} ${targetUrl.pathname} -> ${upstreamResponse.statusCode} (${Date.now() - startedAt}ms)`
 				);
 			});
-			proxyUpstreamResponse(upstreamResponse, response, mapping, transformResponses);
+			proxyUpstreamResponse(upstreamResponse, response, { mapping, protocol, model, logger, state });
 		}
 	);
 
 	const abortUpstream = () => {
-		if (!upstreamRequest.destroyed) {
-			upstreamRequest.destroy(new Error('downstream client disconnected'));
-			onUpstreamAbort?.();
-		}
+		if (state.aborted) return;
+		state.aborted = true;
+		state.downstreamDisconnected = true;
+		if (!upstreamRequest.destroyed) upstreamRequest.destroy();
+		onUpstreamAbort?.();
 	};
 	request.once('aborted', abortUpstream);
 	request.socket.once('close', () => {
-		if (!response.writableEnded) {
-			abortUpstream();
-		}
+		if (!response.writableEnded) abortUpstream();
 	});
 	response.once('close', () => {
-		if (!response.writableEnded) {
-			abortUpstream();
-		}
+		if (!response.writableEnded) abortUpstream();
 	});
 
 	upstreamRequest.on('error', (error) => {
-		if (response.destroyed || response.writableEnded) {
-			return;
-		}
-		sendError(response, 502, 'upstream_unavailable', `CLIProxyAPI is unavailable: ${error.message}`);
+		if (isExpectedDisconnect(error, state, response)) return;
+		logger.error?.(`[${SERVICE_NAME}] upstream request error code=${error.code ?? 'unknown'}`);
+		sendError(response, 502, 'upstream_unavailable', 'CLIProxyAPI is unavailable.');
 	});
 
 	if (body) {
@@ -449,9 +1135,7 @@ function proxyRequest({ request, response, targetUrl, headers, body, mapping, tr
 		return;
 	}
 	pipeline(request, upstreamRequest, (error) => {
-		if (error && !upstreamRequest.destroyed) {
-			upstreamRequest.destroy(error);
-		}
+		if (error && !upstreamRequest.destroyed) upstreamRequest.destroy(error);
 	});
 }
 
@@ -459,6 +1143,7 @@ export function createBridgeServer(options = {}) {
 	const upstreamUrl = new URL(options.upstreamUrl ?? DEFAULT_UPSTREAM);
 	const buildId = options.buildId ?? 'development';
 	const maxBodyBytes = options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
+	const logger = options.logger ?? console;
 
 	return http.createServer(async (request, response) => {
 		const requestUrl = new URL(request.url ?? '/', 'http://bridge.local');
@@ -480,26 +1165,26 @@ export function createBridgeServer(options = {}) {
 		}
 
 		const targetUrl = new URL(`${requestUrl.pathname}${requestUrl.search}`, upstreamUrl);
-		const transformResponses = isResponsesRequest(request, targetUrl);
-		const headers = copyHeaders(request.headers, { transformed: transformResponses });
+		const protocol = requestProtocol(request, targetUrl);
+		const headers = copyHeaders(request.headers, { transformed: protocol !== null });
 		headers.host = targetUrl.host;
-		if (transformResponses) {
-			headers['accept-encoding'] = 'identity';
-		}
+		if (protocol !== null) headers['accept-encoding'] = 'identity';
 
 		let body;
-		let mapping = { fullToOriginal: new Map(), namespaceToolToFlat: new Map(), uniqueBareToOriginal: new Map() };
+		let mapping = emptyMapping();
+		let model = 'unknown';
 		try {
-			if (transformResponses) {
+			if (protocol !== null) {
 				const requestBody = await readBody(request, maxBodyBytes);
 				let parsed;
 				try {
 					parsed = JSON.parse(requestBody.toString('utf8'));
 				} catch {
-					throw new BridgeRequestError(400, 'invalid_json', 'Responses request body is not valid JSON.');
+					throw new BridgeRequestError(400, 'invalid_json', 'OpenAI request body is not valid JSON.');
 				}
-				const flattened = flattenResponsesRequest(parsed);
+				const flattened = flattenOpenAiRequest(parsed);
 				mapping = flattened.mapping;
+				model = typeof flattened.body.model === 'string' ? flattened.body.model : model;
 				body = Buffer.from(JSON.stringify(flattened.body));
 				headers['content-length'] = body.length;
 			}
@@ -509,7 +1194,7 @@ export function createBridgeServer(options = {}) {
 
 				return;
 			}
-			sendError(response, 400, 'invalid_request', error.message);
+			sendError(response, 400, 'invalid_request', 'OpenAI request is invalid.');
 
 			return;
 		}
@@ -521,8 +1206,10 @@ export function createBridgeServer(options = {}) {
 			headers,
 			body,
 			mapping,
-			transformResponses,
-			onUpstreamAbort: options.onUpstreamAbort
+			protocol,
+			model,
+			onUpstreamAbort: options.onUpstreamAbort,
+			logger
 		});
 	});
 }
@@ -534,9 +1221,7 @@ function parsePositiveInteger(value, fallback) {
 }
 
 function isMainModule() {
-	if (!process.argv[1]) {
-		return false;
-	}
+	if (!process.argv[1]) return false;
 
 	return pathToFileURL(resolve(process.argv[1])).href === import.meta.url;
 }

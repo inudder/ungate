@@ -3,10 +3,21 @@ import https from 'node:https';
 import { pipeline } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 
+import { flattenMimoResponsesRequest, restoreMimoResponsesValue } from './mimo-responses-namespace.mjs';
+import { createMimoResponsesStreamAdapter } from './mimo-responses-stream-adapter.mjs';
+
 const SERVICE_NAME = 'codex-model-shell-router';
 const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 8319;
 const DEFAULT_MAX_BODY_BYTES = 128 * 1024 * 1024;
+const DEFAULT_SSE_KEEPALIVE_MS = 5000;
+const MIMO_RESPONSES_ADAPTER = 'mimo-textual-tools';
+const SSE_KEEPALIVE_COMMENT = ': codex-model-shell-router keep-alive\n\n';
+const SSE_KEEPALIVE_HEADERS = {
+	'cache-control': 'no-cache',
+	'content-type': 'text/event-stream; charset=utf-8',
+	connection: 'keep-alive'
+};
 const HOP_BY_HOP_HEADERS = new Set([
 	'connection',
 	'keep-alive',
@@ -32,10 +43,14 @@ function parsePositiveInteger(value, fallback) {
 	return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function copyHeaders(headers) {
+function copyHeaders(headers, options = {}) {
 	const copied = {};
 	for (const [name, value] of Object.entries(headers)) {
-		if (!HOP_BY_HOP_HEADERS.has(name.toLowerCase()) && value !== undefined) {
+		if (
+			!HOP_BY_HOP_HEADERS.has(name.toLowerCase()) &&
+			!(options.stripContentLength && name.toLowerCase() === 'content-length') &&
+			value !== undefined
+		) {
 			copied[name] = value;
 		}
 	}
@@ -56,6 +71,78 @@ function sendError(response, statusCode, code, message) {
 		'content-length': Buffer.byteLength(body)
 	});
 	response.end(body);
+}
+
+function startSseKeepAlive(response, intervalMs) {
+	let timer = null;
+	let headerTimer = null;
+	let waitingForDrain = false;
+	let stopped = false;
+	let active = false;
+
+	const clearTimer = () => {
+		if (timer !== null) {
+			clearTimeout(timer);
+			timer = null;
+		}
+	};
+	const schedule = () => {
+		if (!active || stopped || waitingForDrain || response.destroyed || response.writableEnded) return;
+		timer = setTimeout(() => {
+			timer = null;
+			if (stopped || response.destroyed || response.writableEnded) return;
+			if (!response.write(SSE_KEEPALIVE_COMMENT, 'utf8')) {
+				waitingForDrain = true;
+				response.once('drain', onDrain);
+
+				return;
+			}
+			schedule();
+		}, intervalMs);
+	};
+	const onDrain = () => {
+		waitingForDrain = false;
+		schedule();
+	};
+	const activate = () => {
+		if (stopped) return;
+		active = true;
+		if (headerTimer !== null) {
+			clearTimeout(headerTimer);
+			headerTimer = null;
+		}
+		schedule();
+	};
+	const forceHeaders = () => {
+		headerTimer = null;
+		if (stopped || response.headersSent || response.destroyed || response.writableEnded) return;
+		response.writeHead(200, SSE_KEEPALIVE_HEADERS);
+		activate();
+		if (!response.write(SSE_KEEPALIVE_COMMENT, 'utf8')) {
+			waitingForDrain = true;
+			response.once('drain', onDrain);
+		}
+	};
+	const onFinish = () => stop();
+	const onClose = () => stop();
+	const stop = () => {
+		if (stopped) return;
+		stopped = true;
+		clearTimer();
+		if (headerTimer !== null) {
+			clearTimeout(headerTimer);
+			headerTimer = null;
+		}
+		response.removeListener('drain', onDrain);
+		response.removeListener('finish', onFinish);
+		response.removeListener('close', onClose);
+	};
+
+	response.once('finish', onFinish);
+	response.once('close', onClose);
+	headerTimer = setTimeout(forceHeaders, intervalMs);
+
+	return { activate, stop };
 }
 
 async function readBody(stream, maxBodyBytes) {
@@ -85,6 +172,7 @@ function normalizeRoute(route) {
 	const upstreamModel = String(route.upstreamModel ?? '').trim();
 	const upstreamBaseUrl = String(route.upstreamBaseUrl ?? '').trim();
 	const apiKey = String(route.apiKey ?? '').trim();
+	const responsesAdapter = String(route.responsesAdapter ?? '').trim() || null;
 	if (!clientModel || !upstreamModel || !upstreamBaseUrl || !apiKey) {
 		throw new Error('Each shell router route needs clientModel, upstreamModel, upstreamBaseUrl and apiKey.');
 	}
@@ -98,8 +186,11 @@ function normalizeRoute(route) {
 	if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
 		throw new Error(`Unsupported upstream protocol for model shell '${clientModel}'.`);
 	}
+	if (responsesAdapter && responsesAdapter !== MIMO_RESPONSES_ADAPTER) {
+		throw new Error(`Unsupported Responses stream adapter '${responsesAdapter}' for model shell '${clientModel}'.`);
+	}
 
-	return { clientModel, upstreamModel, upstreamUrl: parsedUrl, apiKey };
+	return { clientModel, upstreamModel, upstreamUrl: parsedUrl, apiKey, responsesAdapter };
 }
 
 function normalizeRoutes(routes) {
@@ -119,9 +210,21 @@ function normalizeRoutes(routes) {
 	return byClientModel;
 }
 
-function proxyRequest({ request, response, targetUrl, headers, body }) {
+function proxyRequest({
+	request,
+	response,
+	targetUrl,
+	headers,
+	body,
+	responsesAdapter,
+	model,
+	sseKeepAliveMs,
+	namespaceMapping
+}) {
 	const transport = targetUrl.protocol === 'https:' ? https : http;
 	const startedAt = Date.now();
+	const keepAlive = responsesAdapter === MIMO_RESPONSES_ADAPTER ? startSseKeepAlive(response, sseKeepAliveMs) : null;
+	let downstreamDisconnected = false;
 
 	request.setTimeout(600000);
 
@@ -140,19 +243,83 @@ function proxyRequest({ request, response, targetUrl, headers, body }) {
 					`[${SERVICE_NAME}] ${request.method} ${targetUrl.pathname} -> ${upstreamResponse.statusCode} (${Date.now() - startedAt}ms)`
 				);
 			});
-			response.writeHead(upstreamResponse.statusCode ?? 502, copyHeaders(upstreamResponse.headers));
-			pipeline(upstreamResponse, response, (error) => {
-				if (error && !response.destroyed) {
+			const contentType = String(upstreamResponse.headers['content-type'] ?? '').toLowerCase();
+			const adapterEnabled =
+				responsesAdapter === MIMO_RESPONSES_ADAPTER &&
+				(upstreamResponse.statusCode ?? 500) >= 200 &&
+				(upstreamResponse.statusCode ?? 500) < 300 &&
+				contentType.includes('text/event-stream');
+			const rewriteJson = namespaceMapping && contentType.includes('application/json');
+			if (rewriteJson) {
+				const chunks = [];
+				upstreamResponse.on('data', (chunk) => chunks.push(chunk));
+				upstreamResponse.on('end', () => {
+					const originalBody = Buffer.concat(chunks);
+					let bodyBuffer = originalBody;
+					try {
+						bodyBuffer = Buffer.from(
+							JSON.stringify(restoreMimoResponsesValue(JSON.parse(originalBody.toString('utf8')), namespaceMapping))
+						);
+					} catch {
+						// Preserve malformed or non-JSON upstream payloads verbatim.
+					}
+					const responseHeaders = copyHeaders(upstreamResponse.headers, { stripContentLength: true });
+					responseHeaders['content-length'] = bodyBuffer.length;
+					if (!response.headersSent) response.writeHead(upstreamResponse.statusCode ?? 502, responseHeaders);
+					response.end(bodyBuffer);
+				});
+				upstreamResponse.on('error', (error) => {
+					if (!response.destroyed && !response.writableEnded) response.destroy(error);
+				});
+
+				return;
+			}
+			if (!response.headersSent) {
+				response.writeHead(
+					upstreamResponse.statusCode ?? 502,
+					copyHeaders(upstreamResponse.headers, { stripContentLength: adapterEnabled })
+				);
+			}
+			if (adapterEnabled) keepAlive?.activate();
+			else keepAlive?.stop();
+			const streamAdapter = adapterEnabled
+				? createMimoResponsesStreamAdapter({
+						model,
+						namespaceMapping,
+						logger: (message) => console.error(`[${SERVICE_NAME}] ${message}`)
+					})
+				: null;
+			const onPipelineError = (error) => {
+				keepAlive?.stop();
+				const expectedDisconnect = [
+					response.destroyed,
+					response.writableEnded,
+					error?.code === 'ERR_STREAM_UNABLE_TO_PIPE',
+					error?.code === 'ERR_STREAM_PREMATURE_CLOSE'
+				].some(Boolean);
+				if (error && !expectedDisconnect) {
 					console.error(`[${SERVICE_NAME}] pipeline error: ${error.message}`);
 					response.destroy(error);
 				}
-			});
+			};
+			try {
+				if (!response.destroyed && !response.writableEnded) {
+					const streamPipeline = streamAdapter
+						? pipeline(upstreamResponse, streamAdapter, response, onPipelineError)
+						: pipeline(upstreamResponse, response, onPipelineError);
+					void streamPipeline;
+				}
+			} catch (error) {
+				onPipelineError(error);
+			}
 		}
 	);
 
 	upstreamRequest.setTimeout(600000);
 
 	const abortUpstream = () => {
+		downstreamDisconnected = true;
+		keepAlive?.stop();
 		if (!upstreamRequest.destroyed) {
 			upstreamRequest.destroy(new Error('downstream client disconnected'));
 		}
@@ -166,6 +333,8 @@ function proxyRequest({ request, response, targetUrl, headers, body }) {
 	});
 
 	upstreamRequest.on('error', (error) => {
+		keepAlive?.stop();
+		if (downstreamDisconnected || response.destroyed || response.writableEnded) return;
 		console.error(`[${SERVICE_NAME}] upstream request error: ${error.message}`);
 		if (!response.destroyed && !response.writableEnded) {
 			sendError(response, 502, 'upstream_unavailable', `Mapped upstream is unavailable: ${error.message}`);
@@ -179,6 +348,7 @@ export function createShellRouterServer(options = {}) {
 	const routes = normalizeRoutes(options.routes);
 	const buildId = options.buildId ?? 'development';
 	const maxBodyBytes = options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
+	const sseKeepAliveMs = parsePositiveInteger(options.sseKeepAliveMs, DEFAULT_SSE_KEEPALIVE_MS);
 
 	return http.createServer(async (request, response) => {
 		const requestUrl = new URL(request.url ?? '/', 'http://shell-router.local');
@@ -239,6 +409,13 @@ export function createShellRouterServer(options = {}) {
 				throw new ShellRouterRequestError(400, 'unknown_model_shell', `Unknown Codex model shell '${requestedModelLabel}'.`);
 			}
 
+			let namespaceMapping = null;
+			if (route.responsesAdapter === MIMO_RESPONSES_ADAPTER && requestUrl.pathname === '/v1/responses') {
+				const flattened = flattenMimoResponsesRequest(body);
+				body = flattened.body;
+				namespaceMapping = flattened.mapping;
+			}
+
 			body.model = route.upstreamModel;
 			const upstreamBody = Buffer.from(JSON.stringify(body));
 			const targetUrl = new URL(`${requestUrl.pathname}${requestUrl.search}`, route.upstreamUrl);
@@ -247,8 +424,27 @@ export function createShellRouterServer(options = {}) {
 			headers.authorization = `Bearer ${route.apiKey}`;
 			headers['content-length'] = upstreamBody.length;
 			delete headers['content-encoding'];
+			if (
+				namespaceMapping ||
+				(route.responsesAdapter === MIMO_RESPONSES_ADAPTER && requestUrl.pathname === '/v1/responses' && body.stream === true)
+			) {
+				headers['accept-encoding'] = 'identity';
+			}
 
-			proxyRequest({ request, response, targetUrl, headers, body: upstreamBody });
+			proxyRequest({
+				request,
+				response,
+				targetUrl,
+				headers,
+				body: upstreamBody,
+				model: route.upstreamModel,
+				responsesAdapter:
+					route.responsesAdapter && requestUrl.pathname === '/v1/responses' && body.stream === true
+						? route.responsesAdapter
+						: null,
+				sseKeepAliveMs,
+				namespaceMapping
+			});
 		} catch (error) {
 			if (error instanceof ShellRouterRequestError) {
 				sendError(response, error.statusCode, error.code, error.message);
@@ -274,7 +470,8 @@ function routesFromEnvironment() {
 		clientModel: route.clientModel,
 		upstreamModel: route.upstreamModel,
 		upstreamBaseUrl: route.upstreamBaseUrl,
-		apiKey: process.env[route.apiKeyEnv]
+		apiKey: process.env[route.apiKeyEnv],
+		responsesAdapter: route.responsesAdapter
 	}));
 }
 
@@ -310,4 +507,4 @@ if (isMainModule()) {
 	});
 }
 
-export { SERVICE_NAME };
+export { MIMO_RESPONSES_ADAPTER, SERVICE_NAME };

@@ -205,6 +205,101 @@ function Test-CliProxyResponsesInference {
     if ($outputText.Trim() -ne 'OK') {
         throw "CLIProxyAPI /v1/responses returned unexpected preflight output for model '$Model'."
     }
+
+    Test-CliProxyResponsesToolCall `
+        -Key $Key `
+        -Model $Model `
+        -ProxyOpenAiBaseUrl $ProxyOpenAiBaseUrl
+}
+
+function Test-CliProxyResponsesToolCall {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Key,
+        [Parameter(Mandatory = $true)]
+        [string]$Model,
+        [Parameter(Mandatory = $true)]
+        [string]$ProxyOpenAiBaseUrl
+    )
+
+    $tool = [ordered]@{
+        type = 'namespace'
+        name = 'cliproxy_preflight'
+        tools = @(
+            [ordered]@{
+                type = 'function'
+                name = 'bridge_preflight'
+                description = 'Bridge compatibility probe.'
+                parameters = [ordered]@{
+                    type = 'object'
+                    properties = [ordered]@{}
+                    additionalProperties = $false
+                }
+            }
+        )
+    }
+    $body = [ordered]@{
+        model = $Model
+        input = 'Call the selected bridge preflight function exactly once.'
+        tools = @($tool)
+        tool_choice = [ordered]@{
+            type = 'function'
+            namespace = 'cliproxy_preflight'
+            name = 'bridge_preflight'
+        }
+        parallel_tool_calls = $false
+        max_output_tokens = 32
+        stream = $false
+        store = $false
+    } | ConvertTo-Json -Depth 20 -Compress
+
+    try {
+        $response = Invoke-WebRequest `
+            -Method Post `
+            -Uri "$ProxyOpenAiBaseUrl/responses" `
+            -Headers @{ Authorization = "Bearer $Key" } `
+            -ContentType 'application/json' `
+            -Body $body `
+            -TimeoutSec 15 `
+            -SkipHttpErrorCheck `
+            -ErrorAction Stop
+    }
+    catch {
+        throw "Could not reach CLIProxyAPI tool-call preflight: $($_.Exception.Message)"
+    }
+
+    $statusCode = [int]$response.StatusCode
+    if ($statusCode -lt 200 -or $statusCode -ge 300) {
+        throw "CLIProxyAPI tool-call preflight failed with HTTP ${statusCode}."
+    }
+
+    try {
+        $payload = ([string]$response.Content) | ConvertFrom-Json -Depth 100 -ErrorAction Stop
+    }
+    catch {
+        throw 'CLIProxyAPI tool-call preflight returned invalid JSON.'
+    }
+
+    $functionCalls = @(
+        $payload.output | Where-Object {
+            $_.type -eq 'function_call' -and
+            $_.name -eq 'bridge_preflight' -and
+            $_.namespace -eq 'cliproxy_preflight'
+        }
+    )
+    if ($functionCalls.Count -ne 1) {
+        throw "CLIProxyAPI tool-call preflight returned an unexpected function-call output for model '$Model'."
+    }
+
+    try {
+        $arguments = ([string]$functionCalls[0].arguments) | ConvertFrom-Json -Depth 20 -ErrorAction Stop
+        if ($null -eq $arguments -or $arguments -is [string] -or $arguments -is [array]) {
+            throw 'arguments are not an object'
+        }
+    }
+    catch {
+        throw "CLIProxyAPI tool-call preflight returned invalid function-call arguments for model '$Model'."
+    }
 }
 
 function Invoke-UngatePreflight {
@@ -345,4 +440,3 @@ function Invoke-OmniRoutePreflight {
 
     Write-Host "[ungate] Live OmniRoute /v1/responses preflight passed for '$Model'." -ForegroundColor Green
 }
-

@@ -674,6 +674,22 @@ Describe 'Desktop picker model selection' {
         $selection[6] | Should -BeExactly 'model-7'
     }
 
+    It 'truncates a legacy oversized selection to the picker capacity' {
+        Write-Utf8TestFile `
+            -LiteralPath $script:pickerSettingsPath `
+            -Content '{"version":1,"modelSlugs":["model-1","model-2","model-3","model-4","model-5","model-6","model-7","model-8"]}'
+
+        $selection = @(
+            Read-UngatePickerModelSelection `
+                -SettingsPath $script:pickerSettingsPath `
+                -Definitions $script:pickerDefinitions `
+                -Capacity $script:pickerCapacity
+        )
+
+        $selection | Should -HaveCount 7
+        $selection | Should -Be @('model-1', 'model-2', 'model-3', 'model-4', 'model-5', 'model-6', 'model-7')
+    }
+
     It 'filters the active definitions to the persisted picker selection' {
         $null = Write-UngatePickerModelSelection `
             -SettingsPath $script:pickerSettingsPath `
