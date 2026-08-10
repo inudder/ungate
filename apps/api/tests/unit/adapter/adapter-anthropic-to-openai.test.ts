@@ -30,7 +30,12 @@ describe('anthropic-to-openai', () => {
 					{ type: 'tool_use', id: 't1', name: 'Read', input: { path: 'a.ts' } },
 					{ type: 'text', text: 'world' }
 				],
-				usage: { input_tokens: 10, output_tokens: 5 }
+				usage: {
+					input_tokens: 10,
+					output_tokens: 5,
+					cache_read_input_tokens: 7,
+					cache_creation_input_tokens: 3
+				}
 			},
 			'gpt-5.4'
 		);
@@ -41,9 +46,11 @@ describe('anthropic-to-openai', () => {
 		expect(converted.choices[0].message.content).toContain('Hello');
 		expect(converted.choices[0].message.content).toContain('[Tool: Read]');
 		expect(converted.usage).toEqual({
-			prompt_tokens: 10,
+			prompt_tokens: 20,
 			completion_tokens: 5,
-			total_tokens: 15
+			total_tokens: 25,
+			prompt_cache_hit_tokens: 7,
+			prompt_cache_miss_tokens: 3
 		});
 	});
 
@@ -114,7 +121,9 @@ describe('anthropic-to-openai', () => {
 		expect(converted.usage).toEqual({
 			prompt_tokens: 0,
 			completion_tokens: 0,
-			total_tokens: 0
+			total_tokens: 0,
+			prompt_cache_hit_tokens: 0,
+			prompt_cache_miss_tokens: 0
 		});
 	});
 });

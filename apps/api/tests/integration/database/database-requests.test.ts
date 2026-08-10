@@ -37,4 +37,22 @@ describe('database-requests', () => {
 		expect(row?.outputTokens).toBe(200);
 		expect(row?.estimatedCost).toBeTypeOf('number');
 	});
+
+	it('persists Anthropic cache read and creation tokens', () => {
+		const id = Requests.record(
+			{
+				model: 'claude-opus-5',
+				source: 'claude',
+				inputTokens: 120,
+				outputTokens: 20,
+				stream: false
+			},
+			80,
+			30
+		);
+
+		const row = getDb().select().from(schema.requests).where(eq(schema.requests.id, id)).get();
+		expect(row?.cacheReadTokens).toBe(80);
+		expect(row?.cacheCreationTokens).toBe(30);
+	});
 });

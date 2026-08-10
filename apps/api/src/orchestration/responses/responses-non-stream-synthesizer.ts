@@ -32,14 +32,26 @@ function itemId(prefix: string): string {
 
 function mapUsage(usage: unknown): OpenAIResponseUsage {
 	const raw = usage && typeof usage === 'object' ? (usage as Record<string, unknown>) : {};
-	const inputTokens = Number(raw.prompt_tokens ?? raw.input_tokens ?? 0);
+	const cacheReadTokens = Number(raw.prompt_cache_hit_tokens ?? raw.cache_read_input_tokens ?? 0);
+	const cacheCreationTokens = Number(raw.prompt_cache_miss_tokens ?? raw.cache_creation_input_tokens ?? 0);
+	const regularInputTokens = Number(raw.prompt_tokens ?? raw.input_tokens ?? 0);
+	const inputTokens =
+		raw.prompt_tokens === undefined ? regularInputTokens + cacheReadTokens + cacheCreationTokens : regularInputTokens;
 	const outputTokens = Number(raw.completion_tokens ?? raw.output_tokens ?? 0);
 	const totalTokens = Number(raw.total_tokens ?? inputTokens + outputTokens);
 
 	return {
 		input_tokens: Number.isFinite(inputTokens) ? inputTokens : 0,
 		output_tokens: Number.isFinite(outputTokens) ? outputTokens : 0,
-		total_tokens: Number.isFinite(totalTokens) ? totalTokens : 0
+		total_tokens: Number.isFinite(totalTokens) ? totalTokens : 0,
+		...(cacheReadTokens > 0 || cacheCreationTokens > 0
+			? {
+					input_tokens_details: {
+						cached_tokens: Number.isFinite(cacheReadTokens) ? cacheReadTokens : 0,
+						cache_creation_tokens: Number.isFinite(cacheCreationTokens) ? cacheCreationTokens : 0
+					}
+				}
+			: {})
 	};
 }
 

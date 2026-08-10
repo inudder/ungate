@@ -69,13 +69,24 @@ function handleLimitChange(event: Event) {
 	{:else}
 		{#each store.filteredRequests as req (req.id)}
 			<div class="p-4 border-b border-surface-700/30 last:border-b-0">
-				<div class="flex items-center justify-between mb-2">
+				<div class="flex items-center justify-between mb-2 gap-3">
 					<span class="text-primary-500 font-medium text-sm">{formatModelName(req.model)}</span>
-					<span class="badge text-xs {sourceClasses[req.source] || 'preset-tonal-surface'}">{req.source}</span>
+					<div class="flex items-center gap-2">
+						{#if (req.cacheReadTokens ?? 0) > 0}
+							<span class="badge text-xs preset-filled-success-500">HIT</span>
+						{/if}
+						{#if (req.cacheCreationTokens ?? 0) > 0}
+							<span class="badge text-xs preset-filled-warning-500">WRITE</span>
+						{/if}
+						<span class="badge text-xs {sourceClasses[req.source] || 'preset-tonal-surface'}">{req.source}</span>
+					</div>
 				</div>
 				<div class="text-surface-400 text-xs">
 					{Formatter.date(req.timestamp ?? 0)} &bull;
 					{req.inputTokens} in / {req.outputTokens} out
+					{#if (req.cacheReadTokens ?? 0) > 0 || (req.cacheCreationTokens ?? 0) > 0}
+						&bull; {req.cacheReadTokens ?? 0} cache read / {req.cacheCreationTokens ?? 0} cache write
+					{/if}
 					{#if req.latencyMs}
 						&bull; {Formatter.latency(req.latencyMs)}
 					{/if}

@@ -148,14 +148,20 @@ async function sendResponsesJson(
 		);
 		const latencyMs = Date.now() - context.startTime;
 
-		CompletionRequestTelemetry.recordAndApplyProxyHeaders(reply, latencyMs, {
-			model: context.model,
-			source: context.source,
-			inputTokens: context.inputTokens ?? synthesized.usage.input_tokens,
-			outputTokens: context.outputTokens ?? synthesized.usage.output_tokens,
-			stream: false,
-			latencyMs
-		});
+		CompletionRequestTelemetry.recordAndApplyProxyHeaders(
+			reply,
+			latencyMs,
+			{
+				model: context.model,
+				source: context.source,
+				inputTokens: context.inputTokens ?? synthesized.usage.input_tokens,
+				outputTokens: context.outputTokens ?? synthesized.usage.output_tokens,
+				stream: false,
+				latencyMs
+			},
+			context.cacheReadTokens,
+			context.cacheCreationTokens
+		);
 
 		return reply.send(restoreResponsesNamespaceValue(synthesized, namespaceToolMapping));
 	}

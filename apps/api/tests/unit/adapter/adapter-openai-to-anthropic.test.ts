@@ -70,6 +70,33 @@ describe('openai-to-anthropic', () => {
 		expect(result.messages[2].role).toBe('user');
 	});
 
+	it('preserves Anthropic prompt-cache markers on system and user text blocks', () => {
+		const result = openaiToAnthropic({
+			model: 'ungate-opus-5',
+			messages: [
+				{
+					role: 'system',
+					content: [{ type: 'text', text: 'stable instructions', cache_control: { type: 'ephemeral' } }]
+				},
+				{
+					role: 'user',
+					content: [
+						{ type: 'text', text: 'stable source', cache_control: { type: 'ephemeral' } },
+						{ type: 'text', text: 'target language: de' }
+					]
+				}
+			]
+		});
+
+		expect(result.system).toEqual([
+			{ type: 'text', text: 'stable instructions', cache_control: { type: 'ephemeral' } }
+		]);
+		expect(result.messages[0].content).toEqual([
+			{ type: 'text', text: 'stable source', cache_control: { type: 'ephemeral' } },
+			{ type: 'text', text: 'target language: de' }
+		]);
+	});
+
 	it('keeps anthropic tool blocks and handles invalid tool json', () => {
 		const result = openaiToAnthropic({
 			model: 'claude-opus-4-6',

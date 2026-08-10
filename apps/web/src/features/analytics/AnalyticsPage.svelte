@@ -91,6 +91,43 @@ function handleConfirmReset() {
 		<TokenChart
 			series={store.tokenSeries}
 			period={store.period} />
+
+		<div class="card preset-tonal-surface border border-surface-700/30">
+			<div class="p-4 border-b border-surface-700/30">
+				<p class="text-sm font-semibold">Anthropic Prompt Cache</p>
+				<p class="text-xs text-surface-400 mt-1">Measured from provider usage since cache tracking was installed.</p>
+			</div>
+			{#if !store.promptCache || store.promptCache.models.length === 0}
+				<div class="p-6 text-center text-surface-400 text-sm">No Anthropic requests in this period</div>
+			{:else}
+				<div class="overflow-x-auto">
+					<table class="table w-full text-sm">
+						<thead>
+							<tr>
+								<th>Model</th>
+								<th>Requests</th>
+								<th>Hits / Writes</th>
+								<th>Cache read</th>
+								<th>Cache write</th>
+								<th>Reuse rate</th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each store.promptCache.models as model (model.model)}
+								<tr>
+									<td>{model.model}</td>
+									<td>{Formatter.number(model.requests)}</td>
+									<td>{model.cacheHitRequests} / {model.cacheWriteRequests}</td>
+									<td>{Formatter.number(model.cacheReadTokens)}</td>
+									<td>{Formatter.number(model.cacheCreationTokens)}</td>
+									<td>{(model.reuseRate * 100).toFixed(1)}%</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
+		</div>
 	{/if}
 
 	<RequestList />

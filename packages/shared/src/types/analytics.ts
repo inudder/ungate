@@ -23,10 +23,30 @@ export interface RequestRecord {
 	source: RequestSource;
 	inputTokens: number;
 	outputTokens: number;
+	cacheReadTokens?: number;
+	cacheCreationTokens?: number;
 	estimatedCost?: number;
 	stream: boolean;
 	latencyMs: number | null;
 	error?: string | null;
+}
+
+export interface PromptCacheModelStats {
+	model: string;
+	requests: number;
+	cacheHitRequests: number;
+	cacheWriteRequests: number;
+	inputTokens: number;
+	cacheReadTokens: number;
+	cacheCreationTokens: number;
+	reuseRate: number;
+}
+
+export interface PromptCacheAnalytics {
+	period: Period;
+	periodStart: number;
+	periodEnd: number;
+	models: PromptCacheModelStats[];
 }
 
 export interface TokenSeriesPoint {

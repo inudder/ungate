@@ -205,7 +205,9 @@ export class OpenAIStreamHandler {
 												AnthropicToOpenai.streamChunk(streamId, modelName, undefined, undefined, {
 													prompt_tokens: finalUsage.input_tokens,
 													completion_tokens: finalUsage.output_tokens,
-													total_tokens: finalUsage.input_tokens + finalUsage.output_tokens
+													total_tokens: finalUsage.input_tokens + finalUsage.output_tokens,
+													prompt_cache_hit_tokens: finalUsage.cache_read_input_tokens,
+													prompt_cache_miss_tokens: finalUsage.cache_creation_input_tokens
 												})
 											)
 										);

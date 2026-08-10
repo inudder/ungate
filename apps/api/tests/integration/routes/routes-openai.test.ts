@@ -236,7 +236,12 @@ describe('routes-openai', () => {
 					stop_reason: 'end_turn',
 					stop_sequence: null,
 					content: [{ type: 'text', text: 'hello' }],
-					usage: { input_tokens: 1, output_tokens: 2 }
+					usage: {
+						input_tokens: 1,
+						output_tokens: 2,
+						cache_read_input_tokens: 7,
+						cache_creation_input_tokens: 3
+					}
 				}),
 				{ status: 200, headers: { 'content-type': 'application/json' } }
 			),
@@ -245,8 +250,10 @@ describe('routes-openai', () => {
 				model: 'claude-sonnet-4-6',
 				source: 'claude',
 				reverseToolMapping: {},
-				inputTokens: 1,
-				outputTokens: 2
+				inputTokens: 11,
+				outputTokens: 2,
+				cacheReadTokens: 7,
+				cacheCreationTokens: 3
 			}
 		});
 
@@ -259,7 +266,14 @@ describe('routes-openai', () => {
 		});
 
 		expect(response.statusCode).toBe(200);
-		expect(response.json().object).toBe('chat.completion');
+		expect(response.json()).toMatchObject({
+			object: 'chat.completion',
+			usage: {
+				prompt_tokens: 11,
+				prompt_cache_hit_tokens: 7,
+				prompt_cache_miss_tokens: 3
+			}
+		});
 		expect(response.headers['x-request-id']).toBeTruthy();
 		expect(requestsRecordMock).toHaveBeenCalled();
 		await app.close();
@@ -505,7 +519,7 @@ describe('routes-openai', () => {
 		resolveForChatCompletionMock.mockReturnValueOnce(null);
 		proxyRequestMock.mockResolvedValueOnce({
 			response: anthropicSseResponse([
-				'data: {"type":"message_start","message":{"usage":{"input_tokens":5,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}',
+				'data: {"type":"message_start","message":{"usage":{"input_tokens":5,"output_tokens":0,"cache_read_input_tokens":4,"cache_creation_input_tokens":2}}}',
 				'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"streamed"}}',
 				'data: {"type":"message_delta","usage":{"output_tokens":2}}',
 				'data: {"type":"message_stop"}'
@@ -523,7 +537,14 @@ describe('routes-openai', () => {
 
 		expect(response.statusCode).toBe(200);
 		expect(response.headers['content-type']).toContain('text/event-stream');
-		expect(requestsRecordMock).toHaveBeenCalled();
+		expect(response.body).toContain('"prompt_tokens":11');
+		expect(response.body).toContain('"prompt_cache_hit_tokens":4');
+		expect(response.body).toContain('"prompt_cache_miss_tokens":2');
+		expect(requestsRecordMock).toHaveBeenCalledWith(
+			expect.objectContaining({ inputTokens: 11, outputTokens: 2 }),
+			4,
+			2
+		);
 		await app.close();
 	});
 

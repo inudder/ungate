@@ -15,6 +15,7 @@ const BACKEND_ROUTES = new Map<string, ReadonlySet<string>>([
 	['/analytics', new Set(['GET'])],
 	['/analytics/requests', new Set(['GET'])],
 	['/analytics/tokens', new Set(['GET'])],
+	['/analytics/cache', new Set(['GET'])],
 	['/analytics/reset', new Set(['POST'])],
 	['/settings', new Set(['GET', 'POST'])],
 	['/models/validate', new Set(['POST'])],

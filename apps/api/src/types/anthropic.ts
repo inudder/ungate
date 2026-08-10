@@ -27,7 +27,7 @@ export interface ContentBlock {
 	input?: unknown;
 	tool_use_id?: string;
 	content?: string | ContentBlock[];
-	cache_control?: { type: string; ttl?: number };
+	cache_control?: { type: 'ephemeral'; ttl?: '5m' | '1h' };
 }
 
 export interface ImageSource {
@@ -88,6 +88,8 @@ export interface AnthropicResponse {
 	usage: {
 		input_tokens: number;
 		output_tokens: number;
+		cache_read_input_tokens?: number | null;
+		cache_creation_input_tokens?: number | null;
 	};
 }
 

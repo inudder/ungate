@@ -114,9 +114,19 @@ describe('dashboard control server', () => {
 			url: '/api/backend/settings',
 			headers: { host: '127.0.0.1:47820', 'x-ungate-csrf': token }
 		});
+		const cacheAnalytics = await app.inject({
+			method: 'GET',
+			url: '/api/backend/analytics/cache?period=day',
+			headers: { host: '127.0.0.1:47820', 'x-ungate-csrf': token }
+		});
 
 		expect(allowed.statusCode).toBe(200);
 		expect(allowed.json()).toMatchObject({ port: 47821 });
+		expect(cacheAnalytics.statusCode).toBe(200);
+		expect(fetcher).toHaveBeenCalledWith(
+			'http://127.0.0.1:47821/analytics/cache?period=day',
+			expect.objectContaining({ method: 'GET' })
+		);
 	});
 
 	it('rejects foreign origins and non-allowlisted backend routes', async () => {

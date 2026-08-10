@@ -69,8 +69,15 @@ describe('streaming-openai-stream-handler', () => {
 		expect(output).toContain('"content":"hello"');
 		expect(output).toContain('"finish_reason":"stop"');
 		expect(output).toContain('"usage"');
+		expect(output).toContain('"prompt_tokens":8');
+		expect(output).toContain('"prompt_cache_hit_tokens":1');
+		expect(output).toContain('"prompt_cache_miss_tokens":2');
 		expect(output).toContain('data: [DONE]');
-		expect(recordMock).toHaveBeenCalledTimes(1);
+		expect(recordMock).toHaveBeenCalledWith(
+			expect.objectContaining({ inputTokens: 8, outputTokens: 7 }),
+			1,
+			2
+		);
 	});
 
 	it('handles tool_use flow and malformed chunks', async () => {

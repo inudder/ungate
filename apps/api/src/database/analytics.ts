@@ -6,7 +6,7 @@ import { requests } from './schema';
 
 import { getDb } from './index';
 
-import type { AnalyticsSummary, Period, TokenSeriesPoint } from '@ungate/shared';
+import type { AnalyticsSummary, Period, PromptCacheAnalytics, TokenSeriesPoint } from '@ungate/shared';
 
 export class Analytics {
 	static getSummary(since: number, until: number = Date.now()): AnalyticsSummary {
@@ -55,11 +55,54 @@ export class Analytics {
 				source: row.source,
 				inputTokens: row.inputTokens,
 				outputTokens: row.outputTokens,
+				cacheReadTokens: row.cacheReadTokens,
+				cacheCreationTokens: row.cacheCreationTokens,
 				estimatedCost: row.estimatedCost,
 				stream: row.stream,
 				latencyMs: row.latencyMs,
 				error: row.error
 			}));
+	}
+
+	static getPromptCacheStats(period: Period, since: number, until: number = Date.now()): PromptCacheAnalytics {
+		const db = getDb();
+		const rows = db
+			.select({
+				model: requests.model,
+				requests: sql<number>`COUNT(*)`,
+				cacheHitRequests: sql<number>`SUM(CASE WHEN ${requests.cacheReadTokens} > 0 THEN 1 ELSE 0 END)`,
+				cacheWriteRequests: sql<number>`SUM(CASE WHEN ${requests.cacheCreationTokens} > 0 THEN 1 ELSE 0 END)`,
+				inputTokens: sql<number>`SUM(${requests.inputTokens})`,
+				cacheReadTokens: sql<number>`SUM(${requests.cacheReadTokens})`,
+				cacheCreationTokens: sql<number>`SUM(${requests.cacheCreationTokens})`
+			})
+			.from(requests)
+			.where(sql`${requests.source} = 'claude' AND ${requests.timestamp} >= ${since} AND ${requests.timestamp} <= ${until}`)
+			.groupBy(requests.model)
+			.orderBy(sql`SUM(${requests.cacheReadTokens}) DESC, COUNT(*) DESC`)
+			.all();
+
+		return {
+			period,
+			periodStart: since,
+			periodEnd: until,
+			models: rows.map((row) => {
+				const read = row.cacheReadTokens ?? 0;
+				const creation = row.cacheCreationTokens ?? 0;
+				const cacheActivity = read + creation;
+
+				return {
+					model: row.model,
+					requests: row.requests ?? 0,
+					cacheHitRequests: row.cacheHitRequests ?? 0,
+					cacheWriteRequests: row.cacheWriteRequests ?? 0,
+					inputTokens: row.inputTokens ?? 0,
+					cacheReadTokens: read,
+					cacheCreationTokens: creation,
+					reuseRate: cacheActivity > 0 ? read / cacheActivity : 0
+				};
+			})
+		};
 	}
 
 	static getTokenSeries(period: Period, since: number, until: number = Date.now()): TokenSeriesPoint[] {

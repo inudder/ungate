@@ -7,6 +7,8 @@ export interface RequestContext {
 	reverseToolMapping: Record<string, string>;
 	inputTokens?: number;
 	outputTokens?: number;
+	cacheReadTokens?: number;
+	cacheCreationTokens?: number;
 	bodyJson?: unknown;
 }
 

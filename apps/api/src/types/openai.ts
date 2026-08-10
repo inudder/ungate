@@ -9,6 +9,7 @@ export interface OpenAIMessage {
 export interface OpenAIContentPart {
 	type: 'text' | 'image_url';
 	text?: string;
+	cache_control?: { type: 'ephemeral'; ttl?: '5m' | '1h' };
 	image_url?: {
 		url: string;
 		detail?: 'auto' | 'low' | 'high';
@@ -74,6 +75,8 @@ export interface OpenAIChatResponse {
 		prompt_tokens: number;
 		completion_tokens: number;
 		total_tokens: number;
+		prompt_cache_hit_tokens?: number;
+		prompt_cache_miss_tokens?: number;
 	};
 }
 
@@ -142,6 +145,10 @@ export interface OpenAIResponseUsage {
 	input_tokens: number;
 	output_tokens: number;
 	total_tokens: number;
+	input_tokens_details?: {
+		cached_tokens: number;
+		cache_creation_tokens: number;
+	};
 }
 
 export interface OpenAIResponseOutputText {

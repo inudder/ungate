@@ -108,11 +108,21 @@ function mapUsage(usage: unknown): OpenAIResponseUsage {
 	const inputTokens = Number(raw.prompt_tokens ?? raw.input_tokens ?? 0);
 	const outputTokens = Number(raw.completion_tokens ?? raw.output_tokens ?? 0);
 	const totalTokens = Number(raw.total_tokens ?? inputTokens + outputTokens);
+	const cacheReadTokens = Number(raw.prompt_cache_hit_tokens ?? raw.cache_read_input_tokens ?? 0);
+	const cacheCreationTokens = Number(raw.prompt_cache_miss_tokens ?? raw.cache_creation_input_tokens ?? 0);
 
 	return {
 		input_tokens: Number.isFinite(inputTokens) ? inputTokens : 0,
 		output_tokens: Number.isFinite(outputTokens) ? outputTokens : 0,
-		total_tokens: Number.isFinite(totalTokens) ? totalTokens : 0
+		total_tokens: Number.isFinite(totalTokens) ? totalTokens : 0,
+		...(cacheReadTokens > 0 || cacheCreationTokens > 0
+			? {
+					input_tokens_details: {
+						cached_tokens: Number.isFinite(cacheReadTokens) ? cacheReadTokens : 0,
+						cache_creation_tokens: Number.isFinite(cacheCreationTokens) ? cacheCreationTokens : 0
+					}
+				}
+			: {})
 	};
 }
 
@@ -448,13 +458,20 @@ class ResponsesEventEmitter {
 	}): void {
 		this.cacheReadTokens = usage.cache_read_input_tokens ?? this.cacheReadTokens;
 		this.cacheCreationTokens = usage.cache_creation_input_tokens ?? this.cacheCreationTokens;
-		const inputTokens = (usage.input_tokens ?? this.usage.input_tokens) + this.cacheReadTokens + this.cacheCreationTokens;
+		const inputTokens =
+			usage.input_tokens === undefined
+				? this.usage.input_tokens
+				: usage.input_tokens + this.cacheReadTokens + this.cacheCreationTokens;
 		const outputTokens = usage.output_tokens ?? this.usage.output_tokens;
 
 		this.usage = {
 			input_tokens: inputTokens,
 			output_tokens: outputTokens,
-			total_tokens: inputTokens + outputTokens
+			total_tokens: inputTokens + outputTokens,
+			input_tokens_details: {
+				cached_tokens: this.cacheReadTokens,
+				cache_creation_tokens: this.cacheCreationTokens
+			}
 		};
 	}
 

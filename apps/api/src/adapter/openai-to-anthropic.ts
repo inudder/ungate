@@ -76,7 +76,11 @@ function convertContent(content: string | OpenAIContentPart[] | ContentBlock[]):
 		const openaiPart = part as OpenAIContentPart;
 		if (openaiPart.type === 'text') {
 			if (openaiPart.text && openaiPart.text.trim().length > 0) {
-				blocks.push({ type: 'text', text: openaiPart.text });
+				blocks.push({
+					type: 'text',
+					text: openaiPart.text,
+					...(openaiPart.cache_control && { cache_control: openaiPart.cache_control })
+				});
 			}
 		} else if (openaiPart.type === 'image_url' && openaiPart.image_url) {
 			const url = openaiPart.image_url.url;
@@ -137,11 +141,16 @@ export function openaiToAnthropic(request: OpenAIChatRequest, override?: Anthrop
 
 	for (const msg of request.messages) {
 		if (msg.role === 'system') {
-			const content = typeof msg.content === 'string' ? msg.content : (msg.content ?? []).map((p) => p.text ?? '').join('\n');
-			if (system) {
-				system = typeof system === 'string' ? `${system}\n${content}` : system;
-			} else {
-				system = content;
+			const content = convertContent(msg.content ?? '');
+			if (typeof content === 'string') {
+				if (content.trim().length === 0) continue;
+				if (!system) system = content;
+				else if (typeof system === 'string') system = `${system}\n${content}`;
+				else system.push({ type: 'text', text: content });
+			} else if (content.length > 0) {
+				if (!system) system = content;
+				else if (typeof system === 'string') system = [{ type: 'text', text: system }, ...content];
+				else system.push(...content);
 			}
 		} else if (msg.role === 'assistant') {
 			const contentBlocks: ContentBlock[] = [];

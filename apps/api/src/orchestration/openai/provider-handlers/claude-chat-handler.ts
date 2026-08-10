@@ -62,14 +62,18 @@ export class ClaudeChatHandler {
 		const openaiResponse = AnthropicToOpenai.convert(anthropicResponse, openaiBody.model);
 		const latencyMs = Date.now() - context.startTime;
 
-		CompletionRequestTelemetry.record({
-			model: context.model,
-			source: context.source,
-			inputTokens: context.inputTokens ?? 0,
-			outputTokens: context.outputTokens ?? 0,
-			stream: false,
-			latencyMs
-		});
+		CompletionRequestTelemetry.record(
+			{
+				model: context.model,
+				source: context.source,
+				inputTokens: context.inputTokens ?? 0,
+				outputTokens: context.outputTokens ?? 0,
+				stream: false,
+				latencyMs
+			},
+			context.cacheReadTokens,
+			context.cacheCreationTokens
+		);
 
 		logger.log(
 			`Recorded non-streaming request: ${context.model} | ${context.inputTokens ?? 0} in / ${context.outputTokens ?? 0} out`

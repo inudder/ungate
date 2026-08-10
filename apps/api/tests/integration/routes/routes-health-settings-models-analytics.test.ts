@@ -11,6 +11,7 @@ const settingsGetMock = vi.fn();
 const settingsUpdateMock = vi.fn();
 const analyticsSummaryMock = vi.fn();
 const analyticsRecentMock = vi.fn();
+const analyticsCacheMock = vi.fn();
 const analyticsResetMock = vi.fn();
 const validateModelMock = vi.fn();
 
@@ -31,6 +32,7 @@ vi.mock('src/database/analytics', () => ({
 	Analytics: {
 		getSummary: (...args: unknown[]) => analyticsSummaryMock(...args),
 		getRecent: (...args: unknown[]) => analyticsRecentMock(...args),
+		getPromptCacheStats: (...args: unknown[]) => analyticsCacheMock(...args),
 		reset: (...args: unknown[]) => analyticsResetMock(...args)
 	}
 }));
@@ -153,6 +155,7 @@ describe('routes: health/settings/models/analytics', () => {
 			periodEnd: 0
 		});
 		analyticsRecentMock.mockReturnValueOnce([{ id: 1 }]);
+		analyticsCacheMock.mockReturnValueOnce({ period: 'all', periodStart: 0, periodEnd: 1, models: [] });
 		analyticsResetMock.mockReturnValueOnce({ deletedCount: 4 });
 
 		const app = await withPlugin(analyticsPlugin);
@@ -164,6 +167,10 @@ describe('routes: health/settings/models/analytics', () => {
 
 		await app.inject({ method: 'GET', url: '/analytics/requests?limit=9999' });
 		expect(analyticsRecentMock).toHaveBeenCalledWith(1000);
+
+		const cache = await app.inject({ method: 'GET', url: '/analytics/cache?period=all' });
+		expect(cache.json().models).toEqual([]);
+		expect(analyticsCacheMock).toHaveBeenCalledTimes(1);
 
 		const reset = await app.inject({ method: 'POST', url: '/analytics/reset' });
 		expect(reset.json()).toEqual({ success: true, deletedCount: 4 });

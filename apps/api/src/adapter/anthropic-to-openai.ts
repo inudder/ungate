@@ -7,6 +7,10 @@ import type { OpenAIChatResponse, OpenAIStreamChunkToolCall, OpenAIStreamChunk }
 
 export class AnthropicToOpenai {
 	static convert(anthropicResponse: AnthropicResponse, model: string): OpenAIChatResponse {
+		const regularInput = anthropicResponse.usage?.input_tokens ?? 0;
+		const cacheRead = anthropicResponse.usage?.cache_read_input_tokens ?? 0;
+		const cacheCreation = anthropicResponse.usage?.cache_creation_input_tokens ?? 0;
+		const promptTokens = regularInput + cacheRead + cacheCreation;
 		let content =
 			anthropicResponse.content
 				?.map((block: ContentBlock) => {
@@ -32,9 +36,11 @@ export class AnthropicToOpenai {
 			model,
 			choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: finishReason }],
 			usage: {
-				prompt_tokens: anthropicResponse.usage?.input_tokens ?? 0,
+				prompt_tokens: promptTokens,
 				completion_tokens: anthropicResponse.usage?.output_tokens ?? 0,
-				total_tokens: (anthropicResponse.usage?.input_tokens ?? 0) + (anthropicResponse.usage?.output_tokens ?? 0)
+				total_tokens: promptTokens + (anthropicResponse.usage?.output_tokens ?? 0),
+				prompt_cache_hit_tokens: cacheRead,
+				prompt_cache_miss_tokens: cacheCreation
 			}
 		};
 
@@ -58,7 +64,7 @@ export class AnthropicToOpenai {
 		model: string,
 		content?: string,
 		finishReason?: 'stop' | 'length' | 'tool_calls' | null,
-		usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number } | null
+		usage?: OpenAIChatResponse['usage'] | null
 	): string {
 		const chunk: {
 			id: string;
@@ -66,7 +72,7 @@ export class AnthropicToOpenai {
 			created: number;
 			model: string;
 			choices: { index: number; delta: { content?: string }; finish_reason: string | null }[];
-			usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number } | null;
+			usage?: OpenAIChatResponse['usage'] | null;
 		} = {
 			id: `chatcmpl-${id}`,
 			object: 'chat.completion.chunk',

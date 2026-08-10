@@ -181,22 +181,41 @@ export async function makeClaudeCodeRequest(
 	}
 }
 
-async function extractUsage(response: Response, stream: boolean): Promise<{ inputTokens: number; outputTokens: number }> {
+async function extractUsage(
+	response: Response,
+	stream: boolean
+): Promise<{
+	inputTokens: number;
+	outputTokens: number;
+	cacheReadTokens: number;
+	cacheCreationTokens: number;
+}> {
 	if (stream) {
-		return { inputTokens: 0, outputTokens: 0 };
+		return { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 };
 	}
 
 	try {
 		const json = await response.clone().json();
-		const data = json as { usage?: { input_tokens?: number; output_tokens?: number } };
+		const data = json as {
+			usage?: {
+				input_tokens?: number;
+				output_tokens?: number;
+				cache_read_input_tokens?: number | null;
+				cache_creation_input_tokens?: number | null;
+			};
+		};
 		const usage = data.usage ?? {};
+		const cacheReadTokens = usage.cache_read_input_tokens ?? 0;
+		const cacheCreationTokens = usage.cache_creation_input_tokens ?? 0;
 
 		return {
-			inputTokens: usage.input_tokens ?? 0,
-			outputTokens: usage.output_tokens ?? 0
+			inputTokens: (usage.input_tokens ?? 0) + cacheReadTokens + cacheCreationTokens,
+			outputTokens: usage.output_tokens ?? 0,
+			cacheReadTokens,
+			cacheCreationTokens
 		};
 	} catch {
-		return { inputTokens: 0, outputTokens: 0 };
+		return { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 };
 	}
 }
 
@@ -218,7 +237,7 @@ export async function proxyRequest(
 			logger.warn(`Claude Code returned HTTP ${claudeResult.response.status}`);
 		}
 
-		const { inputTokens, outputTokens } = await extractUsage(claudeResult.response, stream);
+		const { inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens } = await extractUsage(claudeResult.response, stream);
 
 		return {
 			response: claudeResult.response,
@@ -228,7 +247,9 @@ export async function proxyRequest(
 				startTime,
 				reverseToolMapping: claudeResult.reverseToolMapping,
 				inputTokens,
-				outputTokens
+				outputTokens,
+				cacheReadTokens,
+				cacheCreationTokens
 			}
 		};
 	}
@@ -249,7 +270,9 @@ export async function proxyRequest(
 			startTime,
 			reverseToolMapping: {},
 			inputTokens: 0,
-			outputTokens: 0
+			outputTokens: 0,
+			cacheReadTokens: 0,
+			cacheCreationTokens: 0
 		}
 	};
 }

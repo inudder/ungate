@@ -6,6 +6,7 @@ import type {
 	ModelMappingConfig,
 	ModelValidationResult,
 	Period,
+	PromptCacheAnalytics,
 	RequestRecord,
 	TokenSeriesPoint
 } from '@ungate/shared/frontend';
@@ -43,6 +44,10 @@ export class Api {
 
 	static fetchTokenSeries(period: Period): Promise<{ period: Period; series: TokenSeriesPoint[] }> {
 		return this.get(`/analytics/tokens?period=${period}`);
+	}
+
+	static fetchPromptCacheAnalytics(period: Period): Promise<PromptCacheAnalytics> {
+		return this.get(`/analytics/cache?period=${period}`);
 	}
 
 	static resetAnalytics(): Promise<{ success: boolean; deletedCount: number }> {

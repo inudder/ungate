@@ -4,6 +4,7 @@ import {
 	type AnalyticsSummary,
 	type ModelMappingProvider,
 	type Period,
+	type PromptCacheAnalytics,
 	type RequestRecord,
 	type TokenSeriesPoint
 } from '@ungate/shared/frontend';
@@ -17,6 +18,7 @@ interface AnalyticsStore {
 	readonly requests: RequestRecord[];
 	readonly filteredRequests: RequestRecord[];
 	readonly tokenSeries: TokenSeriesPoint[];
+	readonly promptCache: PromptCacheAnalytics | null;
 	readonly availableProviders: ProviderOption[];
 	readonly availableModels: ModelOption[];
 	period: Period;
@@ -41,6 +43,7 @@ interface ConfiguredModelEntry {
 let summary = $state<AnalyticsSummary | null>(null);
 let requests = $state<RequestRecord[]>([]);
 let tokenSeries = $state<TokenSeriesPoint[]>([]);
+let promptCache = $state<PromptCacheAnalytics | null>(null);
 let configuredModels = $state<ConfiguredModelEntry[]>([]);
 let period = $state<Period>(DEFAULTS.period);
 let requestLimit = $state(DEFAULTS.requestLimit);
@@ -91,6 +94,14 @@ async function loadTokenSeries(): Promise<void> {
 	}
 }
 
+async function loadPromptCache(): Promise<void> {
+	try {
+		promptCache = await Api.fetchPromptCacheAnalytics(period);
+	} catch (e) {
+		error = extractError(e);
+	}
+}
+
 async function loadConfiguredModels(): Promise<void> {
 	try {
 		const settings = await Api.fetchSettings();
@@ -110,7 +121,7 @@ async function loadConfiguredModels(): Promise<void> {
 async function load(): Promise<void> {
 	loading = true;
 	error = null;
-	await Promise.all([loadSummary(), loadRequests(), loadConfiguredModels(), loadTokenSeries()]);
+	await Promise.all([loadSummary(), loadRequests(), loadConfiguredModels(), loadTokenSeries(), loadPromptCache()]);
 	loading = false;
 }
 
@@ -130,8 +141,6 @@ function filteredRequests(): RequestRecord[] {
 		const configuredMatch = configuredModels.find((model) => model.id === modelFilter);
 
 		if (!configuredMatch) {
-			result = result.filter((r) => r.model === modelFilter);
-		} else if (configuredMatch.provider !== 'openai') {
 			result = result.filter((r) => r.model === modelFilter);
 		} else {
 			const candidateModels = new SvelteSet<string>();
@@ -308,9 +317,13 @@ export function getAnalyticsStore(): AnalyticsStore {
 			period = v;
 			void loadSummary();
 			void loadTokenSeries();
+			void loadPromptCache();
 		},
 		get tokenSeries() {
 			return tokenSeries;
+		},
+		get promptCache() {
+			return promptCache;
 		},
 		get requestLimit() {
 			return requestLimit;

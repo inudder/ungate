@@ -525,7 +525,7 @@ describe('routes-responses', () => {
 		resolveForChatCompletionMock.mockReturnValueOnce(null);
 		proxyRequestMock.mockResolvedValueOnce({
 			response: sseResponse([
-				'{"type":"message_start","message":{"usage":{"input_tokens":2,"output_tokens":0}}}',
+				'{"type":"message_start","message":{"usage":{"input_tokens":2,"output_tokens":0,"cache_read_input_tokens":5,"cache_creation_input_tokens":3}}}',
 				'{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hello"}}',
 				'{"type":"message_delta","usage":{"output_tokens":1}}',
 				'{"type":"message_stop"}'
@@ -550,8 +550,15 @@ describe('routes-responses', () => {
 		expect(response.headers['content-type']).toContain('text/event-stream');
 		expect(response.body).toContain('event: response.output_text.delta');
 		expect(response.body).toContain('event: response.completed');
+		expect(response.body).toContain('"input_tokens":10');
+		expect(response.body).toContain('"cached_tokens":5');
+		expect(response.body).toContain('"cache_creation_tokens":3');
 		expect(response.body).not.toContain('[DONE]');
-		expect(requestsRecordMock).toHaveBeenCalled();
+		expect(requestsRecordMock).toHaveBeenCalledWith(
+			expect.objectContaining({ inputTokens: 10, outputTokens: 1 }),
+			5,
+			3
+		);
 		await app.close();
 	});
 
@@ -618,7 +625,12 @@ describe('routes-responses', () => {
 						}
 					],
 					stop_reason: 'tool_use',
-					usage: { input_tokens: 2, output_tokens: 3 }
+					usage: {
+						input_tokens: 2,
+						output_tokens: 3,
+						cache_read_input_tokens: 5,
+						cache_creation_input_tokens: 3
+					}
 				}),
 				{ status: 200, headers: { 'content-type': 'application/json' } }
 			),
@@ -627,8 +639,10 @@ describe('routes-responses', () => {
 				model: 'claude-opus-4-8',
 				source: 'claude',
 				reverseToolMapping: { Edit: 'mcp__ungate_patch__apply_patch' },
-				inputTokens: 2,
-				outputTokens: 3
+				inputTokens: 10,
+				outputTokens: 3,
+				cacheReadTokens: 5,
+				cacheCreationTokens: 3
 			}
 		});
 
@@ -676,6 +690,10 @@ describe('routes-responses', () => {
 			expect.any(Object)
 		);
 		expect(response.json()).toMatchObject({
+			usage: {
+				input_tokens: 10,
+				input_tokens_details: { cached_tokens: 5, cache_creation_tokens: 3 }
+			},
 			output: [
 				{
 					type: 'function_call',

@@ -10,12 +10,14 @@ import type { RequestRecord } from '@ungate/shared';
 export class Requests {
 	static record(record: RequestRecord, cacheReadTokens?: number, cacheCreationTokens?: number): number {
 		const db = getDb();
+		const resolvedCacheReadTokens = record.cacheReadTokens ?? cacheReadTokens ?? 0;
+		const resolvedCacheCreationTokens = record.cacheCreationTokens ?? cacheCreationTokens ?? 0;
 		const estimatedCost = Pricing.calculateCost(
 			record.model,
 			record.inputTokens,
 			record.outputTokens,
-			cacheReadTokens ?? 0,
-			cacheCreationTokens ?? 0
+			resolvedCacheReadTokens,
+			resolvedCacheCreationTokens
 		);
 
 		const result = db
@@ -26,6 +28,8 @@ export class Requests {
 				source: record.source,
 				inputTokens: record.inputTokens,
 				outputTokens: record.outputTokens,
+				cacheReadTokens: resolvedCacheReadTokens,
+				cacheCreationTokens: resolvedCacheCreationTokens,
 				estimatedCost,
 				stream: record.stream,
 				latencyMs: record.latencyMs ?? null,
