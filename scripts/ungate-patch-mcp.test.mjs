@@ -529,6 +529,8 @@ test('documents exact Add File and Update File grammar', async (t) => {
 	);
 	assert.match(tool.description, /Never emit a raw empty line inside a hunk/iu);
 	assert.match(tool.description, /at least one - or \+ line/iu);
+	assert.match(tool.description, /exec template literal/iu);
+	assert.match(tool.description, /\$\{\}/u);
 	assert.match(
 		tool.inputSchema.properties.patch.description,
 		/context-only hunks? are invalid|each Update File hunk must include at least one - or \+ line/iu

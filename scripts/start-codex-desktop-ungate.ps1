@@ -174,6 +174,31 @@ HARD RULE — source edits:
 - After editing a .ps1 file, validate it with Parser.ParseFile.
 - After an edit-related ParserError, do not retry with another quoting wrapper;
   switch directly to apply_patch.
+- For source edits, call mcp__ungate_patch__apply_patch with { working_directory, patch }.
+- Never call await tools.apply_patch(`...`) or wrap a patch in a JavaScript or PowerShell template literal.
+- `${}` inside exec is evaluated by V8 and throws ReferenceError before the patch tool runs.
+- If exec must call apply_patch, pass a regular string or ['*** Begin Patch', ...].join('\n'), never backticks.
+
+HARD RULE — long commands:
+- Never call await tools.wait(...) inside exec. tools.wait is not a function there;
+  it throws TypeError and the turn ends with no final message.
+- For pytest, builds, and other commands that may take more than 10 seconds, call
+  shell_command with timeout_ms of at least 180000 and start the exec script with
+  // @exec: {"yield_time_ms": 180000}.
+- If exec already returned "Script running with cell ID ...", call the native wait
+  tool named wait with { cell_id, yield_time_ms }. Do not wrap that call in exec.
+- After await tools.shell_command(...) or any nested exec tool, pass the result to
+  text(...) or notify(...). A bare await returns nothing to the model even when the
+  UI shows the command output.
+
+HARD RULE — Plan Mode:
+- If collaboration_mode is Plan Mode, do not edit, create, delete, patch, or format
+  any source files. Do not call apply_patch, mcp__ungate_patch__apply_patch, or any
+  other mutating tool. Read-only inspection is allowed.
+- Imperative user language ("перенеси", "сделай", "implement") does not exit Plan Mode.
+  Plan the work; do not perform it.
+- Finish with a single <proposed_plan> block. No file changes until the user leaves
+  Plan Mode or explicitly asks to implement the plan.
 
 Images / vision:
 - If the user attaches an image (LocalImage, input_image, data:image/..., or <image ... path=...>),
@@ -271,11 +296,13 @@ $BuiltInUngateModelDefinitions = @(
         RequiresUngate = $true
     }
     [pscustomobject][ordered]@{
-        # Exact upstream id from CLIProxyAPI /v1/models
-        Slug = 'grok-4.5'
-        DisplayName = 'Grok 4.5 (CLIProxyAPI)'
-        Description = 'Grok 4.5 through the local CLIProxyAPI compatibility bridge on port 8318.'
-        UpstreamModel = 'grok-4.5'
+        # Upstream id accepted by CLIProxyAPI; its dynamic catalog can omit usable models.
+        Slug = 'grok-4.6'
+        DisplayName = 'Grok 4.6 (CLIProxyAPI)'
+        Description = 'Grok 4.6 through the local CLIProxyAPI compatibility bridge on port 8318.'
+        ContextWindow = 500000
+        MaxContextWindow = 500000
+        UpstreamModel = 'grok-4.6'
         TransportDescription = 'the local CLIProxyAPI compatibility bridge'
         DefaultReasoningLevel = 'high'
         Priority = 3
@@ -1408,6 +1435,7 @@ function Ensure-CliProxyBridge {
             CLIPROXY_UPSTREAM = $CliProxyUpstreamBaseUrl
             CLIPROXY_BRIDGE_BUILD_ID = $expectedBuildId
             CLIPROXY_BRIDGE_MAX_BODY_BYTES = '134217728'
+            CLIPROXY_BRIDGE_MAX_INPUT_TOKENS = '500000'
         }
         $bridgeProcess = Start-Process `
             -FilePath ([string]$nodeCommand.Source) `
@@ -2072,6 +2100,18 @@ function Write-UngateModelCatalog {
         $modelInfo = $modelTemplate |
             ConvertTo-Json -Depth 100 |
             ConvertFrom-Json -Depth 100
+        $supportsParallelToolCalls = if ($null -ne $definition.SupportsParallelToolCalls) {
+            [bool]$definition.SupportsParallelToolCalls
+        }
+        elseif ($modelInfo.PSObject.Properties['supports_parallel_tool_calls']) {
+            [bool]$modelInfo.supports_parallel_tool_calls
+        }
+        else {
+            # The Codex model-catalog schema requires this field even when the
+            # models cache used as a template omits it. Prefer a conservative
+            # serial-tool fallback for custom providers.
+            $false
+        }
         $overrides = [ordered]@{
             slug = $catalogSlug
             display_name = $definition.DisplayName
@@ -2085,9 +2125,6 @@ function Write-UngateModelCatalog {
             default_service_tier = $null
             availability_nux = $null
             upgrade = $null
-            base_instructions = Set-ModelIdentity `
-                -Instructions $modelInfo.base_instructions `
-                -Identity $definition.Identity
             supports_reasoning_summaries = if ($null -ne $definition.SupportsReasoningSummaries) { [bool]$definition.SupportsReasoningSummaries } else { $false }
             default_reasoning_summary = 'none'
             support_verbosity = $false
@@ -2100,13 +2137,46 @@ function Write-UngateModelCatalog {
             supports_search_tool = $false
             use_responses_lite = $false
             input_modalities = @($definition.InputModalities)
+            supports_parallel_tool_calls = $supportsParallelToolCalls
             supports_image_detail_original = [bool]$definition.SupportsImageDetailOriginal
             web_search_tool_type = [string]$definition.WebSearchToolType
         }
 
-        if ($null -ne $definition.SupportsParallelToolCalls) {
-            $overrides.supports_parallel_tool_calls = [bool]$definition.SupportsParallelToolCalls
+        $baseInstructions = if (
+            $modelInfo.PSObject.Properties['base_instructions'] -and
+            -not [string]::IsNullOrWhiteSpace([string]$modelInfo.base_instructions)
+        ) {
+            [string]$modelInfo.base_instructions
         }
+        else {
+            $null
+        }
+        $instructionsTemplate = if (
+            $modelInfo.model_messages -and
+            -not [string]::IsNullOrWhiteSpace([string]$modelInfo.model_messages.instructions_template)
+        ) {
+            [string]$modelInfo.model_messages.instructions_template
+        }
+        else {
+            $null
+        }
+        if (-not $baseInstructions -and -not $instructionsTemplate) {
+            throw "Codex model catalog template for '$catalogSlug' has no usable instruction template."
+        }
+
+        # Newer catalog caches put instructions in model_messages, while the
+        # currently installed Codex CLI still requires base_instructions. Keep
+        # both fields aligned, deriving the legacy field from the template.
+        $baseInstructionSource = if ($baseInstructions) {
+            $baseInstructions
+        }
+        else {
+            $instructionsTemplate
+        }
+        $overrides.base_instructions = Set-ModelIdentity `
+            -Instructions $baseInstructionSource `
+            -Identity $definition.Identity
+
         if ($null -ne $definition.TruncationPolicy) {
             $overrides.truncation_policy = $definition.TruncationPolicy
         }
@@ -2121,9 +2191,9 @@ function Write-UngateModelCatalog {
                 -Force
         }
 
-        if ($modelInfo.model_messages -and $modelInfo.model_messages.instructions_template) {
+        if ($instructionsTemplate) {
             $modelInfo.model_messages.instructions_template = Set-ModelIdentity `
-                -Instructions $modelInfo.model_messages.instructions_template `
+                -Instructions $instructionsTemplate `
                 -Identity $definition.Identity
         }
 
@@ -2527,12 +2597,38 @@ function Assert-UngateCodexConfig {
             $catalogModalities.Count -eq $expectedModalities.Count -and
             -not (Compare-Object -ReferenceObject $expectedModalities -DifferenceObject $catalogModalities)
         )
+        $catalogInstructions = if (
+            $catalogModel.model_messages -and
+            -not [string]::IsNullOrWhiteSpace([string]$catalogModel.model_messages.instructions_template)
+        ) {
+            [string]$catalogModel.model_messages.instructions_template
+        }
+        else {
+            [string]$catalogModel.base_instructions
+        }
+        $catalogBaseInstructions = [string]$catalogModel.base_instructions
+        $parallelToolCallProperty = if ($catalogModel) {
+            $catalogModel.PSObject.Properties['supports_parallel_tool_calls']
+        }
+        else {
+            $null
+        }
+        $parallelToolCallsValid = (
+            $null -ne $parallelToolCallProperty -and
+            $parallelToolCallProperty.Value -is [bool] -and
+            (
+                $null -eq $definition.SupportsParallelToolCalls -or
+                [bool]$parallelToolCallProperty.Value -eq [bool]$definition.SupportsParallelToolCalls
+            )
+        )
         if (
             -not $catalogModel -or
             $catalogModel.display_name -ne $definition.DisplayName -or
             $catalogModel.visibility -ne 'list' -or
-            -not ([string]$catalogModel.base_instructions).StartsWith($definition.Identity) -or
+            -not $catalogInstructions.StartsWith($definition.Identity) -or
+            -not $catalogBaseInstructions.StartsWith($definition.Identity) -or
             -not $modalitiesMatch -or
+            -not $parallelToolCallsValid -or
             [bool]$catalogModel.supports_image_detail_original -ne [bool]$definition.SupportsImageDetailOriginal -or
             [string]$catalogModel.web_search_tool_type -ne [string]$definition.WebSearchToolType
         ) {
@@ -3169,25 +3265,12 @@ for ($attempt = 1; $attempt -le $preflightAttempts; $attempt++) {
                 -ProxyBaseUrl $selectedModelDefinition.ProxyBaseUrl
         }
         else {
-            # CLIProxyAPI has no /health, so validate both discovery and a minimal live inference.
-            $models = Invoke-RestMethod `
-                -Uri "$($selectedModelDefinition.ProxyBaseUrl)/v1/models" `
-                -Headers @{ Authorization = "Bearer $selectedKey" } `
-                -TimeoutSec 5 `
-                -ErrorAction Stop
-            $ids = @($models.data | ForEach-Object { $_.id })
-            if ($Model -notin $ids) {
-                throw "Model '$Model' not found in $($selectedModelDefinition.ProxyBaseUrl)/v1/models. Available: $($ids -join ', ')"
-            }
+            # CLIProxyAPI discovery is dynamic, so live Responses inference is authoritative.
             Write-Host "[ungate] Proxy healthy at $($selectedModelDefinition.ProxyBaseUrl)." -ForegroundColor Green
-            Write-Host "[ungate] Model '$Model' available." -ForegroundColor Green
-            Test-CliProxyResponsesInference `
+            Invoke-CliProxyPreflight `
                 -Key $selectedKey `
                 -Model $Model `
-                -ProxyOpenAiBaseUrl "$($selectedModelDefinition.ProxyBaseUrl)/v1"
-            Write-Host `
-                "[ungate] Live /v1/responses inference preflight passed for '$Model'." `
-                -ForegroundColor Green
+                -ProxyBaseUrl $selectedModelDefinition.ProxyBaseUrl
         }
 
         $preflightFailure = $null
@@ -3211,10 +3294,10 @@ if ($preflightFailure) {
 }
 
 Initialize-UngateCodexConfig
+Write-UngateModelCatalog
 Sync-CodexMcpServers `
     -SourceCodexHome $DefaultCodexHome `
     -TargetCodexHome $CustomCodexHome
-Write-UngateModelCatalog
 Ensure-SharedDirectory -Name 'skills'
 Sync-CodexGlobalInstructions
 Sync-CodexAuthentication
@@ -3241,6 +3324,13 @@ else {
         -ForegroundColor DarkGray
 }
 Write-Host "[ungate] Browser plugin SHA256: $($pluginIsolation.BrowserSha256)" -ForegroundColor DarkGray
+$unsupportedBundledPluginIds = @($pluginIsolation.UnsupportedBundledPluginIds)
+if ($unsupportedBundledPluginIds.Count -gt 0) {
+    Write-Warning (
+        '[ungate] Codex Beta does not provide bundled plugins from the normal profile: ' +
+        ($unsupportedBundledPluginIds -join ', ')
+    )
+}
 Assert-UngateCodexConfig -Key $selectedKey -ProviderKeys $providerKeys
 Initialize-CodexWindowsSandbox
 Write-Host "[ungate] Custom CODEX_HOME ready: $CustomCodexHome" -ForegroundColor Green

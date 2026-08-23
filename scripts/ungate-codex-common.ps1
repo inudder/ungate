@@ -302,6 +302,49 @@ function Test-CliProxyResponsesToolCall {
     }
 }
 
+function Invoke-CliProxyPreflight {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Key,
+        [Parameter(Mandatory = $true)]
+        [string]$Model,
+        [Parameter(Mandatory = $true)]
+        [string]$ProxyBaseUrl
+    )
+
+    $catalogWarning = $null
+    try {
+        $models = Invoke-RestMethod `
+            -Uri "$ProxyBaseUrl/v1/models" `
+            -Headers @{ Authorization = "Bearer $Key" } `
+            -TimeoutSec 5 `
+            -ErrorAction Stop
+        $ids = @($models.data | ForEach-Object { [string]$_.id })
+        if ($Model -notin $ids) {
+            $catalogWarning = "Model '$Model' is not advertised by $ProxyBaseUrl/v1/models. Available: $($ids -join ', ')"
+        }
+    }
+    catch {
+        $catalogWarning = "Could not validate model '$Model' through $ProxyBaseUrl/v1/models: $($_.Exception.Message)"
+    }
+
+    if ($catalogWarning) {
+        Write-Host "[ungate] Warning: $catalogWarning" -ForegroundColor Yellow
+        Write-Host '[ungate] Continuing with authoritative live /v1/responses preflight.' -ForegroundColor DarkGray
+    }
+    else {
+        Write-Host "[ungate] Model '$Model' available." -ForegroundColor Green
+    }
+
+    Test-CliProxyResponsesInference `
+        -Key $Key `
+        -Model $Model `
+        -ProxyOpenAiBaseUrl "$ProxyBaseUrl/v1"
+    Write-Host `
+        "[ungate] Live /v1/responses inference preflight passed for '$Model'." `
+        -ForegroundColor Green
+}
+
 function Invoke-UngatePreflight {
     param(
         [Parameter(Mandatory = $true)]

@@ -10,6 +10,7 @@ const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 8318;
 const DEFAULT_UPSTREAM = 'http://127.0.0.1:8317';
 const DEFAULT_MAX_BODY_BYTES = 128 * 1024 * 1024;
+const DEFAULT_MAX_INPUT_TOKENS = 500_000;
 const HOP_BY_HOP_HEADERS = new Set([
 	'connection',
 	'keep-alive',
@@ -41,6 +42,52 @@ function isObject(value) {
 	return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+function tokenCount(value) {
+	return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+function firstTokenCount(...values) {
+	for (const value of values) {
+		const count = tokenCount(value);
+		if (count !== null) return count;
+	}
+
+	return null;
+}
+
+function normalizeUsage(usage, { maxInputTokens = DEFAULT_MAX_INPUT_TOKENS, logger, model } = {}) {
+	if (!isObject(usage)) return undefined;
+	const inputTokens = firstTokenCount(usage.input_tokens, usage.prompt_tokens);
+	const outputTokens = firstTokenCount(usage.output_tokens, usage.completion_tokens);
+	if (inputTokens === null || outputTokens === null || inputTokens > maxInputTokens) {
+		if (inputTokens !== null && inputTokens > maxInputTokens) {
+			logger?.warn?.(
+				`[${SERVICE_NAME}] ignored upstream usage model=${model ?? 'unknown'} input_tokens=${inputTokens} max_input_tokens=${maxInputTokens}`
+			);
+		}
+
+		return undefined;
+	}
+
+	const cachedTokens = firstTokenCount(
+		usage.input_tokens_details?.cached_tokens,
+		usage.prompt_tokens_details?.cached_tokens,
+		usage.cached_input_tokens,
+		usage.prompt_cache_hit_tokens,
+		usage.cache_read_input_tokens
+	);
+	const normalized = {
+		input_tokens: inputTokens,
+		output_tokens: outputTokens,
+		total_tokens: inputTokens + outputTokens
+	};
+	if (cachedTokens !== null && cachedTokens <= inputTokens) {
+		normalized.input_tokens_details = { cached_tokens: cachedTokens };
+	}
+
+	return normalized;
+}
+
 function namespaceKey(namespace, name) {
 	return `${namespace}\u0000${name}`;
 }
@@ -54,7 +101,8 @@ function emptyMapping() {
 		fullToOriginal: new Map(),
 		namespaceToolToFlat: new Map(),
 		uniqueBareToOriginal: new Map(),
-		namespaceOnlyToOriginal: new Map()
+		namespaceOnlyToOriginal: new Map(),
+		customToolNames: new Set()
 	};
 }
 
@@ -75,6 +123,97 @@ function cloneFunctionTool(innerTool, flatName) {
 	if (parameters !== undefined) flattened.parameters = parameters;
 
 	return flattened;
+}
+
+function customInputDescription(tool) {
+	const base = 'The complete freeform input for this tool.';
+	if (tool?.format?.type !== 'grammar' || typeof tool.format.definition !== 'string') return base;
+	const syntax = typeof tool.format.syntax === 'string' ? tool.format.syntax : 'specified';
+
+	return `${base} It must match this ${syntax} grammar:\n${tool.format.definition}`;
+}
+
+function adaptCustomTool(tool) {
+	return {
+		type: 'function',
+		name: tool.name,
+		...(typeof tool.description === 'string' ? { description: tool.description } : {}),
+		strict: false,
+		parameters: {
+			type: 'object',
+			properties: { input: { type: 'string', description: customInputDescription(tool) } },
+			required: ['input'],
+			additionalProperties: false
+		}
+	};
+}
+
+function isAdaptedCustomTool(name, mapping) {
+	return typeof name === 'string' && mapping?.customToolNames?.has(name) === true;
+}
+
+function customInputFromArguments(argumentsJson) {
+	if (typeof argumentsJson !== 'string') return null;
+	try {
+		const parsed = JSON.parse(argumentsJson);
+
+		return isObject(parsed) && typeof parsed.input === 'string' ? parsed.input : null;
+	} catch {
+		return null;
+	}
+}
+
+const EXEC_WAIT_CALL_RE = /^await\s+tools\.wait\s*\(([\s\S]*)\)\s*;?\s*$/u;
+
+export function parseExecWaitCall(input) {
+	if (typeof input !== 'string') return null;
+	const stripped = input
+		.replace(/^\uFEFF/u, '')
+		.replace(/^\s*\/\/\s*@exec:[^\n]*\n/u, '')
+		.trim();
+	const match = EXEC_WAIT_CALL_RE.exec(stripped);
+	if (!match) return null;
+	const raw = match[1].trim();
+	if (!raw.startsWith('{') || !raw.endsWith('}')) return null;
+	const cell = /\bcell_id\s*:\s*(['"])([^'"]+)\1/u.exec(raw);
+	if (!cell) return null;
+	const args = { cell_id: cell[2] };
+	const yieldMs = /\byield_time_ms\s*:\s*(\d+)/u.exec(raw);
+	if (yieldMs) args.yield_time_ms = Number(yieldMs[1]);
+	const maxTokens = /\bmax_tokens\s*:\s*(\d+)/u.exec(raw);
+	if (maxTokens) args.max_tokens = Number(maxTokens[1]);
+	const terminate = /\bterminate\s*:\s*(true|false)/u.exec(raw);
+	if (terminate) args.terminate = terminate[1] === 'true';
+
+	return args;
+}
+
+function execWaitInputFromToolCall(value) {
+	if (!isObject(value)) return null;
+	const name = typeof value.name === 'string' ? value.name : '';
+	if (name !== 'exec') return null;
+	if (typeof value.input === 'string') return value.input;
+	if (typeof value.arguments === 'string') return customInputFromArguments(value.arguments);
+
+	return null;
+}
+
+export function rewriteExecWaitToolCall(value) {
+	const input = execWaitInputFromToolCall(value);
+	if (input === null) return value;
+	const args = parseExecWaitCall(input);
+	if (!args) return value;
+	const rewritten = {
+		type: 'function_call',
+		name: 'wait',
+		arguments: JSON.stringify(args),
+		status: typeof value.status === 'string' ? value.status : 'completed'
+	};
+	if (typeof value.id === 'string') rewritten.id = value.id;
+	if (typeof value.call_id === 'string') rewritten.call_id = value.call_id;
+	else if (typeof value.id === 'string') rewritten.call_id = value.id;
+
+	return rewritten;
 }
 
 function addBareCandidate(candidates, original) {
@@ -118,6 +257,12 @@ function rewriteValueForUpstream(value, mapping) {
 
 	if (isObject(rewritten.function)) rewritten.function = flattenNamespacedName(rewritten.function, mapping);
 	if (isObject(rewritten.function_call)) rewritten.function_call = flattenNamespacedName(rewritten.function_call, mapping);
+	if (rewritten.type === 'custom_tool_call' && isAdaptedCustomTool(rewritten.name, mapping)) {
+		rewritten.type = 'function_call';
+		rewritten.arguments = JSON.stringify({ input: typeof rewritten.input === 'string' ? rewritten.input : '' });
+		delete rewritten.input;
+	}
+	if (rewritten.type === 'custom_tool_call_output') rewritten.type = 'function_call_output';
 	if (
 		(rewritten.type === 'function_call' || rewritten.type === 'function') &&
 		typeof rewritten.namespace === 'string' &&
@@ -142,6 +287,9 @@ function rewriteToolChoiceForUpstream(toolChoice, mapping) {
 
 		return rewritten;
 	}
+	if (toolChoice.type === 'custom' && isAdaptedCustomTool(toolChoice.name, mapping)) {
+		return { ...toolChoice, type: 'function' };
+	}
 
 	return rewriteValueForUpstream(toolChoice, mapping);
 }
@@ -163,9 +311,15 @@ export function flattenOpenAiRequest(body) {
 	const namespaceToolToFlat = new Map();
 	const bareCandidates = new Map();
 	const namespaceOnlyCandidates = new Map();
+	const customToolNames = new Set();
 	const flattenedTools = [];
 
 	for (const tool of tools) {
+		if (isObject(tool) && tool.type === 'custom' && typeof tool.name === 'string' && tool.name.trim() !== '') {
+			customToolNames.add(tool.name);
+			flattenedTools.push(adaptCustomTool(tool));
+			continue;
+		}
 		if (!isObject(tool) || tool.type !== 'namespace') {
 			flattenedTools.push(tool);
 			continue;
@@ -208,7 +362,8 @@ export function flattenOpenAiRequest(body) {
 		fullToOriginal,
 		namespaceToolToFlat,
 		uniqueBareToOriginal: new Map([...bareCandidates.entries()].filter(([, original]) => original !== null)),
-		namespaceOnlyToOriginal: new Map([...namespaceOnlyCandidates.entries()].filter(([, original]) => original !== null))
+		namespaceOnlyToOriginal: new Map([...namespaceOnlyCandidates.entries()].filter(([, original]) => original !== null)),
+		customToolNames
 	};
 	const rewritten = { ...body };
 	if (Array.isArray(body.tools)) rewritten.tools = flattenedTools;
@@ -272,12 +427,45 @@ function rewriteValueForClient(value, mapping, { includeNamespace = true } = {})
 		if (typeof rewritten.name === 'string') rewritten = restoreFunctionName(rewritten, mapping, includeNamespace);
 		if (typeof rewritten.arguments === 'string') rewritten.arguments = canonicalizeArguments(rewritten.arguments);
 	}
+	if (isFunctionCall && isAdaptedCustomTool(rewritten.name, mapping)) {
+		const input = rewritten.arguments === '' ? '' : customInputFromArguments(rewritten.arguments);
+		if (input !== null) {
+			rewritten.type = 'custom_tool_call';
+			rewritten.input = input;
+			delete rewritten.arguments;
+			delete rewritten.namespace;
+		}
+	}
+	if (isCompletedArguments && isAdaptedCustomTool(rewritten.name, mapping)) {
+		const input = customInputFromArguments(rewritten.arguments);
+		if (input !== null) {
+			rewritten.type = 'response.custom_tool_call_input.done';
+			rewritten.input = input;
+			delete rewritten.arguments;
+			delete rewritten.name;
+			delete rewritten.call_id;
+			delete rewritten.namespace;
+		}
+	}
 
-	return rewritten;
+	return rewriteExecWaitToolCall(rewritten);
 }
 
-export function rewriteResponseForCodex(value, mapping) {
-	return rewriteValueForClient(value, mapping, { includeNamespace: true });
+export function rewriteResponseForCodex(value, mapping, usageOptions) {
+	const rewritten = rewriteValueForClient(value, mapping, { includeNamespace: true });
+	if (!isObject(rewritten)) return rewritten;
+	if (isObject(rewritten.usage)) {
+		const usage = normalizeUsage(rewritten.usage, usageOptions);
+		if (usage) rewritten.usage = usage;
+		else delete rewritten.usage;
+	}
+	if (isObject(rewritten.response) && isObject(rewritten.response.usage)) {
+		const usage = normalizeUsage(rewritten.response.usage, usageOptions);
+		if (usage) rewritten.response.usage = usage;
+		else delete rewritten.response.usage;
+	}
+
+	return rewritten;
 }
 
 export function rewriteChatCompletionForClient(value, mapping) {
@@ -315,6 +503,16 @@ function responseItemName(name, mapping) {
 	const original = resolveOriginal(name, mapping);
 
 	return original ? { name: original.name, namespace: original.namespace } : { name: name ?? '' };
+}
+
+function customCallItem({ id, callId, name, argumentsJson, status = 'completed' }, mapping) {
+	if (!isAdaptedCustomTool(name, mapping)) return null;
+	const input = customInputFromArguments(argumentsJson);
+	if (input === null) {
+		throw new BridgeResponseError('tool_call_invalid', 'Adapted custom tool call has invalid input.');
+	}
+
+	return { type: 'custom_tool_call', id, call_id: callId, name, input, status };
 }
 
 function hasMappedNamePrefix(name, mapping) {
@@ -365,7 +563,7 @@ function validateToolCall({ id, name, argumentsJson, outputIndex }) {
 	}
 }
 
-export function convertChatCompletionToResponse(completion, mapping) {
+export function convertChatCompletionToResponse(completion, mapping, usageOptions) {
 	if (!isObject(completion) || !Array.isArray(completion.choices)) {
 		throw new BridgeResponseError('invalid_chat_completion', 'CLIProxyAPI returned an invalid Chat Completions response.');
 	}
@@ -402,17 +600,25 @@ export function convertChatCompletionToResponse(completion, mapping) {
 			const name = functionData.name;
 			const argumentsJson = functionData.arguments;
 			validateToolCall({ id, name, argumentsJson, outputIndex: output.length });
+			const customItem = customCallItem({ id, callId: id, name, argumentsJson }, mapping);
+			if (customItem) {
+				output.push(rewriteExecWaitToolCall(customItem));
+				continue;
+			}
 			const restored = responseItemName(name, mapping);
-			output.push({
-				type: 'function_call',
-				id,
-				call_id: id,
-				...restored,
-				arguments: canonicalizeArguments(argumentsJson),
-				status: 'completed'
-			});
+			output.push(
+				rewriteExecWaitToolCall({
+					type: 'function_call',
+					id,
+					call_id: id,
+					...restored,
+					arguments: canonicalizeArguments(argumentsJson),
+					status: 'completed'
+				})
+			);
 		}
 	}
+	const usage = normalizeUsage(completion.usage, usageOptions);
 
 	return {
 		id: responseId,
@@ -422,13 +628,15 @@ export function convertChatCompletionToResponse(completion, mapping) {
 		...(typeof completion.created === 'number' ? { created_at: completion.created } : {}),
 		output,
 		output_count: output.length,
-		...(completion.usage ? { usage: completion.usage } : {})
+		...(usage ? { usage } : {})
 	};
 }
 
-function rewriteJsonResponse(parsed, protocol, mapping) {
-	if (protocol === 'responses' && Array.isArray(parsed.choices)) return convertChatCompletionToResponse(parsed, mapping);
-	if (protocol === 'responses') return rewriteResponseForCodex(parsed, mapping);
+function rewriteJsonResponse(parsed, protocol, mapping, usageOptions) {
+	if (protocol === 'responses' && Array.isArray(parsed.choices)) {
+		return convertChatCompletionToResponse(parsed, mapping, usageOptions);
+	}
+	if (protocol === 'responses') return rewriteResponseForCodex(parsed, mapping, usageOptions);
 
 	return rewriteChatCompletionForClient(parsed, mapping);
 }
@@ -487,8 +695,10 @@ class RewritingSseTransform extends Transform {
 	}
 }
 
-export function createSseTransform(mapping) {
-	return new RewritingSseTransform(mapping, rewriteResponseForCodex);
+export function createSseTransform(mapping, usageOptions) {
+	return new RewritingSseTransform(mapping, (value, currentMapping) =>
+		rewriteResponseForCodex(value, currentMapping, usageOptions)
+	);
 }
 
 function createChatSseTransform(mapping) {
@@ -512,7 +722,9 @@ class ChatCompletionsResponsesTransform extends Transform {
 		this.tools = new Map();
 		this.output = [];
 		this.finishReasons = new Map();
+		this.nativeCustomItems = new Set();
 		this.usage = null;
+		this.usageOptions = { maxInputTokens: options.maxInputTokens, logger: this.logger, model: this.model };
 		this.anonymousToolOrdinal = 0;
 	}
 
@@ -660,15 +872,25 @@ class ChatCompletionsResponsesTransform extends Transform {
 			return;
 		}
 		const restored = responseItemName(state.name, this.mapping);
+		state.custom = isAdaptedCustomTool(state.name, this.mapping);
 		state.outputIndex = this.output.length;
-		state.item = {
-			type: 'function_call',
-			id: state.upstreamId,
-			call_id: state.upstreamId,
-			...restored,
-			arguments: '',
-			status: 'in_progress'
-		};
+		state.item = state.custom
+			? {
+					type: 'custom_tool_call',
+					id: state.upstreamId,
+					call_id: state.upstreamId,
+					name: state.name,
+					input: '',
+					status: 'in_progress'
+				}
+			: {
+					type: 'function_call',
+					id: state.upstreamId,
+					call_id: state.upstreamId,
+					...restored,
+					arguments: '',
+					status: 'in_progress'
+				};
 		state.emitted = true;
 		this.output.push(state.item);
 		this.emitEvent(
@@ -680,6 +902,7 @@ class ChatCompletionsResponsesTransform extends Transform {
 
 	emitToolArgumentDelta(state, delta) {
 		if (!state.emitted || typeof delta !== 'string' || delta === '') return;
+		if (state.custom) return;
 		this.emitEvent(
 			'response.function_call_arguments.delta',
 			responseEvent('response.function_call_arguments.delta', this.responseId, {
@@ -742,7 +965,7 @@ class ChatCompletionsResponsesTransform extends Transform {
 	processChatFrame(data) {
 		this.mode = 'chat';
 		this.startResponse(data);
-		if (data.usage) this.usage = data.usage;
+		if (data.usage) this.usage = normalizeUsage(data.usage, this.usageOptions);
 		for (const choice of data.choices ?? []) {
 			const choiceIndex = choice?.index ?? 0;
 			if (typeof choice?.finish_reason === 'string' && choice.finish_reason !== '') {
@@ -813,19 +1036,40 @@ class ChatCompletionsResponsesTransform extends Transform {
 				return;
 			}
 			state.done = true;
-			state.item.arguments = canonicalizeArguments(state.arguments);
+			if (state.custom) {
+				const input = customInputFromArguments(state.arguments);
+				if (input === null) {
+					this.fail(state);
+
+					return;
+				}
+				state.item.input = input;
+			} else {
+				state.item.arguments = canonicalizeArguments(state.arguments);
+			}
 			state.item.status = 'completed';
-			this.emitEvent(
-				'response.function_call_arguments.done',
-				responseEvent('response.function_call_arguments.done', this.responseId, {
-					output_index: state.outputIndex,
-					item_id: state.item.id,
-					call_id: state.item.call_id,
-					name: state.item.name,
-					...(state.item.namespace ? { namespace: state.item.namespace } : {}),
-					arguments: state.item.arguments
-				})
-			);
+			if (state.custom) {
+				this.emitEvent(
+					'response.custom_tool_call_input.done',
+					responseEvent('response.custom_tool_call_input.done', this.responseId, {
+						output_index: state.outputIndex,
+						item_id: state.item.id,
+						input: state.item.input
+					})
+				);
+			} else {
+				this.emitEvent(
+					'response.function_call_arguments.done',
+					responseEvent('response.function_call_arguments.done', this.responseId, {
+						output_index: state.outputIndex,
+						item_id: state.item.id,
+						call_id: state.item.call_id,
+						name: state.item.name,
+						...(state.item.namespace ? { namespace: state.item.namespace } : {}),
+						arguments: state.item.arguments
+					})
+				);
+			}
 			this.emitEvent(
 				'response.output_item.done',
 				responseEvent('response.output_item.done', this.responseId, { output_index: state.outputIndex, item: state.item })
@@ -907,6 +1151,36 @@ class ChatCompletionsResponsesTransform extends Transform {
 		if (this.mode === 'chat') {
 			if (frame.data.type === 'response.completed') this.finishChat();
 			else this.emitRaw(frame.raw);
+
+			return;
+		}
+		const nativeItem = frame.data.item;
+		if (
+			(frame.data.type === 'response.output_item.added' || frame.data.type === 'response.output_item.done') &&
+			nativeItem?.type === 'function_call' &&
+			isAdaptedCustomTool(nativeItem.name, this.mapping) &&
+			typeof nativeItem.id === 'string'
+		) {
+			this.nativeCustomItems.add(nativeItem.id);
+		}
+		if (frame.data.type === 'response.function_call_arguments.delta' && this.nativeCustomItems.has(frame.data.item_id)) {
+			return;
+		}
+		if (frame.data.type === 'response.function_call_arguments.done' && this.nativeCustomItems.has(frame.data.item_id)) {
+			const input = customInputFromArguments(frame.data.arguments);
+			if (input === null) {
+				this.fail({ name: 'custom', arguments: frame.data.arguments, outputIndex: frame.data.output_index });
+
+				return;
+			}
+			this.emitEvent('response.custom_tool_call_input.done', {
+				...frame.data,
+				type: 'response.custom_tool_call_input.done',
+				input,
+				arguments: undefined,
+				call_id: undefined,
+				name: undefined
+			});
 
 			return;
 		}
@@ -1014,7 +1288,8 @@ function isExpectedDisconnect(error, state, response) {
 }
 
 function proxyUpstreamResponse(upstreamResponse, response, options) {
-	const { mapping, protocol, model, logger, state } = options;
+	const { mapping, protocol, model, logger, maxInputTokens, state } = options;
+	const usageOptions = { maxInputTokens, logger, model };
 	const contentType = String(upstreamResponse.headers['content-type'] ?? '').toLowerCase();
 	const contentEncoding = String(upstreamResponse.headers['content-encoding'] ?? '').toLowerCase();
 	const canTransform = protocol !== null && (!contentEncoding || contentEncoding === 'identity');
@@ -1025,7 +1300,9 @@ function proxyUpstreamResponse(upstreamResponse, response, options) {
 			response.writeHead(upstreamResponse.statusCode ?? 502, transformedHeaders);
 		}
 		const transform =
-			protocol === 'responses' ? createResponsesSseTransform({ mapping, model, logger }) : createChatSseTransform(mapping);
+			protocol === 'responses'
+				? createResponsesSseTransform({ mapping, model, logger, maxInputTokens })
+				: createChatSseTransform(mapping);
 		pipeline(upstreamResponse, transform, response, (error) => {
 			if (!error || isExpectedDisconnect(error, state, response)) return;
 			logger.error?.(`[${SERVICE_NAME}] pipeline error code=${error.code ?? 'unknown'}`);
@@ -1045,7 +1322,7 @@ function proxyUpstreamResponse(upstreamResponse, response, options) {
 			let statusCode = upstreamResponse.statusCode ?? 502;
 			try {
 				const parsed = JSON.parse(originalBody.toString('utf8'));
-				const rewritten = rewriteJsonResponse(parsed, protocol, mapping);
+				const rewritten = rewriteJsonResponse(parsed, protocol, mapping, usageOptions);
 				body = Buffer.from(JSON.stringify(rewritten));
 			} catch (error) {
 				if (error instanceof BridgeResponseError) {
@@ -1085,7 +1362,19 @@ function proxyUpstreamResponse(upstreamResponse, response, options) {
 	});
 }
 
-function proxyRequest({ request, response, targetUrl, headers, body, mapping, protocol, model, onUpstreamAbort, logger }) {
+function proxyRequest({
+	request,
+	response,
+	targetUrl,
+	headers,
+	body,
+	mapping,
+	protocol,
+	model,
+	onUpstreamAbort,
+	logger,
+	maxInputTokens
+}) {
 	const transport = targetUrl.protocol === 'https:' ? https : http;
 	const startedAt = Date.now();
 	const state = { downstreamDisconnected: false, aborted: false };
@@ -1104,7 +1393,7 @@ function proxyRequest({ request, response, targetUrl, headers, body, mapping, pr
 					`[${SERVICE_NAME}] ${request.method} ${targetUrl.pathname} -> ${upstreamResponse.statusCode} (${Date.now() - startedAt}ms)`
 				);
 			});
-			proxyUpstreamResponse(upstreamResponse, response, { mapping, protocol, model, logger, state });
+			proxyUpstreamResponse(upstreamResponse, response, { mapping, protocol, model, logger, maxInputTokens, state });
 		}
 	);
 
@@ -1143,6 +1432,7 @@ export function createBridgeServer(options = {}) {
 	const upstreamUrl = new URL(options.upstreamUrl ?? DEFAULT_UPSTREAM);
 	const buildId = options.buildId ?? 'development';
 	const maxBodyBytes = options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
+	const maxInputTokens = options.maxInputTokens ?? DEFAULT_MAX_INPUT_TOKENS;
 	const logger = options.logger ?? console;
 
 	return http.createServer(async (request, response) => {
@@ -1209,7 +1499,8 @@ export function createBridgeServer(options = {}) {
 			protocol,
 			model,
 			onUpstreamAbort: options.onUpstreamAbort,
-			logger
+			logger,
+			maxInputTokens
 		});
 	});
 }
@@ -1232,7 +1523,8 @@ if (isMainModule()) {
 	const upstreamUrl = process.env.CLIPROXY_UPSTREAM ?? DEFAULT_UPSTREAM;
 	const buildId = process.env.CLIPROXY_BRIDGE_BUILD_ID ?? 'development';
 	const maxBodyBytes = parsePositiveInteger(process.env.CLIPROXY_BRIDGE_MAX_BODY_BYTES, DEFAULT_MAX_BODY_BYTES);
-	const server = createBridgeServer({ upstreamUrl, buildId, maxBodyBytes });
+	const maxInputTokens = parsePositiveInteger(process.env.CLIPROXY_BRIDGE_MAX_INPUT_TOKENS, DEFAULT_MAX_INPUT_TOKENS);
+	const server = createBridgeServer({ upstreamUrl, buildId, maxBodyBytes, maxInputTokens });
 
 	server.listen(port, host, () => {
 		console.log(`[${SERVICE_NAME}] listening on http://${host}:${port}; upstream=${upstreamUrl}; build=${buildId}`);

@@ -130,6 +130,110 @@ test('flattens namespace tools, history, schemas, and tool choice', () => {
 	});
 });
 
+test('adapts Responses custom tools and history to function calls for CLIProxyAPI', () => {
+	const { body, mapping } = flattenResponsesRequest({
+		tools: [
+			{
+				type: 'custom',
+				name: 'exec',
+				description: 'Run orchestration JavaScript.',
+				format: { type: 'grammar', syntax: 'lark', definition: 'start: /[\\s\\S]+/' }
+			}
+		],
+		input: [
+			{ type: 'custom_tool_call', id: 'ctc_1', call_id: 'call_1', name: 'exec', input: 'text(true);' },
+			{ type: 'custom_tool_call_output', call_id: 'call_1', output: 'ok' }
+		],
+		tool_choice: { type: 'custom', name: 'exec' }
+	});
+
+	assert.deepEqual(body.tools[0], {
+		type: 'function',
+		name: 'exec',
+		description: 'Run orchestration JavaScript.',
+		strict: false,
+		parameters: {
+			type: 'object',
+			properties: {
+				input: {
+					type: 'string',
+					description: 'The complete freeform input for this tool. It must match this lark grammar:\nstart: /[\\s\\S]+/'
+				}
+			},
+			required: ['input'],
+			additionalProperties: false
+		}
+	});
+	assert.deepEqual(body.input[0], {
+		type: 'function_call',
+		id: 'ctc_1',
+		call_id: 'call_1',
+		name: 'exec',
+		arguments: '{"input":"text(true);"}'
+	});
+	assert.equal(body.input[1].type, 'function_call_output');
+	assert.deepEqual(body.tool_choice, { type: 'function', name: 'exec' });
+	assert.equal(mapping.customToolNames.has('exec'), true);
+});
+
+test('restores adapted custom calls in JSON Responses output', () => {
+	const mapping = flattenResponsesRequest({ tools: [{ type: 'custom', name: 'exec', format: { type: 'text' } }] }).mapping;
+	const result = convertChatCompletionToResponse(
+		{
+			id: 'chat_custom',
+			choices: [
+				{
+					finish_reason: 'tool_calls',
+					message: {
+						tool_calls: [
+							{ id: 'call_custom', type: 'function', function: { name: 'exec', arguments: '{"input":"text(true);"}' } }
+						]
+					}
+				}
+			]
+		},
+		mapping
+	);
+
+	assert.deepEqual(result.output[0], {
+		type: 'custom_tool_call',
+		id: 'call_custom',
+		call_id: 'call_custom',
+		name: 'exec',
+		input: 'text(true);',
+		status: 'completed'
+	});
+});
+
+test('rewrites exec-wrapped wait calls into native wait', () => {
+	const mapping = flattenResponsesRequest({ tools: [{ type: 'custom', name: 'exec', format: { type: 'text' } }] }).mapping;
+	const fromCustom = rewriteResponseForCodex(
+		{
+			type: 'custom_tool_call',
+			id: 'call_wait',
+			call_id: 'call_wait',
+			name: 'exec',
+			input: 'await tools.wait({\n  cell_id: "107",\n  yield_time_ms: 60000\n});',
+			status: 'completed'
+		},
+		mapping
+	);
+	assert.deepEqual(fromCustom, {
+		type: 'function_call',
+		id: 'call_wait',
+		call_id: 'call_wait',
+		name: 'wait',
+		arguments: '{"cell_id":"107","yield_time_ms":60000}',
+		status: 'completed'
+	});
+
+	const ordinary = rewriteResponseForCodex(
+		{ type: 'custom_tool_call', name: 'exec', input: 'await tools.shell_command({ command: "echo hi" });', status: 'completed' },
+		mapping
+	);
+	assert.equal(ordinary.name, 'exec');
+});
+
 test('restores full and unique bare names but leaves ambiguous bare names untouched', () => {
 	const unique = flattenResponsesRequest({ tools: [namespaceTool('mcp__node_repl', 'js')] }).mapping;
 	const restoredFull = rewriteResponseForCodex(
@@ -474,6 +578,99 @@ test('converts legacy Chat SSE delta.function_call', async () => {
 	assert.equal(events.filter((event) => event.type === 'response.completed').length, 1);
 });
 
+test('converts adapted custom function calls in Chat SSE back to custom tool lifecycle', async () => {
+	const mapping = flattenResponsesRequest({ tools: [{ type: 'custom', name: 'exec', format: { type: 'text' } }] }).mapping;
+	const output = await transformResponsesChat(
+		[
+			sse('chat.completion.chunk', {
+				id: 'chat_custom_stream',
+				choices: [
+					{
+						index: 0,
+						delta: {
+							tool_calls: [
+								{ index: 0, id: 'call_custom', type: 'function', function: { name: 'exec', arguments: '{"input":"text(' } }
+							]
+						},
+						finish_reason: null
+					}
+				]
+			}),
+			sse('chat.completion.chunk', {
+				id: 'chat_custom_stream',
+				choices: [
+					{
+						index: 0,
+						delta: { tool_calls: [{ index: 0, function: { arguments: 'true);"}' } }] },
+						finish_reason: 'tool_calls'
+					}
+				]
+			}),
+			'data: [DONE]\n\n'
+		],
+		{ mapping, model: 'grok-4.5', logger: { error() {} } }
+	);
+	const events = eventData(output);
+	const added = events.find((event) => event.type === 'response.output_item.added');
+	const done = events.find((event) => event.type === 'response.custom_tool_call_input.done');
+	const itemDone = events.find((event) => event.type === 'response.output_item.done');
+
+	assert.equal(added.item.type, 'custom_tool_call');
+	assert.equal(added.item.name, 'exec');
+	assert.equal(done.input, 'text(true);');
+	assert.equal(itemDone.item.input, 'text(true);');
+	assert.equal(
+		events.some((event) => event.type.startsWith('response.function_call_arguments')),
+		false
+	);
+});
+
+test('converts native Responses custom function lifecycle without leaking wrapper JSON', async () => {
+	const mapping = flattenResponsesRequest({ tools: [{ type: 'custom', name: 'exec', format: { type: 'text' } }] }).mapping;
+	const item = {
+		type: 'function_call',
+		id: 'fc_custom',
+		call_id: 'call_custom',
+		name: 'exec',
+		arguments: '',
+		status: 'in_progress'
+	};
+	const output = await transformResponsesChat(
+		[
+			sse('response.output_item.added', { response_id: 'resp_custom', output_index: 0, item }),
+			sse('response.function_call_arguments.delta', {
+				response_id: 'resp_custom',
+				output_index: 0,
+				item_id: 'fc_custom',
+				delta: '{"input":"text(true);"}'
+			}),
+			sse('response.function_call_arguments.done', {
+				response_id: 'resp_custom',
+				output_index: 0,
+				item_id: 'fc_custom',
+				call_id: 'call_custom',
+				arguments: '{"input":"text(true);"}'
+			}),
+			sse('response.output_item.done', {
+				response_id: 'resp_custom',
+				output_index: 0,
+				item: { ...item, arguments: '{"input":"text(true);"}', status: 'completed' }
+			}),
+			'data: [DONE]\n\n'
+		],
+		{ mapping, model: 'grok-4.5', logger: { error() {} } }
+	);
+	const events = eventData(output);
+
+	assert.equal(events.find((event) => event.type === 'response.output_item.added').item.type, 'custom_tool_call');
+	assert.equal(events.find((event) => event.type === 'response.custom_tool_call_input.done').input, 'text(true);');
+	assert.equal(events.find((event) => event.type === 'response.output_item.done').item.input, 'text(true);');
+	assert.equal(
+		events.some((event) => event.type === 'response.function_call_arguments.delta'),
+		false
+	);
+});
+
 test('converts multiple parallel Chat SSE tool calls without mixing arguments', async () => {
 	const output = await transformResponsesChat(
 		[
@@ -570,6 +767,82 @@ test('converts completion-only tool_calls and legacy function_call JSON', () => 
 	);
 	assert.equal(legacy.output[0].type, 'function_call');
 	assert.match(legacy.output[0].id, /^chat_legacy_call_/u);
+});
+
+test('normalizes valid usage and omits input usage beyond the configured 500k context window', async () => {
+	const standard = convertChatCompletionToResponse(
+		{
+			id: 'chat_usage',
+			choices: [{ message: { content: 'ok' } }],
+			usage: {
+				prompt_tokens: 120,
+				completion_tokens: 8,
+				total_tokens: 999,
+				prompt_tokens_details: { cached_tokens: 96 }
+			}
+		},
+		undefined
+	);
+	assert.deepEqual(standard.usage, {
+		input_tokens: 120,
+		output_tokens: 8,
+		total_tokens: 128,
+		input_tokens_details: { cached_tokens: 96 }
+	});
+	const longButValid = convertChatCompletionToResponse(
+		{
+			id: 'chat_usage_long',
+			choices: [{ message: { content: 'ok' } }],
+			usage: { input_tokens: 244_567, output_tokens: 510 }
+		},
+		undefined
+	);
+	assert.equal(longButValid.usage.input_tokens, 244_567);
+
+	const logs = [];
+	const oversized = convertChatCompletionToResponse(
+		{
+			id: 'chat_usage_oversized',
+			choices: [{ message: { content: 'ok' } }],
+			usage: { input_tokens: 500_001, output_tokens: 510 }
+		},
+		undefined,
+		{
+			maxInputTokens: 500_000,
+			model: 'grok-4.5',
+			logger: {
+				warn(message) {
+					logs.push(message);
+				}
+			}
+		}
+	);
+	assert.equal('usage' in oversized, false);
+	assert.match(logs[0], /input_tokens=500001/u);
+
+	const nativeResponse = rewriteResponseForCodex(
+		{
+			type: 'response.completed',
+			response: { usage: { input_tokens: 500_001, output_tokens: 510 } }
+		},
+		undefined,
+		{ maxInputTokens: 500_000 }
+	);
+	assert.equal('usage' in nativeResponse.response, false);
+
+	const streamed = await transformResponsesChat(
+		[
+			sse('chat.completion.chunk', {
+				id: 'chat_usage_stream',
+				usage: { prompt_tokens: 500_001, completion_tokens: 510 },
+				choices: [{ index: 0, delta: { content: 'ok' }, finish_reason: 'stop' }]
+			}),
+			'data: [DONE]\n\n'
+		],
+		{ maxInputTokens: 500_000, model: 'grok-4.5', logger: { warn() {}, error() {} } }
+	);
+	const completed = eventData(streamed).find((event) => event.type === 'response.completed');
+	assert.equal('usage' in completed.response, false);
 });
 
 test('keeps ordinary Chat text on stop and preserves direct Chat schema', async () => {

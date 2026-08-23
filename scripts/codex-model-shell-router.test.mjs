@@ -91,7 +91,7 @@ test('preserves streaming upstream responses and rejects unmapped models', async
 		routes: [
 			{
 				clientModel: 'gpt-5.6-terra',
-				upstreamModel: 'grok-4.5',
+				upstreamModel: 'grok-4.6',
 				upstreamBaseUrl: `http://127.0.0.1:${upstreamPort}`,
 				apiKey: 'target-key'
 			}

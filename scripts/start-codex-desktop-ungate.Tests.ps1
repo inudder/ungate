@@ -185,7 +185,7 @@ Describe 'Optional OmniRoute provider fallback' {
             '-NoProfile',
             '-File', $script:launcherPath,
             '-EnableProviderFallback',
-            '-Model', 'grok-4.5',
+            '-Model', 'grok-4.6',
             '-CustomCodexHome', $customHome
         )
 
@@ -222,8 +222,8 @@ Describe 'Custom launcher model registry' {
                 Priority = 0
             }
             [pscustomobject][ordered]@{
-                Slug = 'grok-4.5'
-                DisplayName = 'Grok 4.5 (CLIProxyAPI)'
+                Slug = 'grok-4.6'
+                DisplayName = 'Grok 4.6 (CLIProxyAPI)'
                 Priority = 1
             }
         )
@@ -239,7 +239,7 @@ Describe 'Custom launcher model registry' {
         )
 
         $definitions | Should -HaveCount 2
-        @($definitions.Slug) | Should -Be @('ungate-opus-4-8', 'grok-4.5')
+        @($definitions.Slug) | Should -Be @('ungate-opus-4-8', 'grok-4.6')
     }
 
     It 'round-trips a versioned registry without losing persisted fields' {
@@ -298,7 +298,7 @@ Describe 'Custom launcher model registry' {
         $definitions | Should -HaveCount 4
         @($definitions.Slug) | Should -Be @(
             'ungate-opus-4-8',
-            'grok-4.5',
+            'grok-4.6',
             'ungate-opus-5',
             'custom-text-model'
         )
@@ -447,7 +447,6 @@ Describe 'Custom launcher model registry' {
                     slug = 'gpt-template'
                     display_name = 'GPT Template'
                     description = 'Template model'
-                    base_instructions = 'Template instructions'
                     model_messages = [ordered]@{
                         instructions_template = 'Template instructions'
                     }
@@ -473,16 +472,25 @@ env_key = "OMNIROUTE_API_KEY"
         $catalog = Get-Content -LiteralPath $script:CustomModelCatalogPath -Raw -Encoding utf8 |
             ConvertFrom-Json -Depth 100
         @($catalog.Models) | Should -HaveCount 2
+        foreach ($catalogModel in @($catalog.Models)) {
+            $parallelToolCallProperty =
+                $catalogModel.PSObject.Properties['supports_parallel_tool_calls']
+            $parallelToolCallProperty | Should -Not -BeNullOrEmpty
+            ($parallelToolCallProperty.Value -is [bool]) | Should -BeTrue
+        }
         $opus5 = $catalog.Models |
             Where-Object { $_.slug -eq 'gpt-5.6-terra' } |
             Select-Object -First 1
         $opus5.display_name | Should -BeExactly 'Claude Opus 5 (Ungate)'
         $opus5.default_reasoning_level | Should -BeExactly 'high'
         @($opus5.input_modalities) | Should -Be @('text', 'image')
-        # Anthropic-prefixed models store only the env instruction as their
-        # base_instructions; the Codex self-identification layer is omitted.
+        $opus5.supports_parallel_tool_calls | Should -BeFalse
+        # Current catalog caches use instructions_template, while the installed
+        # Codex CLI requires the generated catalog to include both fields.
         $opus5.base_instructions | Should -Match 'environment instructions'
         $opus5.base_instructions | Should -Not -Match 'GPT model'
+        $opus5.model_messages.instructions_template | Should -Match 'environment instructions'
+        $opus5.model_messages.instructions_template | Should -Not -Match 'GPT model'
 
         $config = Get-Content -LiteralPath $script:CustomConfigPath -Raw
         $config | Should -Match '(?m)^model = "gpt-5.6-terra"\r?$'
@@ -495,13 +503,13 @@ env_key = "OMNIROUTE_API_KEY"
     It 'allocates stable official shell IDs for provider models' {
         $definitions = @(
             [pscustomobject]@{ Slug = 'ungate-opus-4-8' },
-            [pscustomobject]@{ Slug = 'grok-4.5' },
+            [pscustomobject]@{ Slug = 'grok-4.6' },
             [pscustomobject]@{ Slug = 'miniMax-M3' }
         )
 
         $mapped = @(Set-CodexModelShellSlugs -Definitions $definitions)
 
-        @($mapped.Slug) | Should -Be @('ungate-opus-4-8', 'grok-4.5', 'miniMax-M3')
+        @($mapped.Slug) | Should -Be @('ungate-opus-4-8', 'grok-4.6', 'miniMax-M3')
         @($mapped.ShellSlug) | Should -Be @('gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna')
     }
 
@@ -786,7 +794,7 @@ Describe 'Codex launcher history profile' {
             [pscustomobject]@{ Slug = 'ungate-opus-4-8'; Provider = 'ungate_proxy' }
             [pscustomobject]@{ Slug = 'ungate-fable-5'; Provider = 'ungate_proxy' }
             [pscustomobject]@{ Slug = 'miniMax-M3'; Provider = 'ungate_proxy' }
-            [pscustomobject]@{ Slug = 'grok-4.5'; Provider = 'cliproxyapi' }
+            [pscustomobject]@{ Slug = 'grok-4.6'; Provider = 'cliproxyapi' }
         )
 
         $profiles = @(
@@ -813,7 +821,7 @@ Describe 'Codex launcher history profile' {
         $profile = Get-CodexHistoryProfileInfo `
             -HomePath $separateHome `
             -CanonicalHomePath $canonicalHome `
-            -ModelSlug 'grok-4.5' `
+            -ModelSlug 'grok-4.6' `
             -ProviderName 'cliproxyapi'
 
         $profile.IsCanonical | Should -BeFalse
@@ -887,6 +895,18 @@ Describe 'Get-CodexCliExecutable' {
         }
 
         Get-CodexCliExecutable | Should -BeNullOrEmpty
+    }
+}
+
+Describe 'Launcher initialization order' {
+    It 'writes the model catalog before validating the isolated MCP configuration' {
+        $launcherSource = Get-Content -LiteralPath $script:launcherPath -Raw
+        $catalogWriteIndex = $launcherSource.LastIndexOf('Write-UngateModelCatalog')
+        $mcpSyncIndex = $launcherSource.LastIndexOf('Sync-CodexMcpServers')
+
+        $catalogWriteIndex | Should -BeGreaterThan -1
+        $mcpSyncIndex | Should -BeGreaterThan -1
+        $catalogWriteIndex | Should -BeLessThan $mcpSyncIndex
     }
 }
 
@@ -1068,5 +1088,32 @@ command = "npx"
             Should -BeExactly $beforeHash
         @(Get-ChildItem -LiteralPath $homes.TargetCodexHome -Filter '.config.toml.*').Count |
             Should -Be 0
+    }
+}
+
+Describe 'Ungate environment source-edit instructions' {
+    It 'tells Grok 4.6 to use MCP apply_patch and never wrap patches in exec template literals' {
+        $launcherSource = Get-Content -LiteralPath $script:launcherPath -Raw
+        if ($launcherSource -notmatch '(?s)\$UngateEnvironmentInstruction = @''\r?\n(.*?)\r?\n''@\r?\nfunction Get-UngateModelIdentity') {
+            throw 'Could not extract UngateEnvironmentInstruction from the launcher.'
+        }
+        $script:UngateEnvironmentInstruction = $Matches[1].Trim()
+
+        $identity = Get-UngateModelIdentity `
+            -DisplayName 'Grok 4.6 (CLIProxyAPI)' `
+            -UpstreamModel 'grok-4.6' `
+            -ProviderDisplayName 'CLIProxyAPI' `
+            -TransportDescription 'the local CLIProxyAPI compatibility bridge'
+
+        $identity | Should -Match 'mcp__ungate_patch__apply_patch'
+        $identity | Should -Match 'tools\.apply_patch\(`'
+        $identity | Should -Match 'ReferenceError'
+        $identity | Should -Match '\$\{\}'
+        $identity | Should -Match 'tools\.wait'
+        $identity | Should -Match 'yield_time_ms'
+        $identity | Should -Match 'text\(\.\.\.\)'
+        $identity | Should -Match 'bare await returns nothing'
+        $identity | Should -Match 'proposed_plan'
+        $identity | Should -Match 'HARD RULE — Plan Mode'
     }
 }

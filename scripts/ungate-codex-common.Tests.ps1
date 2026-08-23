@@ -189,3 +189,70 @@ Describe 'Test-CliProxyResponsesInference' {
         } | Should -Throw '*unexpected preflight output*'
     }
 }
+
+Describe 'Invoke-CliProxyPreflight' {
+    BeforeEach {
+        Mock Test-CliProxyResponsesInference
+        Mock Write-Host
+    }
+
+    It 'uses live inference when the dynamic catalog omits the requested model' {
+        Mock Invoke-RestMethod {
+            [pscustomobject]@{
+                data = @([pscustomobject]@{ id = 'grok-4.5' })
+            }
+        }
+
+        {
+            Invoke-CliProxyPreflight `
+                -Key 'test-key' `
+                -Model 'grok-4.6' `
+                -ProxyBaseUrl 'http://127.0.0.1:8318'
+        } | Should -Not -Throw
+
+        Should -Invoke Test-CliProxyResponsesInference -Times 1 -Exactly -ParameterFilter {
+            $Key -eq 'test-key' -and
+            $Model -eq 'grok-4.6' -and
+            $ProxyOpenAiBaseUrl -eq 'http://127.0.0.1:8318/v1'
+        }
+        Should -Invoke Write-Host -ParameterFilter {
+            $Object -like "*not advertised*" -and $ForegroundColor -eq 'Yellow'
+        }
+    }
+
+    It 'uses live inference when catalog discovery is temporarily unavailable' {
+        Mock Invoke-RestMethod { throw 'catalog offline' }
+
+        {
+            Invoke-CliProxyPreflight `
+                -Key 'test-key' `
+                -Model 'grok-4.6' `
+                -ProxyBaseUrl 'http://127.0.0.1:8318'
+        } | Should -Not -Throw
+
+        Should -Invoke Test-CliProxyResponsesInference -Times 1 -Exactly
+        Should -Invoke Write-Host -ParameterFilter {
+            $Object -like "*Could not validate model 'grok-4.6'*" -and
+            $ForegroundColor -eq 'Yellow'
+        }
+    }
+
+    It 'reports a catalog match before running live inference' {
+        Mock Invoke-RestMethod {
+            [pscustomobject]@{
+                data = @([pscustomobject]@{ id = 'grok-4.6' })
+            }
+        }
+
+        Invoke-CliProxyPreflight `
+            -Key 'test-key' `
+            -Model 'grok-4.6' `
+            -ProxyBaseUrl 'http://127.0.0.1:8318'
+
+        Should -Invoke Test-CliProxyResponsesInference -Times 1 -Exactly
+        Should -Invoke Write-Host -ParameterFilter {
+            $Object -eq "[ungate] Model 'grok-4.6' available." -and
+            $ForegroundColor -eq 'Green'
+        }
+    }
+}

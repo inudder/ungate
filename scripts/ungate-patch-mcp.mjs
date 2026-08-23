@@ -871,6 +871,7 @@ export function createPatchMcpServer(options) {
 			title: 'Apply source patch',
 			description: [
 				'Apply a native-style patch transactionally when the native Codex apply_patch tool is unavailable.',
+				'This is the safe patch path: `${}` here is ordinary text. Do not send the patch through an exec template literal.',
 				'The first and last lines must be the exact sentinels *** Begin Patch and *** End Patch.',
 				'Use only plain-text Add File, Update File, Delete File, and Move to headers; do not wrap headers in Markdown emphasis.',
 				ADD_FILE_REMEDIATION,

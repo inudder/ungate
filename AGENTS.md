@@ -7,7 +7,7 @@ model/provider matrix and external-directory map are maintained in
 
 When investigating a model, follow its actual route before changing code:
 
-- Mode 3, Grok 4.5 (CLIProxyAPI): model-shell router `8319` -> local
+- Mode 3, Grok 4.6 (CLIProxyAPI): model-shell router `8319` -> local
   namespace bridge `8318` -> CLIProxyAPI upstream `8317`; inspect
   `J:\Sandbox\CLIProxyAPI` first, then
   `scripts\cliproxy-namespace-bridge.mjs` and
@@ -113,7 +113,7 @@ by the API process.
 ## CLIProxy namespace bridge
 
 `scripts/cliproxy-namespace-bridge.mjs` is a local compatibility proxy for
-CLIProxyAPI models, currently Grok 4.5. The Desktop launcher starts or reuses
+CLIProxyAPI models, currently Grok 4.6. The Desktop launcher starts or reuses
 it on port `8318`; it forwards to CLIProxyAPI on port `8317`.
 
 Codex Responses sends MCP tools as `type: "namespace"`, while the CLIProxyAPI
