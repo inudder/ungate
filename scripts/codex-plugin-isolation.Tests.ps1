@@ -181,6 +181,8 @@ Describe 'isolated Codex Beta plugin mirror' {
         Should -Invoke Invoke-CodexPluginJson -ModuleName codex-plugin-isolation -Times 0 -ParameterFilter {
             ($Arguments -join ' ') -match 'openai-bundled'
         }
+        $result.SyncReasons |
+            Should -Contain 'custom plugins path is not an isolated directory (Kind=ExpectedJunction)'
     }
 
     It 'synchronizes once when an external ID changes, including its enabled state' {
@@ -212,6 +214,7 @@ Describe 'isolated Codex Beta plugin mirror' {
         $result.Changed | Should -BeTrue
         $result.Action | Should -Be 'Synchronized'
         Should -Invoke Install-StagedExternalPlugins -ModuleName codex-plugin-isolation -Times 1 -Exactly
+        $result.SyncReasons | Should -Contain 'external plugin selection changed'
     }
 
     It 'is idempotent and ignores an external cache version change when IDs and enabled states match' {
@@ -230,12 +233,38 @@ Describe 'isolated Codex Beta plugin mirror' {
 
         $result.Changed | Should -BeFalse
         $result.Action | Should -Be 'Verified'
+        @($result.SyncReasons) | Should -HaveCount 0
+    }
+
+    It 'accepts an empty plugin inventory returned by newer Codex versions' {
+        InModuleScope codex-plugin-isolation {
+            $states = @(Get-PluginStateSet -Installed @())
+            $nullInventoryStates = @(Get-PluginStateSet -Installed @($null))
+            $split = Split-PluginStatesByMarketplace -PluginStates $states
+            $nullSplit = Split-PluginStatesByMarketplace -PluginStates $null
+
+            $states | Should -HaveCount 0
+            $nullInventoryStates | Should -HaveCount 0
+            Get-PluginStateSignature -PluginStates $states | Should -BeExactly ''
+            Get-PluginStateSignature -PluginStates $null | Should -BeExactly ''
+            @($split.Bundled) | Should -HaveCount 0
+            @($split.External) | Should -HaveCount 0
+            @($nullSplit.Bundled) | Should -HaveCount 0
+            @($nullSplit.External) | Should -HaveCount 0
+        }
     }
 
     It 'updates only the direct Beta cache when the Browser client is stale' {
         $null = Invoke-InitialMirror
         $browserClient = Get-ChildItem -LiteralPath (Join-Path $script:homes.CustomHome 'plugins\cache\openai-bundled\browser') -Recurse -Filter 'browser-client.mjs' | Select-Object -First 1
         [System.IO.File]::WriteAllText($browserClient.FullName, 'stale browser client')
+        $marketplaceRoot = Join-Path $script:homes.CustomHome '.plugin-marketplaces'
+        $tmpPluginsRoot = Join-Path $script:homes.CustomHome '.tmp\plugins'
+        New-Item -ItemType Directory -Path $marketplaceRoot, $tmpPluginsRoot -Force | Out-Null
+        $marketplaceSentinel = Join-Path $marketplaceRoot 'sentinel.txt'
+        $tmpSentinel = Join-Path $tmpPluginsRoot 'sentinel.txt'
+        [System.IO.File]::WriteAllText($marketplaceSentinel, 'keep-marketplaces')
+        [System.IO.File]::WriteAllText($tmpSentinel, 'keep-tmp-plugins')
         Mock Invoke-CodexPluginJson -ModuleName codex-plugin-isolation { throw 'the bundle-only repair must not call the CLI' }
 
         $result = Initialize-CodexBetaPluginIsolation `
@@ -248,6 +277,47 @@ Describe 'isolated Codex Beta plugin mirror' {
 
         $result.Changed | Should -BeTrue
         (Get-Content -LiteralPath $browserClient.FullName) | Should -Be 'trusted beta browser client'
+        $result.SyncReasons | Should -Contain 'bundled plugin cache is stale (browser@openai-bundled)'
+        (Get-Content -LiteralPath $marketplaceSentinel) | Should -Be 'keep-marketplaces'
+        (Get-Content -LiteralPath $tmpSentinel) | Should -Be 'keep-tmp-plugins'
+    }
+
+    It 'treats a Beta-dropped bundled plugin as unsupported instead of recopying' {
+        $null = Invoke-InitialMirror
+        Remove-Item -LiteralPath (Join-Path $script:homes.CustomHome 'plugins\cache\openai-bundled\sites') -Recurse -Force
+        InModuleScope codex-plugin-isolation -Parameters @{
+            ConfigPath = (Join-Path $script:homes.CustomHome 'config.toml')
+            Marketplace = $script:marketplace
+        } {
+            param($ConfigPath, $Marketplace)
+            Set-BundledPluginConfiguration `
+                -ConfigPath $ConfigPath `
+                -BetaBundledMarketplace $Marketplace `
+                -PluginStates @(
+                    [pscustomobject]@{ PluginId = 'browser@openai-bundled'; Enabled = $true },
+                    [pscustomobject]@{ PluginId = 'chrome@openai-bundled'; Enabled = $true },
+                    [pscustomobject]@{ PluginId = 'computer-use@openai-bundled'; Enabled = $true },
+                    [pscustomobject]@{ PluginId = 'visualize@openai-bundled'; Enabled = $false }
+                )
+        }
+        Mock Install-StagedExternalPlugins -ModuleName codex-plugin-isolation { throw 'unexpected external synchronization' }
+        Mock Copy-BundledPluginCacheToStaging -ModuleName codex-plugin-isolation { throw 'unexpected bundled cache copy' }
+        Mock Copy-PluginArtifactsToStaging -ModuleName codex-plugin-isolation { throw 'unexpected plugin artifact copy' }
+
+        $result = Initialize-CodexBetaPluginIsolation `
+            -DefaultCodexHome $script:homes.DefaultHome `
+            -CustomCodexHome $script:homes.CustomHome `
+            -CodexExecutable $script:codex `
+            -BetaBundledMarketplace $script:marketplace `
+            -BetaPackageVersion 'test-beta' `
+            -BetaIsRunning $false
+
+        $result.Changed | Should -BeFalse
+        $result.Action | Should -Be 'Verified'
+        $result.UnsupportedBundledPluginIds |
+            Should -Be @('codex-app-tools@openai-bundled', 'sites@openai-bundled')
+        $result.PluginIds | Should -Not -Contain 'sites@openai-bundled'
+        @($result.SyncReasons) | Should -HaveCount 0
     }
 
     It 'does not modify a profile that needs synchronization while Beta is running' {
@@ -310,5 +380,45 @@ Describe 'isolated Codex Beta plugin mirror' {
         } | Should -Throw '*simulated commit failure*'
         (Get-Content -LiteralPath $configPath -Raw) | Should -BeExactly $beforeConfig
         (Get-Content -LiteralPath $browserClient.FullName -Raw) | Should -BeExactly $beforeBrowser
+    }
+
+    It 'leaves live marketplace trees in place when staging has none' {
+        $null = Invoke-InitialMirror
+        $marketplaceRoot = Join-Path $script:homes.CustomHome '.plugin-marketplaces'
+        $tmpPluginsRoot = Join-Path $script:homes.CustomHome '.tmp\plugins'
+        New-Item -ItemType Directory -Path $marketplaceRoot, $tmpPluginsRoot -Force | Out-Null
+        $marketplaceSentinel = Join-Path $marketplaceRoot 'sentinel.txt'
+        $tmpSentinel = Join-Path $tmpPluginsRoot 'sentinel.txt'
+        [System.IO.File]::WriteAllText($marketplaceSentinel, 'keep-marketplaces')
+        [System.IO.File]::WriteAllText($tmpSentinel, 'keep-tmp-plugins')
+
+        $stagingHome = Join-Path $script:homes.CustomHome ('.plugin-isolation-staging-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $stagingHome | Out-Null
+        Copy-Item -LiteralPath (Join-Path $script:homes.CustomHome 'config.toml') -Destination (Join-Path $stagingHome 'config.toml')
+        Copy-Item -LiteralPath (Join-Path $script:homes.CustomHome 'plugins') -Destination (Join-Path $stagingHome 'plugins') -Recurse
+
+        $directoryState = Get-CodexPluginDirectoryState `
+            -DefaultCodexHome $script:homes.DefaultHome `
+            -CustomCodexHome $script:homes.CustomHome
+        InModuleScope codex-plugin-isolation -Parameters @{
+            DirectoryState = $directoryState
+            DefaultCodexHome = $script:homes.DefaultHome
+            CustomCodexHome = $script:homes.CustomHome
+            StagingHome = $stagingHome
+        } {
+            param($DirectoryState, $DefaultCodexHome, $CustomCodexHome, $StagingHome)
+            $null = Commit-DifferentialPluginIsolation `
+                -DirectoryState $DirectoryState `
+                -DefaultCodexHome $DefaultCodexHome `
+                -CustomCodexHome $CustomCodexHome `
+                -StagingHome $StagingHome
+        }
+
+        (Get-Content -LiteralPath $marketplaceSentinel) | Should -Be 'keep-marketplaces'
+        (Get-Content -LiteralPath $tmpSentinel) | Should -Be 'keep-tmp-plugins'
+        $backupRoots = @(Get-ChildItem -LiteralPath (Join-Path $script:homes.CustomHome '.plugin-isolation-backups') -Directory)
+        $backupRoots | Should -Not -BeNullOrEmpty
+        @(Get-ChildItem -LiteralPath $backupRoots[-1].FullName -Directory | Select-Object -ExpandProperty Name) |
+            Should -Not -Contain 'previous-marketplaces'
     }
 }

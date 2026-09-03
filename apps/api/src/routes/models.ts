@@ -4,6 +4,7 @@ import { isModelMappingProvider, isReasoningBudgetTier, type ModelMappingConfig 
 
 import { Settings } from '../database/app-settings';
 import { ModelValidator } from '../services/model-validator';
+import { ProviderModelCatalog, ProviderModelCatalogError } from '../services/provider-model-catalog';
 
 import type { FastifyPluginCallback } from 'fastify';
 
@@ -37,6 +38,25 @@ const plugin: FastifyPluginCallback = (app) => {
 			object: 'list',
 			data
 		});
+	});
+
+	app.get<{ Params: { provider: string } }>('/models/available/:provider', async (request, reply) => {
+		const { provider } = request.params;
+		if (!isModelMappingProvider(provider)) {
+			return reply.code(400).send({ error: 'Unknown model provider.' });
+		}
+
+		try {
+			const catalog = await ProviderModelCatalog.list(provider);
+
+			return reply.send(catalog);
+		} catch (error) {
+			if (error instanceof ProviderModelCatalogError) {
+				return reply.code(error.statusCode).send({ error: error.message });
+			}
+
+			return reply.code(502).send({ error: 'Unable to load the provider model catalog.' });
+		}
 	});
 
 	app.post('/models/validate', async (request, reply) => {

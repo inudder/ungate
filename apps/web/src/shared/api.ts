@@ -4,11 +4,13 @@ import type {
 	AnalyticsSummary,
 	AppSettings,
 	ModelMappingConfig,
+	ModelMappingProvider,
 	ModelValidationResult,
 	Period,
 	PromptCacheAnalytics,
 	RequestRecord,
-	TokenSeriesPoint
+	TokenSeriesPoint,
+	ProviderModelsResponse
 } from '@ungate/shared/frontend';
 
 export interface WakePingStatus {
@@ -64,6 +66,10 @@ export class Api {
 
 	static validateModel(model: ModelMappingConfig): Promise<ModelValidationResult> {
 		return this.post('/models/validate', { model });
+	}
+
+	static fetchAvailableModels(provider: ModelMappingProvider): Promise<ProviderModelsResponse> {
+		return this.get(`/models/available/${encodeURIComponent(provider)}`);
 	}
 
 	static authStart(): Promise<{ authUrl: string; sessionId: string }> {

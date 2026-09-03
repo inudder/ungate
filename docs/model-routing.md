@@ -21,16 +21,18 @@ change when routes change.
 | Mode | Display model | Upstream model | Provider/transport | Tool adapter |
 | --- | --- | --- | --- | --- |
 | 1 | Claude Fable 5 (Ungate) | `claude-fable-5` | Ungate proxy `47821` | None in model-shell router; compatibility belongs to `apps\api` |
-| 2 | MiniMax M3 (Ungate) | Launcher leaves id unset; API normalizes it | Ungate proxy `47821` | MiniMax inline Responses parser in `apps\api`; do not use Mimo adapter |
+| 2 | MiniMax M3 (Ungate) | Launcher leaves id unset; API normalizes it | Ungate proxy `47821` | MiniMax inline Responses parser in `apps\api`; do not use Mimo adapter; 1M context window (official MiniMax Codex `model_context_window`) |
 | 3 | Grok 4.6 (CLIProxyAPI) | `grok-4.6` | Router `8319` -> bridge `8318` -> CLIProxyAPI `8317` | CLIProxy namespace bridge only; no Mimo adapter; 500k context window (conservative until xAI publishes the 4.6 model card) |
 | 4 | Kimi K3 (OmniRoute) | `apikey-fun/kimi-k3` | OmniRoute `20128` | No route-specific stream adapter |
 | 5 | Grok 4.5 (apikey.fun) | `apikey-fun/grok-4.5` | OmniRoute `20128` | No route-specific stream adapter |
 | 6 | Claude Opus 5 (apikey.fun) | `apikey-fun/claude-opus-5` | OmniRoute `20128` | No route-specific stream adapter |
-| 7 | Mimo v2.5 Pro (OmniRoute) | `mimo-v2.5-pro` | OmniRoute `20128` | `mimo-textual-tools` via `scripts\mimo-responses-stream-adapter.mjs` |
+| 7 | Mimo v2.5 Pro (OmniRoute) | `mimo-v2.5-pro` | OmniRoute `20128` | `mimo-textual-tools` via `scripts\mimo-responses-stream-adapter.mjs`; 1M context window (official, unsqueezed) |
+| — | DeepSeek V4 Pro (OmniRoute) | `deepseek/deepseek-v4-pro` | OmniRoute `20128` | No route-specific stream adapter; 1M context window (official DeepSeek) |
 | 9 | Provider fallback (opt-in) | `codex-fallback` | OmniRoute `20128` | Fallback policy chooses the configured upstream; verify the generated route before debugging a provider |
 
 Mode 8 only opens the Desktop model picker. Mode 10 adds a model definition;
-it does not define a new transport by itself.
+it supports Ungate, CLIProxyAPI, and OmniRoute transports. DeepSeek V4 Pro
+can be selected via the Desktop model picker (Mode 8) or via `-Model deepseek-v4-pro`.
 
 ## Route boundaries
 
@@ -44,6 +46,80 @@ it does not define a new transport by itself.
   model, so a successful router health check does not prove that the selected
   upstream or tool protocol is correct.
 
+## Bridges vs adapters
+
+The model-shell router on `8319` is the common front door. What happens after
+it is not the same for every model. Do not treat "bridge" and "adapter" as
+synonyms when debugging tool calls, empty turns, or yield/`wait` protocol
+failures.
+
+### Bridge
+
+A bridge is a **separate HTTP proxy process** with its own port and lifetime.
+Codex talks to the bridge; the bridge talks to a different upstream server.
+
+There is currently one bridge: `scripts/cliproxy-namespace-bridge.mjs` on
+`8318`. The Desktop launcher starts or reuses it. It forwards to CLIProxyAPI
+on `8317` (`J:\Sandbox\CLIProxyAPI`).
+
+Use a bridge when the next hop is another server that does not speak Codex's
+tool schema. The bridge owns the full request/response cycle: flatten on the
+way in, restore on the way out, plus any hop-specific repairs.
+
+### Adapter
+
+An adapter is a **stream transform inside the router**. It has no extra port
+and no separate process. The router still opens the upstream connection; the
+adapter rewrites bytes as they pass through.
+
+There is currently one adapter: `scripts/mimo-responses-stream-adapter.mjs`
+(with `scripts/mimo-responses-namespace.mjs`) for Mimo when the route sets
+`responsesAdapter = mimo-textual-tools`. The router connects to OmniRoute
+`20128`; the adapter converts Chat Completions or textual/native tool calls
+into Codex Responses SSE.
+
+### Why Grok 4.6 needs a bridge
+
+Grok 4.6 is the only launcher model that terminates on CLIProxyAPI (xAI CLI
+chat proxy), not Ungate API and not OmniRoute.
+
+Codex Desktop Responses sends MCP tools as `type: "namespace"` (nested
+`mcp__...` tools, plus custom `exec`). CLIProxyAPI expects ordinary flat OpenAI
+`function` tools (`mcp__foo__js`). Tool-call history and `tool_choice` use the
+same nested-versus-flat split. Without a hop that flattens names on the
+request and restores `namespace` plus the original tool name on the response,
+Grok cannot see Codex tools correctly, or Codex cannot map calls back.
+
+That mismatch does not belong in `apps/api`: Grok never calls `47821`. It
+does not belong in the Mimo adapter: OmniRoute is not on this path. It does
+not belong in the router as a CLIProxy schema teacher: the router only selects
+a URL and optionally enables a stream adapter.
+
+The same hop also repairs CLIProxy-specific shape drift that Codex still
+expects:
+
+- custom `exec` as a function tool on the way upstream, restored on the way back;
+- `exec` bodies that wrap `await tools.wait({ cell_id })`, rewritten to native `wait`;
+- Chat Completions SSE translated into Responses events;
+- unresolved `Script running with cell ID N` yields: if the model returns
+  `stop` with no tool call, the bridge synthesizes native `wait` before
+  `response.completed`. A reasoning-only stop is not a finished turn.
+
+After changing the bridge, run `pnpm --filter @ungate/scripts run bridge:test`.
+The process on `8318` picks up code only after a Desktop launcher restart. Do
+not rebuild or restart `ungate-api` for bridge-only changes.
+
+### Where other models keep compatibility
+
+- Modes 1-2, Claude Fable 5 and MiniMax M3: Ungate Responses proxy `47821`.
+  Namespace and MiniMax tool compatibility live in `apps/api` Responses
+  handlers. Do not insert the CLIProxy bridge or the Mimo adapter.
+- Modes 4-6, Kimi K3, Grok 4.5, Claude Opus 5, and DeepSeek V4 Pro: router `8319`
+  to OmniRoute `20128` with neither a bridge nor an adapter.
+- Mode 7, Mimo v2.5 Pro: router adapter only. Protocol repair for Mimo belongs
+  in `mimo-responses-stream-adapter.mjs` / `mimo-responses-namespace.mjs`, not
+  in the Grok bridge.
+
 ## Where to look first
 
 ### Grok 4.6 (CLIProxyAPI), mode 3
@@ -52,6 +128,9 @@ it does not define a new transport by itself.
    availability, and upstream logs.
 2. `scripts\cliproxy-namespace-bridge.mjs` for namespace flattening, tool
    choice/history conversion, and response restoration.
+   If the latest tool output is an unresolved `Script running with cell ID`
+   yield and the model returns no tool call, the bridge synthesizes a native
+   `wait` before `response.completed`.
 3. `scripts\codex-model-shell-router.mjs` for route selection and downstream
    disconnect/pipeline errors.
 4. Session transcript and Desktop/router logs only after confirming the

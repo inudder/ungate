@@ -12,7 +12,10 @@ import {
 	flattenOpenAiRequest,
 	flattenResponsesRequest,
 	rewriteChatCompletionForClient,
-	rewriteResponseForCodex
+	rewriteResponseForCodex,
+	unresolvedYieldCellId,
+	requestHasWaitTool,
+	applyUnresolvedYieldWait
 } from './cliproxy-namespace-bridge.mjs';
 
 function namespaceTool(namespace, name, schema = { type: 'object', properties: {} }) {
@@ -232,6 +235,200 @@ test('rewrites exec-wrapped wait calls into native wait', () => {
 		mapping
 	);
 	assert.equal(ordinary.name, 'exec');
+});
+
+function yieldOutput(cellId = '11', type = 'custom_tool_call_output') {
+	return {
+		type,
+		call_id: 'call-exec',
+		output: `Script running with cell ID ${cellId}\nWall time 11.0 seconds\nOutput:\n`
+	};
+}
+
+test('detects unresolved exec yield cell ids across later user messages', () => {
+	assert.equal(
+		unresolvedYieldCellId({
+			input: [yieldOutput('11'), { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'продолжи' }] }]
+		}),
+		'11'
+	);
+	assert.equal(
+		unresolvedYieldCellId({
+			input: [yieldOutput('11'), { type: 'function_call_output', call_id: 'call-exec', output: 'Exit code: 0\nOutput:\nok\n' }]
+		}),
+		null
+	);
+	assert.equal(
+		unresolvedYieldCellId({
+			input: [{ type: 'custom_tool_call_output', output: [{ type: 'input_text', text: 'Script running with cell ID 42\n' }] }]
+		}),
+		'42'
+	);
+	assert.equal(
+		unresolvedYieldCellId({
+			messages: [
+				{ role: 'tool', content: 'Script running with cell ID 7' },
+				{ role: 'user', content: 'продолжи' }
+			]
+		}),
+		'7'
+	);
+	assert.equal(requestHasWaitTool({ tools: [{ type: 'function', name: 'wait', parameters: { type: 'object' } }] }), true);
+	assert.equal(requestHasWaitTool({ tools: [{ type: 'custom', name: 'exec', format: { type: 'text' } }] }), false);
+});
+
+test('injects native wait when chat stop has no tool call after an unresolved yield', () => {
+	const mapping = flattenResponsesRequest({
+		tools: [
+			{ type: 'custom', name: 'exec', format: { type: 'text' } },
+			{ type: 'function', name: 'wait', parameters: { type: 'object' } }
+		]
+	}).mapping;
+	const logs = [];
+	const result = convertChatCompletionToResponse(
+		{ id: 'chat_yield', choices: [{ finish_reason: 'stop', message: { content: '' } }] },
+		mapping,
+		{
+			yieldCellId: '11',
+			waitToolAvailable: true,
+			model: 'grok-4.6',
+			logger: {
+				log(message) {
+					logs.push(message);
+				}
+			}
+		}
+	);
+	assert.deepEqual(result.output.at(-1), {
+		type: 'function_call',
+		id: 'chat_yield_wait_yield',
+		call_id: 'chat_yield_wait_yield',
+		name: 'wait',
+		arguments: '{"cell_id":"11","yield_time_ms":60000}',
+		status: 'completed'
+	});
+	assert.match(logs[0], /cell_id=11/u);
+
+	const withoutWait = convertChatCompletionToResponse(
+		{ id: 'chat_yield_nowait', choices: [{ finish_reason: 'stop', message: { content: '' } }] },
+		mapping,
+		{ yieldCellId: '11', waitToolAvailable: false }
+	);
+	assert.equal(
+		withoutWait.output.some((item) => item.name === 'wait'),
+		false
+	);
+
+	const withCall = convertChatCompletionToResponse(
+		{
+			id: 'chat_yield_call',
+			choices: [
+				{
+					finish_reason: 'tool_calls',
+					message: {
+						tool_calls: [{ id: 'call_shell', type: 'function', function: { name: 'exec', arguments: '{"input":"text(true);"}' } }]
+					}
+				}
+			]
+		},
+		mapping,
+		{ yieldCellId: '11', waitToolAvailable: true }
+	);
+	assert.equal(withCall.output.length, 1);
+	assert.equal(withCall.output[0].name, 'exec');
+
+	const execWait = convertChatCompletionToResponse(
+		{
+			id: 'chat_exec_wait',
+			choices: [
+				{
+					finish_reason: 'tool_calls',
+					message: {
+						tool_calls: [
+							{
+								id: 'call_wait',
+								type: 'function',
+								function: {
+									name: 'exec',
+									arguments: '{"input":"await tools.wait({\\n  cell_id: \\"107\\",\\n  yield_time_ms: 60000\\n});"}'
+								}
+							}
+						]
+					}
+				}
+			]
+		},
+		mapping,
+		{ yieldCellId: '107', waitToolAvailable: true }
+	);
+	assert.equal(execWait.output.length, 1);
+	assert.equal(execWait.output[0].name, 'wait');
+	assert.equal(execWait.output[0].id, 'call_wait');
+
+	const jsonNative = applyUnresolvedYieldWait(
+		rewriteResponseForCodex({ id: 'resp_json', object: 'response', output: [{ type: 'reasoning', id: 'rs_1' }] }, mapping),
+		{ yieldCellId: '11', waitToolAvailable: true, logger: { log() {} } }
+	);
+	assert.equal(jsonNative.output.at(-1).name, 'wait');
+});
+
+test('injects native wait on Chat SSE stop after an unresolved yield', async () => {
+	const output = await transformResponsesChat(
+		[
+			sse('chat.completion.chunk', {
+				id: 'chat_yield_sse',
+				choices: [{ index: 0, delta: { content: 'Need to wait.' }, finish_reason: 'stop' }]
+			}),
+			'data: [DONE]\n\n'
+		],
+		{ yieldCellId: '11', waitToolAvailable: true, model: 'grok-4.6', logger: { log() {}, error() {} } }
+	);
+	const events = eventData(output);
+	assert.equal(
+		events.some((event) => event.type === 'response.output_item.added' && event.item?.name === 'wait'),
+		true
+	);
+	assert.equal(
+		events.some((event) => event.type === 'response.function_call_arguments.done' && event.name === 'wait'),
+		true
+	);
+	const completed = events.find((event) => event.type === 'response.completed');
+	assert.equal(
+		completed.response.output.some((item) => item.name === 'wait'),
+		true
+	);
+	assert.equal(
+		completed.response.output.some((item) => item.type === 'message'),
+		true
+	);
+});
+
+test('injects native wait on native Responses completed after reasoning-only yield', async () => {
+	const reasoning = {
+		type: 'reasoning',
+		id: 'rs_1',
+		summary: [{ type: 'summary_text', text: 'Need to wait on the cell.' }]
+	};
+	const output = await transformResponsesChat(
+		[
+			sse('response.output_item.added', { response_id: 'resp_yield', output_index: 0, item: reasoning }),
+			sse('response.output_item.done', { response_id: 'resp_yield', output_index: 0, item: reasoning }),
+			sse('response.completed', { response: { id: 'resp_yield', output: [reasoning] } })
+		],
+		{ yieldCellId: '11', waitToolAvailable: true, model: 'grok-4.6', logger: { log() {}, error() {} } }
+	);
+	const events = eventData(output);
+	const types = events.map((event) => event.type);
+	assert.equal(types.includes('response.output_item.added'), true);
+	assert.equal(types.includes('response.function_call_arguments.done'), true);
+	const completedIndex = types.lastIndexOf('response.completed');
+	const waitAddedIndex = types.findIndex(
+		(type, index) => type === 'response.output_item.added' && events[index].item?.name === 'wait'
+	);
+	assert.equal(waitAddedIndex !== -1 && waitAddedIndex < completedIndex, true);
+	const completed = events[completedIndex];
+	assert.equal(completed.response.output.at(-1).name, 'wait');
+	assert.equal(completed.response.output_count, 2);
 });
 
 test('restores full and unique bare names but leaves ambiguous bare names untouched', () => {

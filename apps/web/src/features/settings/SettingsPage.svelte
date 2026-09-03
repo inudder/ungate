@@ -4,7 +4,7 @@ import TunnelPanel from '../tunnel/TunnelPanel.svelte';
 import ModelsSection from './ModelsSection.svelte';
 import ProviderPanel from './ProviderPanel.svelte';
 import { getSettingsStore } from './settings-store.svelte';
-import { getSettingsUiStore } from './settings-ui-store.svelte';
+import { getSettingsUiStore, ProviderAuthState } from './settings-ui-store.svelte';
 import WakePingPanel from './WakePingPanel.svelte';
 
 import type { AppSettings, ModelMappingConfig, ModelMappingProvider } from '@ungate/shared/frontend';
@@ -210,6 +210,8 @@ $effect(() => {
 			<ProviderPanel />
 			<ModelsSection
 				selectedProvider={uiStore.selectedProvider}
+				providerAuthorized={uiStore.authStates[uiStore.selectedProvider] === ProviderAuthState.Authorized}
+				providerAuthLoading={uiStore.authStates[uiStore.selectedProvider] === ProviderAuthState.Loading}
 				models={models}
 				onSave={handleSaveWithoutRestart}
 				saving={store.saving}

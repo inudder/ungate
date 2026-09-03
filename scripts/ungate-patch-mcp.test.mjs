@@ -420,7 +420,23 @@ test('returns safe remediation for patch authoring errors', async (t) => {
 		await Promise.allSettled([client.close(), server.close()]);
 	});
 
+	await writeFile(join(root, 'source.txt'), 'actual\n');
+
 	const cases = [
+		{
+			patch: `*** Begin Patch
+*** Update File: source.txt
+@@
+-expected
++replacement
+*** End Patch`,
+			code: 'hunk_not_found',
+			remediation:
+				'Exact context was not found. Re-read the current file, rebuild the hunk from the live lines, and retry this same apply_patch tool once.\n' +
+				'Do not switch to native apply_patch, a different exec wrapper, or Shell. Do not reuse a hunk that already applied.\n' +
+				'If exec output is empty (Wall time 0.0s), you forgot text(result); the UI result is authoritative.\n' +
+				'If the hunk copied indented file lines as-is, prefix each context line with one extra ASCII space. Column 1 is the marker; a missing marker space makes indented context look one space shorter than the file.'
+		},
 		{
 			patch: `*** Begin Patch
 *** Update File: unchanged.txt
@@ -452,7 +468,9 @@ test('returns safe remediation for patch authoring errors', async (t) => {
 				'-removed line\n' +
 				'+added line\n' +
 				'*** End Patch\n' +
-				'Every hunk body line must start in column 1 with a space for context, - for deletion, or + for addition. Never emit a raw empty line inside a hunk: preserve an existing blank line as a line containing exactly one ASCII space, add a blank line as a line containing only +, and delete one as a line containing only -.'
+				'Every hunk body line must start in column 1 with a space for context, - for deletion, or + for addition. Never emit a raw empty line inside a hunk: preserve an existing blank line as a line containing exactly one ASCII space, add a blank line as a line containing only +, and delete one as a line containing only -.' +
+				'\n' +
+				'The first character is the marker. After it, copy the exact file line including its indent; file indent is not the marker, so a copied indented line needs one extra leading space.'
 		},
 		{
 			patch: `*** Begin Patch
@@ -487,7 +505,9 @@ content without the required marker
 				'-removed line\n' +
 				'+added line\n' +
 				'*** End Patch\n' +
-				'Every hunk body line must start in column 1 with a space for context, - for deletion, or + for addition. Never emit a raw empty line inside a hunk: preserve an existing blank line as a line containing exactly one ASCII space, add a blank line as a line containing only +, and delete one as a line containing only -.'
+				'Every hunk body line must start in column 1 with a space for context, - for deletion, or + for addition. Never emit a raw empty line inside a hunk: preserve an existing blank line as a line containing exactly one ASCII space, add a blank line as a line containing only +, and delete one as a line containing only -.' +
+				'\n' +
+				'The first character is the marker. After it, copy the exact file line including its indent; file indent is not the marker, so a copied indented line needs one extra leading space.'
 		}
 	];
 
@@ -531,6 +551,9 @@ test('documents exact Add File and Update File grammar', async (t) => {
 	assert.match(tool.description, /at least one - or \+ line/iu);
 	assert.match(tool.description, /exec template literal/iu);
 	assert.match(tool.description, /\$\{\}/u);
+	assert.match(tool.description, /text\(/u);
+	assert.match(tool.description, /Required source-edit tool/iu);
+	assert.doesNotMatch(tool.description, /when the native Codex apply_patch tool is unavailable/iu);
 	assert.match(
 		tool.inputSchema.properties.patch.description,
 		/context-only hunks? are invalid|each Update File hunk must include at least one - or \+ line/iu

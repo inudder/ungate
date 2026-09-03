@@ -122,6 +122,7 @@ class MimoResponsesStreamAdapter extends Transform {
 		this.chatMode = false;
 		this.chatResponseId = `resp_mimo_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 		this.chatOutput = [];
+		this.chatReasoning = null;
 		this.chatMessage = null;
 		this.chatTools = new Map();
 		this.chatFinishReason = null;
@@ -169,6 +170,55 @@ class MimoResponsesStreamAdapter extends Transform {
 				item
 			})
 		);
+	}
+
+	startChatReasoning() {
+		if (this.chatReasoning) return;
+		const item = {
+			type: 'reasoning',
+			id: `${this.chatResponseId}_reasoning_0`,
+			status: 'in_progress',
+			summary: [],
+			content: []
+		};
+		this.chatReasoning = { item, text: '', outputIndex: this.chatOutput.length, done: false };
+		this.chatOutput.push(item);
+		this.emitEvent(
+			'response.output_item.added',
+			responseEvent('response.output_item.added', this.chatResponseId, {
+				output_index: this.chatReasoning.outputIndex,
+				item
+			})
+		);
+	}
+
+	chatReasoningDelta(delta) {
+		if (typeof delta !== 'string' || delta === '') return;
+		this.startChatReasoning();
+		this.chatReasoning.text += delta;
+		this.emitEvent(
+			'response.reasoning_text.delta',
+			responseEvent('response.reasoning_text.delta', this.chatResponseId, {
+				output_index: this.chatReasoning.outputIndex,
+				item_id: this.chatReasoning.item.id,
+				content_index: 0,
+				delta
+			})
+		);
+	}
+
+	chatReasoningMessage(reasoningContent) {
+		if (typeof reasoningContent !== 'string' || reasoningContent === '') return;
+		const current = this.chatReasoning?.text ?? '';
+		if (current === '') this.chatReasoningDelta(reasoningContent);
+		else if (reasoningContent === current) {
+			// The final Chat Completions message repeats streamed reasoning.
+		} else if (reasoningContent.startsWith(current)) this.chatReasoningDelta(reasoningContent.slice(current.length));
+		else {
+			this.fail('final assistant reasoning conflicts with streamed reasoning', {
+				output_index: this.chatReasoning?.outputIndex ?? -1
+			});
+		}
 	}
 
 	chatTextDelta(delta) {
@@ -308,6 +358,8 @@ class MimoResponsesStreamAdapter extends Transform {
 	}
 
 	processChatMessage(message) {
+		this.chatReasoningMessage(message?.reasoning_content);
+		if (this.failed) return;
 		const content = this.chatMessageContent(message);
 		if (content !== '') {
 			const current = this.chatMessage?.text ?? '';
@@ -327,6 +379,29 @@ class MimoResponsesStreamAdapter extends Transform {
 			this.chatToolMessage(index, message.tool_calls[index]);
 			if (this.failed) return;
 		}
+	}
+
+	finishChatReasoning() {
+		if (!this.chatReasoning || this.chatReasoning.done) return;
+		this.chatReasoning.done = true;
+		this.chatReasoning.item.content = [{ type: 'reasoning_text', text: this.chatReasoning.text }];
+		this.chatReasoning.item.status = 'completed';
+		this.emitEvent(
+			'response.reasoning_text.done',
+			responseEvent('response.reasoning_text.done', this.chatResponseId, {
+				output_index: this.chatReasoning.outputIndex,
+				item_id: this.chatReasoning.item.id,
+				content_index: 0,
+				text: this.chatReasoning.text
+			})
+		);
+		this.emitEvent(
+			'response.output_item.done',
+			responseEvent('response.output_item.done', this.chatResponseId, {
+				output_index: this.chatReasoning.outputIndex,
+				item: this.chatReasoning.item
+			})
+		);
 	}
 
 	finishChatMessage() {
@@ -426,6 +501,7 @@ class MimoResponsesStreamAdapter extends Transform {
 				return;
 			}
 		}
+		this.finishChatReasoning();
 		this.finishChatMessage();
 		this.finishChatTools();
 		this.completed = true;
@@ -451,6 +527,7 @@ class MimoResponsesStreamAdapter extends Transform {
 		for (const choice of data.choices ?? []) {
 			if (choice.finish_reason) this.chatFinishReason = choice.finish_reason;
 			const delta = choice.delta ?? {};
+			this.chatReasoningDelta(delta.reasoning_content);
 			this.chatTextDelta(delta.content);
 			for (const toolCall of delta.tool_calls ?? []) {
 				const state = this.chatToolStart(toolCall.index, toolCall.id, toolCall.function?.name);

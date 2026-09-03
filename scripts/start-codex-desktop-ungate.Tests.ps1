@@ -14,6 +14,7 @@ BeforeAll {
     $functionNames = @(
         'Get-UngateModelIdentity',
         'ConvertTo-UngateModelDefinition',
+        'Get-UngateModelContextWindow',
         'Read-UngateCustomModelDefinitions',
         'Write-UngateCustomModelDefinitions',
         'Get-UngateModelDefinitions',
@@ -196,6 +197,41 @@ Describe 'Optional OmniRoute provider fallback' {
     }
 }
 
+Describe 'Launcher context window labels' {
+    It 'uses the Codex default when a model omits ContextWindow' {
+        $window = Get-UngateModelContextWindow -Definition ([pscustomobject]@{ Slug = 'ungate-fable-5' })
+
+        $window.ContextWindow | Should -Be 200000
+        $window.MaxContextWindow | Should -Be 200000
+        $window.EffectiveContextWindowPercent | Should -Be 100
+        $window.Label | Should -BeExactly '200k'
+    }
+
+    It 'formats official 1M and 500k windows' {
+        $minimax = Get-UngateModelContextWindow -Definition ([pscustomobject]@{
+            ContextWindow = 1000000
+            MaxContextWindow = 1000000
+        })
+        $grok = Get-UngateModelContextWindow -Definition ([pscustomobject]@{
+            ContextWindow = 500000
+            MaxContextWindow = 500000
+        })
+
+        $minimax.Label | Should -BeExactly '1M'
+        $grok.Label | Should -BeExactly '500k'
+    }
+
+    It 'shows a squeeze percent when the catalog is not 100%' {
+        $window = Get-UngateModelContextWindow -Definition ([pscustomobject]@{
+            ContextWindow = 1048576
+            MaxContextWindow = 1048576
+            EffectiveContextWindowPercent = 95
+        })
+
+        $window.Label | Should -BeExactly '1048576 @ 95%'
+    }
+}
+
 Describe 'Custom launcher model registry' {
     BeforeEach {
         $script:UngateEnvironmentInstruction = 'Test environment instructions.'
@@ -204,6 +240,7 @@ Describe 'Custom launcher model registry' {
         $script:CliProxyProviderName = 'cliproxyapi'
         $script:CliProxyBaseUrl = 'http://127.0.0.1:8318'
         $script:OmniRouteProviderName = 'omniroute'
+        $script:OmniRouteBaseUrl = 'http://127.0.0.1:20128'
         $script:CodexModelShellRouterProviderName = 'ungate_model_shell_router'
         $script:CodexModelShellRouterBaseUrl = 'http://127.0.0.1:8319'
         $script:CodexModelShellRouterProviderDefinition = [pscustomobject][ordered]@{
@@ -384,6 +421,22 @@ Describe 'Custom launcher model registry' {
         $definition.Identity | Should -Not -Match 'GPT model'
     }
 
+    It 'generates the expected OmniRoute launcher definition for a custom model' {
+        $definition = ConvertTo-UngateModelDefinition `
+            -Record (New-CustomModelTestRecord -Slug 'custom-ds' -DisplayName 'Custom DeepSeek (OmniRoute)' -UpstreamModel 'deepseek/deepseek-v4-pro' -Transport 'omniroute' -SupportsImageInput $false) `
+            -Priority 3
+
+        $definition.Slug | Should -BeExactly 'custom-ds'
+        $definition.ProviderName | Should -BeExactly 'omniroute'
+        $definition.ProxyBaseUrl | Should -BeExactly 'http://127.0.0.1:20128'
+        $definition.EnvKey | Should -BeExactly 'OMNIROUTE_API_KEY'
+        $definition.RequiresUngate | Should -BeFalse
+        @($definition.InputModalities) | Should -Be @('text')
+        $definition.SupportsImageDetailOriginal | Should -BeFalse
+        $definition.WebSearchToolType | Should -BeExactly 'text'
+        $definition.Description | Should -Match 'the local OmniRoute proxy'
+    }
+
     It 'runs the AddModel wizard without preparing or launching Codex' {
         $customHome = Join-Path $TestDrive 'wizard-home'
         $powerShellExecutable = (Get-Command pwsh -ErrorAction Stop).Source
@@ -513,6 +566,32 @@ env_key = "OMNIROUTE_API_KEY"
         @($mapped.ShellSlug) | Should -Be @('gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna')
     }
 
+    It 'uses official unsqueezed 1M context windows for MiniMax M3, Mimo, and DeepSeek V4 Pro' {
+        $launcherSource = Get-Content -LiteralPath $script:launcherPath -Raw
+        if ($launcherSource -notmatch "(?s)Slug = 'miniMax-M3'\r?\n(?<block>.*?)\r?\n    \[pscustomobject\]") {
+            throw 'MiniMax M3 model definition was not found.'
+        }
+        $Matches['block'] | Should -Match 'ContextWindow = 1000000'
+        $Matches['block'] | Should -Match 'MaxContextWindow = 1000000'
+        $Matches['block'] | Should -Not -Match 'EffectiveContextWindowPercent'
+
+        if ($launcherSource -notmatch "(?s)Slug = 'mimo-v2.5-pro'\r?\n(?<block>.*?)\r?\n    \[pscustomobject\]") {
+            throw 'Mimo v2.5 Pro model definition was not found.'
+        }
+        $Matches['block'] | Should -Match 'ContextWindow = 1000000'
+        $Matches['block'] | Should -Match 'MaxContextWindow = 1000000'
+        $Matches['block'] | Should -Not -Match 'EffectiveContextWindowPercent'
+
+        if ($launcherSource -notmatch "(?s)Slug = 'deepseek-v4-pro'\r?\n(?<block>.*?)\r?\n\)") {
+            throw 'DeepSeek V4 Pro model definition was not found.'
+        }
+        $Matches['block'] | Should -Match 'ContextWindow = 1000000'
+        $Matches['block'] | Should -Match 'MaxContextWindow = 1000000'
+        $Matches['block'] | Should -Not -Match 'EffectiveContextWindowPercent'
+        $launcherSource | Should -Not -Match 'EffectiveContextWindowPercent = 95'
+        $launcherSource | Should -Not -Match 'ContextWindow = 1048576'
+    }
+
     It 'rejects launch parameters combined with AddModel before writing the registry' {
         $customHome = Join-Path $TestDrive 'conflict-home'
         $powerShellExecutable = (Get-Command pwsh -ErrorAction Stop).Source
@@ -587,6 +666,49 @@ env_key = "OMNIROUTE_API_KEY"
             -ProviderFallbackModel 'codex-fallback'
 
         $selected | Should -BeExactly 'codex-fallback'
+    }
+
+    It 'prints each picker model with its catalog context window' {
+        $script:hostLines = [System.Collections.Generic.List[string]]::new()
+        Mock Write-Host {
+            param($Object)
+            $script:hostLines.Add([string]$Object)
+        }
+        Mock Read-Host { return '1' }
+        Mock Invoke-AddUngateModelMode {}
+        Mock Invoke-UngatePickerConfiguration {}
+
+        $definitions = @(
+            [pscustomobject]@{
+                Slug = 'miniMax-M3'
+                DisplayName = 'MiniMax M3 (Ungate)'
+                ContextWindow = 1000000
+                MaxContextWindow = 1000000
+            }
+            [pscustomobject]@{
+                Slug = 'grok-4.6'
+                DisplayName = 'Grok 4.6 (CLIProxyAPI)'
+                ContextWindow = 500000
+                MaxContextWindow = 500000
+            }
+            [pscustomobject]@{
+                Slug = 'ungate-fable-5'
+                DisplayName = 'Claude Fable 5 (Ungate)'
+            }
+        )
+
+        $selected = Select-UngateDesktopModel `
+            -Definitions $definitions `
+            -BuiltInDefinitions $script:builtInDefinitions `
+            -RegistryPath $script:registryPath `
+            -PickerSettingsPath $script:pickerSettingsPath `
+            -PickerCapacity $script:CodexDesktopPickerCapacity
+
+        $selected | Should -BeExactly 'miniMax-M3'
+        $menu = $script:hostLines -join "`n"
+        $menu | Should -Match 'MiniMax M3 \(Ungate\) \(default\)  \[1M\]'
+        $menu | Should -Match 'Grok 4.6 \(CLIProxyAPI\)  \[500k\]'
+        $menu | Should -Match 'Claude Fable 5 \(Ungate\)  \[200k\]'
     }
 }
 
@@ -910,6 +1032,17 @@ Describe 'Launcher initialization order' {
     }
 }
 
+Describe 'Plugin isolation launcher logging' {
+    It 'prints sync reasons before the isolation result' {
+        $launcherSource = Get-Content -LiteralPath $script:launcherPath -Raw
+        $reasonIndex = $launcherSource.LastIndexOf('[ungate] Plugin isolation will sync because:')
+        $resultIndex = $launcherSource.LastIndexOf('[ungate] Codex Beta plugins $($pluginIsolation.Action.ToLowerInvariant()) and isolated')
+
+        $reasonIndex | Should -BeGreaterThan -1
+        $resultIndex | Should -BeGreaterThan $reasonIndex
+    }
+}
+
 Describe 'Sync-CodexMcpServers' {
     BeforeEach {
         Mock Get-CodexCliExecutable { 'C:\test\codex.exe' }
@@ -1089,6 +1222,42 @@ command = "npx"
         @(Get-ChildItem -LiteralPath $homes.TargetCodexHome -Filter '.config.toml.*').Count |
             Should -Be 0
     }
+
+    It 'normalizes Beta-only MCP content before Codex rewrites line endings' {
+        $homes = New-McpSyncTestHomes -Root $TestDrive
+        Write-Utf8TestFile -LiteralPath $homes.SourceConfigPath -Content @'
+model = "gpt-5.4"
+
+[mcp_servers.context7]
+url = "https://mcp.context7.com/mcp"
+'@
+        Write-Utf8TestFile -LiteralPath $homes.TargetConfigPath -Content 'model = "grok-4.5"'
+        $betaOnlyMcpContent = "[mcp_servers.ungate_patch]`ncommand = 'node'`nargs = ['patch.mjs']"
+
+        Mock Test-CodexMcpConfiguration {
+            param($CodexExecutable, $CodexHome)
+            if ($CodexHome -eq $homes.TargetCodexHome) {
+                $path = Join-Path $CodexHome 'config.toml'
+                $raw = Get-Content -LiteralPath $path -Raw
+                $rewritten = ($raw -split '\r?\n') -join "`r`n"
+                [System.IO.File]::WriteAllText(
+                    $path,
+                    $rewritten,
+                    [System.Text.UTF8Encoding]::new($false)
+                )
+            }
+            return @('context7', 'ungate_patch')
+        }
+
+        Sync-CodexMcpServers `
+            -SourceCodexHome $homes.SourceCodexHome `
+            -TargetCodexHome $homes.TargetCodexHome `
+            -BetaOnlyMcpContent $betaOnlyMcpContent
+
+        $actual = Get-Content -LiteralPath $homes.TargetConfigPath -Raw
+        $actual | Should -Match '(?m)^\[mcp_servers\.context7\]\r?$'
+        $actual | Should -Match '(?m)^\[mcp_servers\.ungate_patch\]\r?$'
+    }
 }
 
 Describe 'Ungate environment source-edit instructions' {
@@ -1115,5 +1284,11 @@ Describe 'Ungate environment source-edit instructions' {
         $identity | Should -Match 'bare await returns nothing'
         $identity | Should -Match 'proposed_plan'
         $identity | Should -Match 'HARD RULE — Plan Mode'
+        $identity | Should -Match 'text\(JSON\.stringify'
+        $identity | Should -Match "join\('\\n'\)"
+        $identity | Should -Match 'hunk_not_found'
+        $identity | Should -Match 'Wall time 0\.0'
+        $identity | Should -Match 'ok: true'
+        $identity | Should -Match 'only patch path'
     }
 }

@@ -184,7 +184,7 @@ export class ExtensionController {
 	}
 
 	private log(msg: string): void {
-		this.outputChannel.appendLine(`[${new Date().toISOString()}] ${msg}`);
+		this.outputChannel?.appendLine(`[${new Date().toISOString()}] ${msg}`);
 	}
 
 	private formatError(err: unknown): string {

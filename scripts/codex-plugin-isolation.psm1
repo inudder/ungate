@@ -752,8 +752,8 @@ function Invoke-DifferentialPluginSynchronization {
         [Parameter(Mandatory = $true)][string]$BetaBundledMarketplace,
         [Parameter(Mandatory = $true)][string]$BetaPackageVersion,
         [Parameter(Mandatory = $true)][psobject]$DefaultInventory,
-        [Parameter(Mandatory = $true)][object[]]$ExternalPluginStates,
-        [Parameter(Mandatory = $true)][object[]]$BundledPluginStates,
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][object[]]$ExternalPluginStates,
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][object[]]$BundledPluginStates,
         [Parameter(Mandatory = $true)][object[]]$BundledMetadata,
         [Parameter(Mandatory = $true)][AllowEmptyCollection()][string[]]$UnsupportedBundledPluginIds,
         [Parameter(Mandatory = $true)][bool]$SynchronizeExternal
@@ -867,7 +867,7 @@ function Invoke-DifferentialCodexBetaPluginIsolation {
     }
 
     $defaultInventory = Get-CodexPluginInventory -CodexExecutable $CodexExecutable -CodexHome $DefaultCodexHome
-    $defaultStates = Get-PluginStateSet -Installed $defaultInventory.Installed
+    $defaultStates = Get-PluginStateSet -Installed @($defaultInventory.Installed)
     $defaultSplit = Split-PluginStatesByMarketplace -PluginStates $defaultStates
     $bundledMetadata = Get-BetaBundledPluginMetadata -MarketplacePath $BetaBundledMarketplace
     $availableBundledIds = @($bundledMetadata | ForEach-Object { $_.PluginId })
@@ -876,19 +876,48 @@ function Invoke-DifferentialCodexBetaPluginIsolation {
 
     $synchronizeExternal = $directoryState.Kind -ne 'Directory'
     $synchronizeBundled = $directoryState.Kind -ne 'Directory'
-    $bundleStatus = [pscustomobject]@{ Matches = $false; BrowserSha256 = '' }
+    $bundleStatus = [pscustomobject]@{
+        Matches = $false
+        BrowserSha256 = ''
+        MissingPluginIds = @()
+        StalePluginIds = @()
+        ExtraNames = @()
+    }
+    $syncReasons = @()
+    $customConfigPath = Join-Path $CustomCodexHome 'config.toml'
+    if ($directoryState.Kind -ne 'Directory') {
+        $syncReasons += "custom plugins path is not an isolated directory (Kind=$($directoryState.Kind))"
+    }
     if ($directoryState.Kind -eq 'Directory') {
         $customInventory = Get-CodexPluginInventory -CodexExecutable $CodexExecutable -CodexHome $CustomCodexHome
-        $customStates = Get-PluginStateSet -Installed $customInventory.Installed
+        $customStates = Get-PluginStateSet -Installed @($customInventory.Installed)
         $customSplit = Split-PluginStatesByMarketplace -PluginStates $customStates
         $synchronizeExternal = (Get-PluginStateSignature -PluginStates $customSplit.External) -ne
             (Get-PluginStateSignature -PluginStates $defaultSplit.External)
+        if ($synchronizeExternal) {
+            $syncReasons += 'external plugin selection changed'
+        }
+
+        $persistedBundled = Split-PersistedBundledPluginStates `
+            -PluginStates $supportedBundledStates `
+            -BundledMetadata $bundledMetadata `
+            -CodexHome $CustomCodexHome `
+            -ConfigPath $customConfigPath
+        $unsupportedBundledIds = @($unsupportedBundledIds + $persistedBundled.DroppedPluginIds | Sort-Object -Unique)
+        $supportedBundledStates = @($persistedBundled.Kept)
+
         $bundleStatus = Get-BundledCacheStatus `
             -CodexHome $CustomCodexHome `
             -BundledMetadata $bundledMetadata `
             -PluginStates $supportedBundledStates
-        $synchronizeBundled = -not $bundleStatus.Matches -or -not (Test-BundledPluginConfiguration `
-            -ConfigPath (Join-Path $CustomCodexHome 'config.toml') `
+        $configMatches = Test-BundledPluginConfiguration `
+            -ConfigPath $customConfigPath `
+            -BetaBundledMarketplace $BetaBundledMarketplace `
+            -PluginStates $supportedBundledStates
+        $synchronizeBundled = -not $bundleStatus.Matches -or -not $configMatches
+        $syncReasons += @(Get-BundledIsolationSyncReasons `
+            -BundleStatus $bundleStatus `
+            -ConfigPath $customConfigPath `
             -BetaBundledMarketplace $BetaBundledMarketplace `
             -PluginStates $supportedBundledStates)
     }
@@ -917,6 +946,7 @@ function Invoke-DifferentialCodexBetaPluginIsolation {
             BrowserSha256 = $result.BrowserSha256
             BackupRoot = $result.BackupRoot
             UnsupportedBundledPluginIds = $unsupportedBundledIds
+            SyncReasons = @($syncReasons | Where-Object { $_ } | Select-Object -Unique)
         }
     }
 
@@ -927,6 +957,7 @@ function Invoke-DifferentialCodexBetaPluginIsolation {
         BrowserSha256 = $bundleStatus.BrowserSha256
         BackupRoot = $null
         UnsupportedBundledPluginIds = $unsupportedBundledIds
+        SyncReasons = @()
     }
 }
 
@@ -1241,9 +1272,9 @@ function Get-PluginEnabledState {
 }
 
 function Get-PluginStateSet {
-    param([Parameter(Mandatory = $true)][object[]]$Installed)
+    param([Parameter(Mandatory = $true)][AllowNull()][AllowEmptyCollection()][object[]]$Installed)
 
-    return @($Installed | ForEach-Object {
+    return @($Installed | Where-Object { $null -ne $_ } | ForEach-Object {
         [pscustomobject]@{
             PluginId = [string]$_.pluginId
             Enabled = Get-PluginEnabledState -Plugin $_
@@ -1252,22 +1283,22 @@ function Get-PluginStateSet {
 }
 
 function Get-PluginStateSignature {
-    param([Parameter(Mandatory = $true)][object[]]$PluginStates)
+    param([Parameter(Mandatory = $true)][AllowNull()][AllowEmptyCollection()][object[]]$PluginStates)
 
-    return @($PluginStates | ForEach-Object {
+    return @($PluginStates | Where-Object { $null -ne $_ } | ForEach-Object {
         ('{0}|{1}' -f $_.PluginId.ToLowerInvariant(), ([bool]$_.Enabled).ToString().ToLowerInvariant())
     } | Sort-Object) -join ';'
 }
 
 function Split-PluginStatesByMarketplace {
-    param([Parameter(Mandatory = $true)][object[]]$PluginStates)
+    param([Parameter(Mandatory = $true)][AllowNull()][AllowEmptyCollection()][object[]]$PluginStates)
 
     return [pscustomobject]@{
         Bundled = @($PluginStates | Where-Object {
-            (Get-PluginMarketplaceName -PluginId $_.PluginId) -eq 'openai-bundled'
+            $null -ne $_ -and (Get-PluginMarketplaceName -PluginId $_.PluginId) -eq 'openai-bundled'
         })
         External = @($PluginStates | Where-Object {
-            (Get-PluginMarketplaceName -PluginId $_.PluginId) -ne 'openai-bundled'
+            $null -ne $_ -and (Get-PluginMarketplaceName -PluginId $_.PluginId) -ne 'openai-bundled'
         })
     }
 }
@@ -1419,7 +1450,7 @@ function Test-BundledPluginConfiguration {
     param(
         [Parameter(Mandatory = $true)][string]$ConfigPath,
         [Parameter(Mandatory = $true)][string]$BetaBundledMarketplace,
-        [Parameter(Mandatory = $true)][object[]]$PluginStates
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][object[]]$PluginStates
     )
 
     $source = Get-BundledMarketplaceSourceFromConfig -ConfigPath $ConfigPath
@@ -1430,11 +1461,91 @@ function Test-BundledPluginConfiguration {
         (Get-PluginStateSignature -PluginStates $PluginStates)
 }
 
+function Split-PersistedBundledPluginStates {
+    param(
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][object[]]$PluginStates,
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][object[]]$BundledMetadata,
+        [Parameter(Mandatory = $true)][string]$CodexHome,
+        [Parameter(Mandatory = $true)][string]$ConfigPath
+    )
+
+    $metadataById = @{}
+    foreach ($metadata in $BundledMetadata) {
+        $metadataById[$metadata.PluginId] = $metadata
+    }
+    $configuredIds = @(Get-ConfiguredBundledPluginStates -ConfigPath $ConfigPath | ForEach-Object { $_.PluginId })
+    $cacheRoot = Join-Path $CodexHome 'plugins\cache\openai-bundled'
+    $cacheNames = if (Test-Path -LiteralPath $cacheRoot -PathType Container) {
+        @(Get-ChildItem -LiteralPath $cacheRoot -Directory | Select-Object -ExpandProperty Name)
+    }
+    else {
+        @()
+    }
+
+    $kept = New-Object 'System.Collections.Generic.List[object]'
+    $droppedPluginIds = @()
+    foreach ($pluginState in $PluginStates) {
+        $metadata = $metadataById[$pluginState.PluginId]
+        $inCache = $false
+        if ($null -ne $metadata -and $metadata.Name -in $cacheNames) {
+            $inCache = $true
+        }
+        $inConfig = $pluginState.PluginId -in $configuredIds
+        if (-not $inCache -and -not $inConfig) {
+            $droppedPluginIds += $pluginState.PluginId
+        }
+        else {
+            $kept.Add($pluginState)
+        }
+    }
+
+    return [pscustomobject]@{
+        Kept = @($kept.ToArray())
+        DroppedPluginIds = @($droppedPluginIds | Sort-Object -Unique)
+    }
+}
+
+function Get-BundledIsolationSyncReasons {
+    param(
+        [Parameter(Mandatory = $true)][psobject]$BundleStatus,
+        [Parameter(Mandatory = $true)][string]$ConfigPath,
+        [Parameter(Mandatory = $true)][string]$BetaBundledMarketplace,
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][object[]]$PluginStates
+    )
+
+    $reasons = @()
+    $missingPluginIds = @($BundleStatus.MissingPluginIds)
+    $stalePluginIds = @($BundleStatus.StalePluginIds)
+    $extraNames = @($BundleStatus.ExtraNames)
+    if ($missingPluginIds.Count -gt 0) {
+        $reasons += "bundled cache missing: $($missingPluginIds -join ', ')"
+    }
+    if ($stalePluginIds.Count -gt 0) {
+        $reasons += "bundled plugin cache is stale ($($stalePluginIds -join ', '))"
+    }
+    if ($extraNames.Count -gt 0) {
+        $reasons += "bundled cache has unexpected plugins: $($extraNames -join ', ')"
+    }
+
+    $source = Get-BundledMarketplaceSourceFromConfig -ConfigPath $ConfigPath
+    if ([string]::IsNullOrWhiteSpace($source) -or -not (Test-EquivalentPath -Left $source -Right $BetaBundledMarketplace)) {
+        $reasons += 'bundled marketplace source mismatch'
+    }
+    elseif (
+        (Get-PluginStateSignature -PluginStates (Get-ConfiguredBundledPluginStates -ConfigPath $ConfigPath)) -ne
+        (Get-PluginStateSignature -PluginStates $PluginStates)
+    ) {
+        $reasons += 'bundled plugin configuration does not match'
+    }
+
+    return @($reasons)
+}
+
 function Get-BundledCacheStatus {
     param(
         [Parameter(Mandatory = $true)][string]$CodexHome,
         [Parameter(Mandatory = $true)][object[]]$BundledMetadata,
-        [Parameter(Mandatory = $true)][object[]]$PluginStates
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][object[]]$PluginStates
     )
 
     $cacheRoot = Join-Path $CodexHome 'plugins\cache\openai-bundled'
@@ -1442,7 +1553,7 @@ function Get-BundledCacheStatus {
     foreach ($metadata in $BundledMetadata) {
         $metadataById[$metadata.PluginId] = $metadata
     }
-    $desiredMetadata = @($PluginStates | ForEach-Object { $metadataById[$_.PluginId] })
+    $desiredMetadata = @($PluginStates | ForEach-Object { $metadataById[$_.PluginId] } | Where-Object { $null -ne $_ })
     $desiredNames = @($desiredMetadata | ForEach-Object { $_.Name } | Sort-Object -Unique)
     $sourceBrowser = $BundledMetadata | Where-Object { $_.PluginId -eq 'browser@openai-bundled' } | Select-Object -First 1
     $browserSha256 = ''
@@ -1460,34 +1571,55 @@ function Get-BundledCacheStatus {
     else {
         @()
     }
-    if (($actualNames -join ';') -ne ($desiredNames -join ';')) {
-        return [pscustomobject]@{ Matches = $false; BrowserSha256 = $browserSha256 }
+
+    $missingPluginIds = New-Object 'System.Collections.Generic.List[string]'
+    $stalePluginIds = New-Object 'System.Collections.Generic.List[string]'
+    $extraNames = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($name in $actualNames) {
+        if ($name -notin $desiredNames) {
+            $extraNames.Add($name)
+        }
     }
 
     foreach ($metadata in $desiredMetadata) {
+        if ($metadata.Name -notin $actualNames) {
+            $missingPluginIds.Add($metadata.PluginId)
+            continue
+        }
+
         $pluginRoot = Join-Path $cacheRoot $metadata.Name
         $versions = @(Get-ChildItem -LiteralPath $pluginRoot -Directory -ErrorAction SilentlyContinue)
+        $isStale = $false
         if ($versions.Count -ne 1 -or $versions[0].Name -ne $metadata.Version) {
-            return [pscustomobject]@{ Matches = $false; BrowserSha256 = $browserSha256 }
+            $isStale = $true
         }
-        $targetManifest = Join-Path $versions[0].FullName '.codex-plugin\plugin.json'
-        if (-not (Test-Path -LiteralPath $targetManifest -PathType Leaf)) {
-            return [pscustomobject]@{ Matches = $false; BrowserSha256 = $browserSha256 }
-        }
-        if ((Get-FileHash -LiteralPath $targetManifest -Algorithm SHA256).Hash -ne
-            (Get-FileHash -LiteralPath $metadata.ManifestPath -Algorithm SHA256).Hash) {
-            return [pscustomobject]@{ Matches = $false; BrowserSha256 = $browserSha256 }
-        }
-        if ($metadata.PluginId -eq 'browser@openai-bundled') {
-            $targetClient = Join-Path $versions[0].FullName 'scripts\browser-client.mjs'
-            if (-not (Test-Path -LiteralPath $targetClient -PathType Leaf) -or
-                (Get-FileHash -LiteralPath $targetClient -Algorithm SHA256).Hash -ne $browserSha256) {
-                return [pscustomobject]@{ Matches = $false; BrowserSha256 = $browserSha256 }
+        else {
+            $targetManifest = Join-Path $versions[0].FullName '.codex-plugin\plugin.json'
+            if (-not (Test-Path -LiteralPath $targetManifest -PathType Leaf) -or
+                (Get-FileHash -LiteralPath $targetManifest -Algorithm SHA256).Hash -ne
+                (Get-FileHash -LiteralPath $metadata.ManifestPath -Algorithm SHA256).Hash) {
+                $isStale = $true
             }
+            elseif ($metadata.PluginId -eq 'browser@openai-bundled') {
+                $targetClient = Join-Path $versions[0].FullName 'scripts\browser-client.mjs'
+                if (-not (Test-Path -LiteralPath $targetClient -PathType Leaf) -or
+                    (Get-FileHash -LiteralPath $targetClient -Algorithm SHA256).Hash -ne $browserSha256) {
+                    $isStale = $true
+                }
+            }
+        }
+        if ($isStale) {
+            $stalePluginIds.Add($metadata.PluginId)
         }
     }
 
-    return [pscustomobject]@{ Matches = $true; BrowserSha256 = $browserSha256 }
+    return [pscustomobject]@{
+        Matches = ($missingPluginIds.Count -eq 0 -and $stalePluginIds.Count -eq 0 -and $extraNames.Count -eq 0)
+        BrowserSha256 = $browserSha256
+        MissingPluginIds = @($missingPluginIds | Sort-Object -Unique)
+        StalePluginIds = @($stalePluginIds | Sort-Object -Unique)
+        ExtraNames = @($extraNames | Sort-Object -Unique)
+    }
 }
 
 function Copy-BundledPluginCacheToStaging {
@@ -1514,13 +1646,6 @@ function Copy-BundledPluginCacheToStaging {
         New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
         Copy-Item -LiteralPath $metadata.SourcePath -Destination $destination -Recurse
     }
-}
-
-function Copy-PluginArtifactsToStaging {
-    param(
-        [Parameter(Mandatory = $true)][string]$CustomCodexHome,
-        [Parameter(Mandatory = $true)][string]$StagingHome
-    )
 }
 
 function Reset-StagedExternalPluginConfiguration {
@@ -1621,7 +1746,7 @@ function Assert-StagedExternalPluginInstallation {
     )
 
     $inventory = Get-CodexPluginInventory -CodexExecutable $CodexExecutable -CodexHome $StagingHome
-    $installedStates = Get-PluginStateSet -Installed $inventory.Installed
+    $installedStates = Get-PluginStateSet -Installed @($inventory.Installed)
     if ((Get-PluginStateSignature -PluginStates $installedStates) -ne
         (Get-PluginStateSignature -PluginStates $ExpectedPluginStates)) {
         throw 'The staged profile does not match the normal Codex external plugin selection.'
@@ -1665,15 +1790,13 @@ function Copy-PluginArtifactsToStaging {
         [Parameter(Mandatory = $true)][string]$StagingHome
     )
 
-    foreach ($relativePath in @('plugins', '.plugin-marketplaces', '.tmp\plugins', '.tmp\plugins.sha')) {
-        $source = Join-Path $CustomCodexHome $relativePath
-        if (-not (Test-Path -LiteralPath $source)) {
-            continue
-        }
-        $destination = Join-Path $StagingHome $relativePath
-        New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
-        Copy-Item -LiteralPath $source -Destination $destination -Recurse
+    $source = Join-Path $CustomCodexHome 'plugins'
+    if (-not (Test-Path -LiteralPath $source)) {
+        return
     }
+    $destination = Join-Path $StagingHome 'plugins'
+    New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
+    Copy-Item -LiteralPath $source -Destination $destination -Recurse
 }
 
 function Commit-DifferentialPluginIsolation {
@@ -1704,6 +1827,9 @@ function Commit-DifferentialPluginIsolation {
     $movedEntries = @()
     try {
         foreach ($entry in $entries) {
+            if (-not (Test-Path -LiteralPath $entry.Staged)) {
+                continue
+            }
             if (-not (Test-Path -LiteralPath $entry.Final)) {
                 continue
             }

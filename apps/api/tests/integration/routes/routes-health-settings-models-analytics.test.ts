@@ -14,6 +14,7 @@ const analyticsRecentMock = vi.fn();
 const analyticsCacheMock = vi.fn();
 const analyticsResetMock = vi.fn();
 const validateModelMock = vi.fn();
+const catalogListMock = vi.fn();
 
 vi.mock('src/database/app-settings', () => ({
 	Settings: {
@@ -27,6 +28,22 @@ vi.mock('src/services/model-validator', () => ({
 		validate: (...args: unknown[]) => validateModelMock(...args)
 	}
 }));
+
+vi.mock('src/services/provider-model-catalog', () => {
+	class ProviderModelCatalogError extends Error {
+		constructor(
+			message: string,
+			readonly statusCode: 401 | 502 | 504
+		) {
+			super(message);
+		}
+	}
+
+	return {
+		ProviderModelCatalog: { list: (...args: unknown[]) => catalogListMock(...args) },
+		ProviderModelCatalogError
+	};
+});
 
 vi.mock('src/database/analytics', () => ({
 	Analytics: {
@@ -126,6 +143,43 @@ describe('routes: health/settings/models/analytics', () => {
 		expect(response.json().available).toBe(false);
 		expect(response.json().message).toContain('Fable 5');
 		expect(validateModelMock).toHaveBeenCalledTimes(1);
+		await app.close();
+	});
+
+	it('returns the normalized provider model catalog', async () => {
+		catalogListMock.mockResolvedValueOnce({
+			provider: 'minimax',
+			models: [{ upstreamModel: 'MiniMax-M3', label: 'MiniMax M3' }]
+		});
+		const app = await withPlugin(modelsPlugin);
+		const response = await app.inject({ method: 'GET', url: '/models/available/minimax' });
+
+		expect(response.statusCode).toBe(200);
+		expect(response.json()).toEqual({
+			provider: 'minimax',
+			models: [{ upstreamModel: 'MiniMax-M3', label: 'MiniMax M3' }]
+		});
+		expect(catalogListMock).toHaveBeenCalledWith('minimax');
+		await app.close();
+	});
+
+	it('rejects an unknown catalog provider', async () => {
+		const app = await withPlugin(modelsPlugin);
+		const response = await app.inject({ method: 'GET', url: '/models/available/unknown' });
+
+		expect(response.statusCode).toBe(400);
+		expect(catalogListMock).not.toHaveBeenCalled();
+		await app.close();
+	});
+
+	it.each([401, 502, 504] as const)('maps catalog errors to %s', async (statusCode) => {
+		const { ProviderModelCatalogError } = await import('src/services/provider-model-catalog');
+		catalogListMock.mockRejectedValueOnce(new ProviderModelCatalogError('Safe catalog error.', statusCode));
+		const app = await withPlugin(modelsPlugin);
+		const response = await app.inject({ method: 'GET', url: '/models/available/minimax' });
+
+		expect(response.statusCode).toBe(statusCode);
+		expect(response.json()).toEqual({ error: 'Safe catalog error.' });
 		await app.close();
 	});
 

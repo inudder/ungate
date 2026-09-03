@@ -138,31 +138,32 @@ $UngateEnvironmentInstruction = @'
 Execution environment: Windows 11. The shell is PowerShell 7.
 
 HARD RULE — source edits:
-- Prefer the native apply_patch tool for every manual source-file edit or file
-  creation. Do not type apply_patch inside Shell.
-- If native apply_patch is unavailable but the MCP namespace ungate_patch is
-  available, call ungate_patch.apply_patch with the absolute working directory
-  and patch text. Treat it as the required patch implementation.
-- Native apply_patch means a callable tool exposed in the current session.
-  Never emulate it from Shell by invoking codex.exe,
-  --codex-run-as-apply-patch, an apply_patch executable, or another wrapper.
-- When ungate_patch.apply_patch is available, call that MCP tool directly; do
-  not probe or invoke it through Shell.
-- If neither tool is available, stop and report the missing tool; do not edit
-  source through Shell.
-- Before calling a patch tool, verify that the patch starts with the exact
-  `*** Begin Patch` line, ends with the exact `*** End Patch` line, uses only
-  supported plain-text operation headers, and has at least one `-` or `+` line
-  in every `Update File` hunk. Do not wrap headers in Markdown emphasis.
-- If ungate_patch.apply_patch returns `no_change_hunk`, inspect the current
-  target block with read-only tools, rebuild the diff with a real `-` or `+`
-  change (or remove the operation), and retry the same patch tool exactly once.
-- If it returns `invalid_patch_header`, correct the header syntax and retry the
-  same patch tool exactly once. If that retry fails, or any other patch error
-  occurs, report the tool error and stop. An error never authorizes Shell edits.
-- If it returns `invalid_patch` because an Add File content line is missing its
-  leading `+`, reconstruct that Add File body with a `+` on every content line
-  and retry the same patch tool exactly once. An invalid patch is not applied.
+- For every manual source-file edit or file creation, call
+  mcp__ungate_patch__apply_patch from exec with
+  { working_directory, patch }. This is the only patch path.
+- Build patch as ['*** Begin Patch', ...].join('\n') or a regular
+  quoted string. Never use backticks or `${}` — V8 interpolates them
+  and throws ReferenceError before the patch runs.
+- Always capture the return value and pass it to text(...) or
+  notify(...), e.g. text(JSON.stringify(result, null, 2)).
+  A bare await yields empty exec output (Wall time 0.0s) even when
+  the UI shows Apply patch ok/error. Empty output is not a failed
+  tool and does not authorize a different invocation path.
+- Never call await tools.apply_patch(`...`) or wrap a patch in a
+  JavaScript or PowerShell template literal.
+- Do not emulate patch tools via Shell, Python, Node.js, Set-Content,
+  or wrappers. If the patch tool is missing, stop and report it.
+  An error never authorizes Shell edits.
+- Patch text must start with *** Begin Patch, end with *** End Patch,
+  use only plain-text Add/Update/Delete/Move headers, and include at
+  least one - or + line in every Update File hunk. Do not wrap headers
+  in Markdown emphasis.
+- hunk_not_found / no_change_hunk / invalid_patch: re-read the live
+  file, rebuild the hunk, retry this same MCP tool once. Do not
+  switch tools. Do not re-apply a patch that already returned ok: true.
+- Copy this exec shape:
+  const result = await tools.mcp__ungate_patch__apply_patch({ working_directory: "<absolute cwd>", patch: ["*** Begin Patch", "*** Update File: path", "@@", " context", "-old", "+new", "*** End Patch"].join("\n") });
+  text(JSON.stringify(result, null, 2));
 - Use Shell only for inspection, execution, formatting, and verification.
 - Do not edit source through Set-Content, Add-Content, WriteAllText, Python,
   Node.js, or a generated temporary edit script while apply_patch is available.
@@ -174,10 +175,6 @@ HARD RULE — source edits:
 - After editing a .ps1 file, validate it with Parser.ParseFile.
 - After an edit-related ParserError, do not retry with another quoting wrapper;
   switch directly to apply_patch.
-- For source edits, call mcp__ungate_patch__apply_patch with { working_directory, patch }.
-- Never call await tools.apply_patch(`...`) or wrap a patch in a JavaScript or PowerShell template literal.
-- `${}` inside exec is evaluated by V8 and throws ReferenceError before the patch tool runs.
-- If exec must call apply_patch, pass a regular string or ['*** Begin Patch', ...].join('\n'), never backticks.
 
 HARD RULE — long commands:
 - Never call await tools.wait(...) inside exec. tools.wait is not a function there;
@@ -280,6 +277,8 @@ $BuiltInUngateModelDefinitions = @(
         Slug = 'miniMax-M3'
         DisplayName = 'MiniMax M3 (Ungate)'
         Description = 'MiniMax M3 through the local Ungate Responses proxy with image input support.'
+        ContextWindow = 1000000
+        MaxContextWindow = 1000000
         # UpstreamModel intentionally left blank: MiniMax provider normalises
         # the model id from Codex's request body itself, so the launcher does
         # not need to know the literal id to put it in the identity string.
@@ -382,9 +381,8 @@ $BuiltInUngateModelDefinitions = @(
         ProxyBaseUrl = $OmniRouteBaseUrl
         EnvKey = 'OMNIROUTE_API_KEY'
         RequiresUngate = $false
-        ContextWindow = 1048576
-        MaxContextWindow = 1048576
-        EffectiveContextWindowPercent = 95
+        ContextWindow = 1000000
+        MaxContextWindow = 1000000
         SupportsReasoningSummaries = $true
         SupportsParallelToolCalls = $false
         ResponsesAdapter = 'mimo-textual-tools'
@@ -392,6 +390,33 @@ $BuiltInUngateModelDefinitions = @(
         SupportedReasoningLevels = @(
             @{ effort = 'none'; description = 'Disable Thinking' },
             @{ effort = 'high'; description = 'Enabled Thinking' }
+        )
+    }
+    [pscustomobject][ordered]@{
+        Slug = 'deepseek-v4-pro'
+        DisplayName = 'DeepSeek V4 Pro (OmniRoute)'
+        Description = 'DeepSeek V4 Pro through the local OmniRoute proxy on port 20128.'
+        UpstreamModel = 'deepseek/deepseek-v4-pro'
+        TransportDescription = 'the local OmniRoute proxy'
+        DefaultReasoningLevel = 'high'
+        Priority = 8
+        InputModalities = @('text')
+        SupportsImageDetailOriginal = $false
+        WebSearchToolType = 'text'
+        ProviderName = $OmniRouteProviderName
+        ProviderDisplayName = 'OmniRoute'
+        ProxyBaseUrl = $OmniRouteBaseUrl
+        EnvKey = 'OMNIROUTE_API_KEY'
+        RequiresUngate = $false
+        ContextWindow = 1000000
+        MaxContextWindow = 1000000
+        SupportsReasoningSummaries = $true
+        SupportsParallelToolCalls = $true
+        SupportedReasoningLevels = @(
+            @{ effort = 'none'; description = 'Disable Thinking' },
+            @{ effort = 'low'; description = 'Low Thinking' },
+            @{ effort = 'high'; description = 'High Thinking' },
+            @{ effort = 'max'; description = 'Max Thinking' }
         )
     }
 )
@@ -505,7 +530,7 @@ function ConvertTo-UngateModelDefinition {
     if ($upstreamModel -match '\s|["'']') {
         throw "Upstream model ID '$upstreamModel' cannot contain whitespace or quotes."
     }
-    if ($transport -notin @('ungate', 'cliproxyapi')) {
+    if ($transport -notin @('ungate', 'cliproxyapi', 'omniroute')) {
         throw "Custom model '$slug' has unsupported transport '$transport'."
     }
     if ($reasoningLevel -notin @('low', 'medium', 'high', 'xhigh')) {
@@ -523,13 +548,21 @@ function ConvertTo-UngateModelDefinition {
         $requiresUngate = $true
         $transportDescription = 'the local Ungate Responses proxy'
     }
-    else {
+    elseif ($transport -eq 'cliproxyapi') {
         $providerNameForModel = $CliProxyProviderName
         $providerDisplayName = 'CLIProxyAPI'
         $proxyBaseUrlForModel = $CliProxyBaseUrl
         $environmentKey = 'CLIPROXYAPI_API_KEY'
         $requiresUngate = $false
         $transportDescription = 'the local CLIProxyAPI compatibility bridge'
+    }
+    else {
+        $providerNameForModel = $OmniRouteProviderName
+        $providerDisplayName = 'OmniRoute'
+        $proxyBaseUrlForModel = $OmniRouteBaseUrl
+        $environmentKey = 'OMNIROUTE_API_KEY'
+        $requiresUngate = $false
+        $transportDescription = 'the local OmniRoute proxy'
     }
 
     $supportsImageInput = [bool]$Record.SupportsImageInput
@@ -1129,9 +1162,10 @@ function Invoke-AddUngateModelMode {
     Write-Host 'Transport:'
     Write-Host '  1) Ungate Proxy'
     Write-Host '  2) CLIProxyAPI'
+    Write-Host '  3) OmniRoute'
     $transport = Read-UngateMenuChoice `
         -Prompt 'Transport' `
-        -Values @('ungate', 'cliproxyapi') `
+        -Values @('ungate', 'cliproxyapi', 'omniroute') `
         -DefaultIndex 0
 
     Write-Host ''
@@ -1264,9 +1298,14 @@ function Get-CodexModelShellRoutes {
     $routes = [System.Collections.Generic.List[object]]::new()
     foreach ($definition in $UngateModelDefinitions) {
         $shellSlug = Get-CodexCatalogModelSlug -Definition $definition
+        $upstreamModelValue = if ($definition.PSObject.Properties['UpstreamModel'] -and $definition.UpstreamModel) {
+            [string]$definition.UpstreamModel
+        } else {
+            [string]$definition.Slug
+        }
         [void]$routes.Add([ordered]@{
             clientModel = $shellSlug
-            upstreamModel = [string]$definition.Slug
+            upstreamModel = $upstreamModelValue
             upstreamBaseUrl = [string]$definition.ProxyBaseUrl
             apiKeyEnv = [string]$definition.EnvKey
             responsesAdapter = if ($definition.PSObject.Properties['ResponsesAdapter']) { [string]$definition.ResponsesAdapter } else { $null }
@@ -1687,15 +1726,21 @@ function Invoke-OmniRoutePreflight {
     }
 
     $ids = @($models.data | ForEach-Object { $_.id })
-    if ($Model -notin $ids) {
-        throw "OmniRoute combo '$Model' was not found in /v1/models. Configure the combo before launching fallback mode."
+    $effectiveModel = if ($Model -in $ids) {
+        $Model
+    } elseif ("deepseek/$Model" -in $ids) {
+        "deepseek/$Model"
+    } elseif ("ds/$Model" -in $ids) {
+        "ds/$Model"
+    } else {
+        throw "OmniRoute model or combo '$Model' was not found in /v1/models. Configure the model before launching."
     }
-    Write-Host "[ungate] OmniRoute combo '$Model' available." -ForegroundColor Green
+    Write-Host "[ungate] OmniRoute model or combo '$Model' available." -ForegroundColor Green
 
     $body = [ordered]@{
-        model = $Model
+        model = $effectiveModel
         input = 'Reply with exactly OK.'
-        max_output_tokens = 16
+        max_output_tokens = 512
         stream = $false
         store = $false
     } | ConvertTo-Json -Compress
@@ -1728,7 +1773,7 @@ function Invoke-OmniRoutePreflight {
         throw "OmniRoute /v1/responses returned invalid JSON: $($_.Exception.Message)"
     }
     if (-not $payload.id -and -not $payload.output) {
-        throw "OmniRoute /v1/responses returned an unexpected response for combo '$Model'."
+        throw "OmniRoute /v1/responses returned an unexpected response for '$Model'."
     }
 
     Write-Host "[ungate] Live OmniRoute /v1/responses preflight passed for '$Model'." -ForegroundColor Green
@@ -1773,6 +1818,65 @@ function Ensure-ModelProvidersInConfig {
     return $updated
 }
 
+function Get-UngateModelContextWindow {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Definition
+    )
+
+    $contextWindow = if (
+        $Definition.PSObject.Properties['ContextWindow'] -and
+        $null -ne $Definition.ContextWindow
+    ) {
+        [int]$Definition.ContextWindow
+    }
+    else {
+        200000
+    }
+    $maxContextWindow = if (
+        $Definition.PSObject.Properties['MaxContextWindow'] -and
+        $null -ne $Definition.MaxContextWindow
+    ) {
+        [int]$Definition.MaxContextWindow
+    }
+    else {
+        200000
+    }
+    $percent = if (
+        $Definition.PSObject.Properties['EffectiveContextWindowPercent'] -and
+        $null -ne $Definition.EffectiveContextWindowPercent
+    ) {
+        [int]$Definition.EffectiveContextWindowPercent
+    }
+    else {
+        100
+    }
+
+    $compact = if ($contextWindow -ge 1000000 -and ($contextWindow % 1000000) -eq 0) {
+        '{0}M' -f [int]($contextWindow / 1000000)
+    }
+    elseif ($contextWindow -ge 1000 -and ($contextWindow % 1000) -eq 0) {
+        '{0}k' -f [int]($contextWindow / 1000)
+    }
+    else {
+        [string]$contextWindow
+    }
+
+    $label = if ($percent -ne 100) {
+        '{0} @ {1}%' -f $compact, $percent
+    }
+    else {
+        $compact
+    }
+
+    return [pscustomobject][ordered]@{
+        ContextWindow = $contextWindow
+        MaxContextWindow = $maxContextWindow
+        EffectiveContextWindowPercent = $percent
+        Label = $label
+    }
+}
+
 function Select-UngateDesktopModel {
     param(
         [Parameter(Mandatory = $true)]
@@ -1800,7 +1904,8 @@ function Select-UngateDesktopModel {
         Write-Host 'Select a mode for Codex Beta:' -ForegroundColor Cyan
         for ($index = 0; $index -lt $pickerDefinitions.Count; $index++) {
             $defaultLabel = if ($index -eq 0) { ' (default)' } else { '' }
-            Write-Host ("  {0}) {1}{2}" -f ($index + 1), $pickerDefinitions[$index].DisplayName, $defaultLabel)
+            $contextLabel = (Get-UngateModelContextWindow -Definition $pickerDefinitions[$index]).Label
+            Write-Host ("  {0}) {1}{2}  [{3}]" -f ($index + 1), $pickerDefinitions[$index].DisplayName, $defaultLabel, $contextLabel)
         }
         $configurePickerIndex = $pickerDefinitions.Count + 1
         Write-Host ("  {0}) Configure Desktop model picker" -f $configurePickerIndex) -ForegroundColor DarkCyan
@@ -2112,6 +2217,7 @@ function Write-UngateModelCatalog {
             # serial-tool fallback for custom providers.
             $false
         }
+        $contextWindow = Get-UngateModelContextWindow -Definition $definition
         $overrides = [ordered]@{
             slug = $catalogSlug
             display_name = $definition.DisplayName
@@ -2129,9 +2235,9 @@ function Write-UngateModelCatalog {
             default_reasoning_summary = 'none'
             support_verbosity = $false
             default_verbosity = $null
-            context_window = if ($null -ne $definition.ContextWindow) { [int]$definition.ContextWindow } else { 200000 }
-            max_context_window = if ($null -ne $definition.MaxContextWindow) { [int]$definition.MaxContextWindow } else { 200000 }
-            effective_context_window_percent = if ($null -ne $definition.EffectiveContextWindowPercent) { [int]$definition.EffectiveContextWindowPercent } else { 100 }
+            context_window = $contextWindow.ContextWindow
+            max_context_window = $contextWindow.MaxContextWindow
+            effective_context_window_percent = $contextWindow.EffectiveContextWindowPercent
             auto_compact_token_limit = $null
             comp_hash = $null
             supports_search_tool = $false
@@ -2433,7 +2539,8 @@ function Sync-CodexMcpServers {
         [Parameter(Mandatory = $true)]
         [string]$SourceCodexHome,
         [Parameter(Mandatory = $true)]
-        [string]$TargetCodexHome
+        [string]$TargetCodexHome,
+        [string]$BetaOnlyMcpContent = ''
     )
 
     $sourceConfigPath = Join-Path $SourceCodexHome 'config.toml'
@@ -2460,6 +2567,20 @@ function Sync-CodexMcpServers {
     $sourceMcpContent = Get-TomlTableFamilyContent `
         -Content $sourceConfig `
         -TableName 'mcp_servers'
+    if (-not [string]::IsNullOrWhiteSpace($BetaOnlyMcpContent)) {
+        # The launcher source file uses LF line endings, while Codex rewrites
+        # config files with CRLF on Windows. Normalize the injected block before
+        # composing the target so post-write verification compares equivalent
+        # text instead of failing on line-ending differences.
+        $normalizedBetaOnlyMcpContent = ($BetaOnlyMcpContent -split '\r?\n') -join "`r`n"
+        $normalizedBetaOnlyMcpContent = $normalizedBetaOnlyMcpContent.Trim()
+        $sourceMcpContent = if ([string]::IsNullOrWhiteSpace($sourceMcpContent)) {
+            $normalizedBetaOnlyMcpContent
+        }
+        else {
+            ($sourceMcpContent.TrimEnd() + "`r`n`r`n" + $normalizedBetaOnlyMcpContent).Trim()
+        }
+    }
     $targetMcpContent = Get-TomlTableFamilyContent `
         -Content $targetConfig `
         -TableName 'mcp_servers'
@@ -3182,11 +3303,11 @@ if (-not $EnableProviderFallback -and [string]::IsNullOrWhiteSpace($Model)) {
 }
 
 $selectedModelDefinition = $UngateModelDefinitions |
-    Where-Object { $_.Slug -eq $Model } |
+    Where-Object { $_.Slug -eq $Model -or ($_.PSObject.Properties['UpstreamModel'] -and $_.UpstreamModel -eq $Model) } |
     Select-Object -First 1
 if (-not $selectedModelDefinition) {
     $knownModelDefinition = $AllUngateModelDefinitions |
-        Where-Object { $_.Slug -eq $Model } |
+        Where-Object { $_.Slug -eq $Model -or ($_.PSObject.Properties['UpstreamModel'] -and $_.UpstreamModel -eq $Model) } |
         Select-Object -First 1
     if ($knownModelDefinition -and -not $EnableProviderFallback) {
         throw "Model '$($knownModelDefinition.DisplayName)' is not enabled in the Desktop picker. Run the launcher and choose 'Configure Desktop model picker'."
@@ -3194,6 +3315,7 @@ if (-not $selectedModelDefinition) {
     $supportedModels = @($UngateModelDefinitions.Slug) -join ', '
     throw "Unsupported Desktop model '$Model'. Configured models: $supportedModels"
 }
+$Model = [string]$selectedModelDefinition.Slug
 $CodexLaunchModel = if ($EnableProviderFallback) {
     $Model
 } else {
@@ -3295,9 +3417,16 @@ if ($preflightFailure) {
 
 Initialize-UngateCodexConfig
 Write-UngateModelCatalog
+$betaOnlyMcpContent = @'
+[mcp_servers.ungate_patch]
+command = 'C:\Program Files\nodejs\node.exe'
+args = ['J:\Dev\ungate-local\scripts\ungate-patch-mcp.mjs', "--allow-root", "*"]
+'@
+
 Sync-CodexMcpServers `
     -SourceCodexHome $DefaultCodexHome `
-    -TargetCodexHome $CustomCodexHome
+    -TargetCodexHome $CustomCodexHome `
+    -BetaOnlyMcpContent $betaOnlyMcpContent
 Ensure-SharedDirectory -Name 'skills'
 Sync-CodexGlobalInstructions
 Sync-CodexAuthentication
@@ -3314,6 +3443,12 @@ $pluginIsolation = Initialize-CodexBetaPluginIsolation `
     -BetaPackageVersion $codexBeta.Version `
     -BetaIsRunning $betaIsRunning
 if ($pluginIsolation.Changed) {
+    $syncReasons = @($pluginIsolation.SyncReasons)
+    if ($syncReasons.Count -gt 0) {
+        Write-Host `
+            "[ungate] Plugin isolation will sync because: $($syncReasons -join '; ')." `
+            -ForegroundColor Yellow
+    }
     Write-Host `
         "[ungate] Codex Beta plugins $($pluginIsolation.Action.ToLowerInvariant()) and isolated ($($pluginIsolation.PluginIds.Count) installed)." `
         -ForegroundColor Green

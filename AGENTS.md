@@ -5,6 +5,9 @@ The Desktop launcher is implemented in
 model/provider matrix and external-directory map are maintained in
 `J:\Dev\ungate-local\docs\model-routing.md`.
 
+Bridge versus adapter, why Grok 4.6 has a hop, and where each model's tool
+compatibility lives: `docs/model-routing.md#bridges-vs-adapters`.
+
 When investigating a model, follow its actual route before changing code:
 
 - Mode 3, Grok 4.6 (CLIProxyAPI): model-shell router `8319` -> local
@@ -25,6 +28,24 @@ When investigating a model, follow its actual route before changing code:
 If the launcher, this file, and the detailed matrix disagree, the launcher
 route definitions are authoritative. Keep this contract short and update the
 detailed matrix whenever a route, port, adapter, or external project changes.
+
+## Codex Beta config sync
+
+Codex Beta uses `C:\Users\kalvinclein\.codex-ungate\config.toml` as
+`CODEX_HOME`. That file is independent of the normal Codex profile except for
+the launcher sync below.
+
+The first launcher run copies
+`C:\Users\kalvinclein\.codex\config.toml` into the Beta home, then
+patches Ungate `model` / `model_provider` values. Every later launcher start
+replaces the entire `[mcp_servers.*]` table family in the Beta config from
+`C:\Users\kalvinclein\.codex\config.toml`. Edit MCP servers,
+including Playwright args, in the normal Codex config and relaunch Beta
+through the launcher. MCP edits made only in `.codex-ungate` are overwritten.
+
+`AGENTS.md` and `auth.json` are also copied from the normal Codex home on
+each launch. Other Beta settings stay independent. A running Codex Beta
+process does not pick up MCP changes until it is restarted via the launcher.
 
 ## Codex Beta and Mimo session logs
 
@@ -116,16 +137,72 @@ by the API process.
 CLIProxyAPI models, currently Grok 4.6. The Desktop launcher starts or reuses
 it on port `8318`; it forwards to CLIProxyAPI on port `8317`.
 
-Codex Responses sends MCP tools as `type: "namespace"`, while the CLIProxyAPI
-upstream expects ordinary flat function tools. The bridge flattens namespace
-tools, tool-call history, and tool choice on the request, then restores the
-`namespace` and original tool name in JSON and SSE responses for Codex.
+Why this hop exists, how it differs from the Mimo adapter, and which models
+must not use it: `docs/model-routing.md#bridges-vs-adapters`.
 
-Do not use this bridge for direct Ungate models (`ungate-opus-4-8`,
-`ungate-fable-5`, or `miniMax-M3`): they call `ungate-api` on port `47821`.
-Their namespace-tool compatibility belongs in the API Responses route, not in
-the CLIProxy bridge. After changing the bridge, run:
+Do not use this bridge for direct Ungate models. After changing the bridge,
+run:
 
 ```powershell
 pnpm --filter @ungate/scripts run bridge:test
 ```
+
+## Code validation and project publication
+
+After writing or modifying code in this project:
+
+1. Run the relevant syntax and behavior checks. For JavaScript or `.mjs` files, use `node --check <path>`; for PowerShell files, parse with `Parser.ParseFile`; then run the focused test suite.
+2. Publish the completed project change with the project manager using a concise commit message:
+
+```powershell
+pwsh -NoProfile -File "J:\Dev\dev-project-manager\dev-projects.ps1" ungate-local push -m "message"
+```
+
+Do not report the code change as complete until validation and `ungate-local push` have been run, unless the command is blocked by an external failure; in that case report the exact failure.
+
+<!-- BEGIN MANAGED GRAPHIFY INSTRUCTIONS -->
+## Graphify — обязательный workflow
+
+Проект индексируется Graphify. Граф: `graphify-out/graph.json`.
+Расширенная справка (команды, backend, верификация, типовые проблемы):
+`docs/graphify.md`. Читай её по мере нужды, не целиком в начале каждой сессии.
+
+Граф — навигация и карта связей. Источник истины — исходники и тесты.
+Рёбра `INFERRED` и `AMBIGUOUS` подтверждай по коду.
+`EXTRACTED` — сильный сигнал из AST, но не замена чтению кода,
+если от вывода зависит правка или runtime-поведение.
+
+НЕ редактируй `graphify-out/` вручную.
+НЕ передавай `--backend` при обычной индексации кода.
+НЕ запускай облачный backend по своей инициативе.
+
+### Перед анализом кода (до широкого grep и обхода файлов)
+
+1. `test -f graphify-out/graph.json`
+   - нет графа → `graphify extract . --code-only`
+     (если установлен skill ассистента: `/graphify .`)
+2. Обновляй граф заранее только если только что был `git pull` / merge,
+   в сессии уже меняли код, или предыдущий query не видит свежие файлы.
+   Иначе сразу к шагу 3.
+   При сомнении: `graphify check-update .` → при изменениях: `graphify update .`
+3. Точечные вопросы — сразу к графу:
+   - `graphify query "<вопрос>"`
+   - `graphify explain "<Concept>"`
+   - `graphify path "<A>" "<B>"`
+   MCP, если уже запущен: `query_graph`, `get_node`, `get_neighbors`, `shortest_path`.
+   После `update` CLI свежее MCP: сервер не подхватывает новый `graph.json`
+   без перезапуска.
+   Обзор архитектуры: `graphify-out/GRAPH_REPORT.md`.
+   Навигация по подсистемам, если есть: `graphify-out/wiki/index.md`.
+
+Грязные файлы в `graphify-out/` после hook/update ожидаемы —
+из-за этого граф не пропускай.
+
+### После создания / изменения / удаления кода
+
+`graphify update .`  (AST-only, без API)
+
+После массового удаления, переименования или если update отказался
+записать меньший граф: `graphify update . --force`
+Не используй `--force` без такой причины.
+<!-- END MANAGED GRAPHIFY INSTRUCTIONS -->

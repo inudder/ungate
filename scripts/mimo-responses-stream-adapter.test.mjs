@@ -353,6 +353,75 @@ test('converts native Chat Completions tool calls into Responses events', async 
 	assert.equal(output.at(-1).type, 'response.completed');
 });
 
+test('preserves MiMo reasoning content across streamed and final Chat Completion messages', async () => {
+	const stream = await transform([
+		sse('chat.completion.chunk', {
+			id: 'chat_reasoning',
+			choices: [{ delta: { reasoning_content: 'Проверяю ' }, finish_reason: null }]
+		}),
+		sse('chat.completion.chunk', {
+			id: 'chat_reasoning',
+			choices: [
+				{
+					delta: {
+						reasoning_content: 'файлы.',
+						content: 'Начинаю работу.',
+						tool_calls: [
+							{
+								index: 0,
+								id: 'call_reasoning',
+								type: 'function',
+								function: { name: 'shell_command', arguments: '{"command":"Get-Date"}' }
+							}
+						]
+					},
+					finish_reason: 'tool_calls'
+				}
+			]
+		}),
+		sse('chat.completion.chunk', {
+			id: 'chat_reasoning',
+			choices: [
+				{
+					message: {
+						role: 'assistant',
+						reasoning_content: 'Проверяю файлы.',
+						content: 'Начинаю работу.',
+						tool_calls: [
+							{ id: 'call_reasoning', type: 'function', function: { name: 'shell_command', arguments: '{"command":"Get-Date"}' } }
+						]
+					},
+					finish_reason: 'tool_calls'
+				}
+			]
+		}),
+		'data: [DONE]\n\n'
+	]);
+	const output = events(stream);
+	const reasoningAdded = output.find((event) => event.type === 'response.output_item.added' && event.item?.type === 'reasoning');
+	const reasoningDone = output.find((event) => event.type === 'response.reasoning_text.done');
+	const completed = output.at(-1).response;
+
+	assert.equal(reasoningAdded.output_index, 0);
+	assert.deepEqual(
+		output.filter((event) => event.type === 'response.reasoning_text.delta').map((event) => event.delta),
+		['Проверяю ', 'файлы.']
+	);
+	assert.equal(reasoningDone.text, 'Проверяю файлы.');
+	assert.equal(
+		output.find((event) => event.type === 'response.function_call_arguments.done').arguments,
+		'{"command":"Get-Date"}'
+	);
+	assert.deepEqual(completed.output[0], {
+		type: 'reasoning',
+		id: 'chat_reasoning_reasoning_0',
+		status: 'completed',
+		summary: [],
+		content: [{ type: 'reasoning_text', text: 'Проверяю файлы.' }]
+	});
+	assert.equal(output.at(-1).type, 'response.completed');
+});
+
 test('supports multiple native Chat Completions tool calls and unicode arguments', async () => {
 	const stream = await transform([
 		sse('chat.completion.chunk', {

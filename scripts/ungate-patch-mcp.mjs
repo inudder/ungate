@@ -35,7 +35,15 @@ const UPDATE_FILE_REMEDIATION = [
 	'-removed line',
 	'+added line',
 	'*** End Patch',
-	'Every hunk body line must start in column 1 with a space for context, - for deletion, or + for addition. Never emit a raw empty line inside a hunk: preserve an existing blank line as a line containing exactly one ASCII space, add a blank line as a line containing only +, and delete one as a line containing only -.'
+	'Every hunk body line must start in column 1 with a space for context, - for deletion, or + for addition. Never emit a raw empty line inside a hunk: preserve an existing blank line as a line containing exactly one ASCII space, add a blank line as a line containing only +, and delete one as a line containing only -.',
+	'The first character is the marker. After it, copy the exact file line including its indent; file indent is not the marker, so a copied indented line needs one extra leading space.'
+].join('\n');
+
+const CONTEXT_MISMATCH_REMEDIATION = [
+	'Exact context was not found. Re-read the current file, rebuild the hunk from the live lines, and retry this same apply_patch tool once.',
+	'Do not switch to native apply_patch, a different exec wrapper, or Shell. Do not reuse a hunk that already applied.',
+	'If exec output is empty (Wall time 0.0s), you forgot text(result); the UI result is authoritative.',
+	'If the hunk copied indented file lines as-is, prefix each context line with one extra ASCII space. Column 1 is the marker; a missing marker space makes indented context look one space shorter than the file.'
 ].join('\n');
 
 export class PatchError extends Error {
@@ -54,6 +62,8 @@ function fail(code, message, details) {
 function remediationFor(patchError) {
 	const remediationByCode = {
 		no_change_hunk: "Add at least one '-' or '+' line to every Update File hunk, or remove the unchanged operation.",
+		hunk_not_found: CONTEXT_MISMATCH_REMEDIATION,
+		anchor_not_found: CONTEXT_MISMATCH_REMEDIATION,
 		invalid_patch_header:
 			'Use only the exact supported headers: *** Begin Patch, *** End Patch, *** Add File: path, *** Update File: path, *** Delete File: path, and *** Move to: path.\n' +
 			ADD_FILE_REMEDIATION +
@@ -870,7 +880,7 @@ export function createPatchMcpServer(options) {
 		{
 			title: 'Apply source patch',
 			description: [
-				'Apply a native-style patch transactionally when the native Codex apply_patch tool is unavailable.',
+				'Required source-edit tool for Ungate Desktop sessions. Invoke it from exec with working_directory and patch, then pass the return value to text(...). A bare await yields empty exec output even if the patch applied.',
 				'This is the safe patch path: `${}` here is ordinary text. Do not send the patch through an exec template literal.',
 				'The first and last lines must be the exact sentinels *** Begin Patch and *** End Patch.',
 				'Use only plain-text Add File, Update File, Delete File, and Move to headers; do not wrap headers in Markdown emphasis.',

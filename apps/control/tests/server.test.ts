@@ -127,6 +127,18 @@ describe('dashboard control server', () => {
 			'http://127.0.0.1:47821/analytics/cache?period=day',
 			expect.objectContaining({ method: 'GET' })
 		);
+
+		const catalog = await app.inject({
+			method: 'GET',
+			url: '/api/backend/models/available/minimax',
+			headers: { host: '127.0.0.1:47820', 'x-ungate-csrf': token }
+		});
+
+		expect(catalog.statusCode).toBe(200);
+		expect(fetcher).toHaveBeenCalledWith(
+			'http://127.0.0.1:47821/models/available/minimax',
+			expect.objectContaining({ method: 'GET' })
+		);
 	});
 
 	it('rejects foreign origins and non-allowlisted backend routes', async () => {
@@ -150,6 +162,13 @@ describe('dashboard control server', () => {
 		});
 
 		expect(denied.statusCode).toBe(404);
+
+		const unknownCatalog = await app.inject({
+			method: 'GET',
+			url: '/api/backend/models/available/unknown',
+			headers: { host: '127.0.0.1:47820', 'x-ungate-csrf': token }
+		});
+		expect(unknownCatalog.statusCode).toBe(404);
 	});
 
 	it('keeps a running FRP service running when its external HTTP check is unsuccessful', async () => {

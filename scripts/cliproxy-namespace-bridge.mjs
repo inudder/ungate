@@ -164,6 +164,8 @@ function customInputFromArguments(argumentsJson) {
 }
 
 const EXEC_WAIT_CALL_RE = /^await\s+tools\.wait\s*\(([\s\S]*)\)\s*;?\s*$/u;
+const EXEC_YIELD_CELL_RE = /Script running with cell ID\s+(\S+)/u;
+const SYNTHETIC_WAIT_YIELD_MS = 60_000;
 
 export function parseExecWaitCall(input) {
 	if (typeof input !== 'string') return null;
@@ -214,6 +216,136 @@ export function rewriteExecWaitToolCall(value) {
 	else if (typeof value.id === 'string') rewritten.call_id = value.id;
 
 	return rewritten;
+}
+
+function toolOutputText(value) {
+	if (typeof value === 'string') return value;
+	if (Array.isArray(value)) {
+		return value.map((part) => toolOutputText(part)).join('');
+	}
+	if (!isObject(value)) return '';
+	if (typeof value.text === 'string') return value.text;
+	if (typeof value.input_text === 'string') return value.input_text;
+
+	return '';
+}
+
+function isToolOutputItem(item) {
+	if (!isObject(item)) return false;
+
+	return item.type === 'custom_tool_call_output' || item.type === 'function_call_output' || item.role === 'tool';
+}
+
+function itemOutputText(item) {
+	if (!isObject(item)) return '';
+	if (item.type === 'custom_tool_call_output' || item.type === 'function_call_output') {
+		return toolOutputText(item.output ?? item.content);
+	}
+	if (item.role === 'tool') return toolOutputText(item.content ?? item.output);
+
+	return '';
+}
+
+function collectConversationItems(value, acc = []) {
+	if (Array.isArray(value)) {
+		for (const item of value) collectConversationItems(item, acc);
+
+		return acc;
+	}
+	if (!isObject(value)) return acc;
+	acc.push(value);
+	if (Array.isArray(value.content)) collectConversationItems(value.content, acc);
+
+	return acc;
+}
+
+export function unresolvedYieldCellId(body) {
+	const sources = [];
+	if (Array.isArray(body)) sources.push(body);
+	else if (isObject(body)) {
+		if (body.input !== undefined) sources.push(body.input);
+		if (body.messages !== undefined) sources.push(body.messages);
+	}
+	const items = [];
+	for (const source of sources) collectConversationItems(source, items);
+	for (let index = items.length - 1; index >= 0; index -= 1) {
+		const item = items[index];
+		if (!isToolOutputItem(item)) continue;
+		const match = EXEC_YIELD_CELL_RE.exec(itemOutputText(item));
+
+		return match ? match[1] : null;
+	}
+
+	return null;
+}
+
+export function requestHasWaitTool(body) {
+	const tools = Array.isArray(body) ? body : Array.isArray(body?.tools) ? body.tools : [];
+
+	return tools.some((tool) => {
+		if (!isObject(tool) || tool.type === 'namespace') return false;
+		if (tool.name === 'wait') return true;
+
+		return isObject(tool.function) && tool.function.name === 'wait';
+	});
+}
+
+function outputHasToolCall(output) {
+	if (!Array.isArray(output)) return false;
+
+	return output.some((item) => item?.type === 'function_call' || item?.type === 'custom_tool_call');
+}
+
+function syntheticWaitFunctionCall(responseId, cellId) {
+	const id = `${responseId}_wait_yield`;
+
+	return {
+		type: 'function_call',
+		id,
+		call_id: id,
+		name: 'wait',
+		arguments: JSON.stringify({ cell_id: cellId, yield_time_ms: SYNTHETIC_WAIT_YIELD_MS }),
+		status: 'completed'
+	};
+}
+
+function logInjectedWait(logger, model, cellId) {
+	logger?.log?.(`[${SERVICE_NAME}] injected wait after unresolved exec yield cell_id=${cellId} model=${model ?? 'unknown'}`);
+}
+
+export function applyUnresolvedYieldWait(value, options = {}) {
+	if (!isObject(value)) return value;
+	const yieldCellId = typeof options.yieldCellId === 'string' ? options.yieldCellId.trim() : '';
+	if (yieldCellId === '' || options.waitToolAvailable !== true) return value;
+
+	const inject = (response, responseIdFallback) => {
+		if (!isObject(response)) return { next: response, injected: false };
+		const output = Array.isArray(response.output) ? response.output : [];
+		if (outputHasToolCall(output)) return { next: response, injected: false };
+		const responseId = typeof response.id === 'string' && response.id.trim() !== '' ? response.id : responseIdFallback;
+		const waitItem = syntheticWaitFunctionCall(responseId, yieldCellId);
+		const nextOutput = [...output, waitItem];
+		logInjectedWait(options.logger, options.model, yieldCellId);
+
+		return {
+			next: { ...response, id: responseId, output: nextOutput, output_count: nextOutput.length },
+			injected: true
+		};
+	};
+
+	if (Array.isArray(value.output) || value.object === 'response') {
+		const result = inject(value, value.id ?? newResponseId());
+
+		return result.injected ? result.next : value;
+	}
+	if (isObject(value.response)) {
+		const result = inject(value.response, value.response.id ?? value.response_id ?? newResponseId());
+		if (!result.injected) return value;
+
+		return { ...value, response: result.next };
+	}
+
+	return value;
 }
 
 function addBareCandidate(candidates, original) {
@@ -620,23 +752,33 @@ export function convertChatCompletionToResponse(completion, mapping, usageOption
 	}
 	const usage = normalizeUsage(completion.usage, usageOptions);
 
-	return {
-		id: responseId,
-		object: 'response',
-		status: 'completed',
-		...(typeof completion.model === 'string' ? { model: completion.model } : {}),
-		...(typeof completion.created === 'number' ? { created_at: completion.created } : {}),
-		output,
-		output_count: output.length,
-		...(usage ? { usage } : {})
-	};
+	return applyUnresolvedYieldWait(
+		{
+			id: responseId,
+			object: 'response',
+			status: 'completed',
+			...(typeof completion.model === 'string' ? { model: completion.model } : {}),
+			...(typeof completion.created === 'number' ? { created_at: completion.created } : {}),
+			output,
+			output_count: output.length,
+			...(usage ? { usage } : {})
+		},
+		{
+			yieldCellId: usageOptions?.yieldCellId,
+			waitToolAvailable: usageOptions?.waitToolAvailable,
+			logger: usageOptions?.logger,
+			model: usageOptions?.model ?? completion.model
+		}
+	);
 }
 
 function rewriteJsonResponse(parsed, protocol, mapping, usageOptions) {
 	if (protocol === 'responses' && Array.isArray(parsed.choices)) {
 		return convertChatCompletionToResponse(parsed, mapping, usageOptions);
 	}
-	if (protocol === 'responses') return rewriteResponseForCodex(parsed, mapping, usageOptions);
+	if (protocol === 'responses') {
+		return applyUnresolvedYieldWait(rewriteResponseForCodex(parsed, mapping, usageOptions), usageOptions);
+	}
 
 	return rewriteChatCompletionForClient(parsed, mapping);
 }
@@ -718,6 +860,10 @@ class ChatCompletionsResponsesTransform extends Transform {
 		this.started = false;
 		this.completed = false;
 		this.failed = false;
+		this.yieldCellId =
+			typeof options.yieldCellId === 'string' && options.yieldCellId.trim() !== '' ? options.yieldCellId.trim() : null;
+		this.waitToolAvailable = options.waitToolAvailable === true;
+		this.nativeEmittedToolCall = false;
 		this.messages = new Map();
 		this.tools = new Map();
 		this.output = [];
@@ -1085,6 +1231,22 @@ class ChatCompletionsResponsesTransform extends Transform {
 			return;
 		}
 		this.finishMessages();
+		if (this.tools.size === 0 && this.yieldCellId && this.waitToolAvailable) {
+			this.processToolCall(
+				0,
+				{
+					id: `${this.responseId}_wait_yield`,
+					type: 'function',
+					function: {
+						name: 'wait',
+						arguments: JSON.stringify({ cell_id: this.yieldCellId, yield_time_ms: SYNTHETIC_WAIT_YIELD_MS })
+					}
+				},
+				0,
+				true
+			);
+			logInjectedWait(this.logger, this.model, this.yieldCellId);
+		}
 		this.finishTools();
 		if (this.failed) return;
 
@@ -1102,6 +1264,65 @@ class ChatCompletionsResponsesTransform extends Transform {
 				}
 			})
 		);
+	}
+
+	finishNativeResponse(completed) {
+		if (this.completed || this.failed) return;
+		const rewritten = isObject(completed) ? completed : {};
+		const existingOutput =
+			isObject(rewritten.response) && Array.isArray(rewritten.response.output)
+				? rewritten.response.output
+				: Array.isArray(rewritten.output)
+					? rewritten.output
+					: [];
+		const hasTool = this.nativeEmittedToolCall || outputHasToolCall(existingOutput);
+		const next = applyUnresolvedYieldWait(rewritten, {
+			yieldCellId: hasTool ? null : this.yieldCellId,
+			waitToolAvailable: this.waitToolAvailable,
+			logger: this.logger,
+			model: this.model
+		});
+		const response = isObject(next.response) ? next.response : next;
+		const output = Array.isArray(response.output) ? response.output : [];
+		if (output.length > existingOutput.length) {
+			const waitItem = output.at(-1);
+			const outputIndex = output.length - 1;
+			const responseId = typeof response.id === 'string' && response.id ? response.id : this.responseId;
+			this.emitEvent(
+				'response.output_item.added',
+				responseEvent('response.output_item.added', responseId, {
+					output_index: outputIndex,
+					item: { ...waitItem, status: 'in_progress', arguments: '' }
+				})
+			);
+			this.emitEvent(
+				'response.function_call_arguments.done',
+				responseEvent('response.function_call_arguments.done', responseId, {
+					output_index: outputIndex,
+					item_id: waitItem.id,
+					call_id: waitItem.call_id,
+					name: waitItem.name,
+					arguments: waitItem.arguments
+				})
+			);
+			this.emitEvent(
+				'response.output_item.done',
+				responseEvent('response.output_item.done', responseId, { output_index: outputIndex, item: waitItem })
+			);
+		}
+		this.completed = true;
+		this.emitEvent('response.completed', {
+			...next,
+			type: 'response.completed',
+			response: {
+				...response,
+				id: response.id ?? this.responseId,
+				object: response.object ?? 'response',
+				status: 'completed',
+				output,
+				output_count: output.length
+			}
+		});
 	}
 
 	fail(state) {
@@ -1186,6 +1407,18 @@ class ChatCompletionsResponsesTransform extends Transform {
 		}
 
 		const rewritten = rewriteResponseForCodex(frame.data, this.mapping);
+		const itemType = rewritten.item?.type;
+		if (
+			(rewritten.type === 'response.output_item.added' || rewritten.type === 'response.output_item.done') &&
+			(itemType === 'function_call' || itemType === 'custom_tool_call')
+		) {
+			this.nativeEmittedToolCall = true;
+		}
+		if (rewritten.type === 'response.completed') {
+			this.finishNativeResponse(rewritten);
+
+			return;
+		}
 		this.emitEvent(frame.eventName ?? rewritten.type ?? '', rewritten);
 	}
 
@@ -1288,8 +1521,8 @@ function isExpectedDisconnect(error, state, response) {
 }
 
 function proxyUpstreamResponse(upstreamResponse, response, options) {
-	const { mapping, protocol, model, logger, maxInputTokens, state } = options;
-	const usageOptions = { maxInputTokens, logger, model };
+	const { mapping, protocol, model, logger, maxInputTokens, state, yieldCellId, waitToolAvailable } = options;
+	const usageOptions = { maxInputTokens, logger, model, yieldCellId, waitToolAvailable };
 	const contentType = String(upstreamResponse.headers['content-type'] ?? '').toLowerCase();
 	const contentEncoding = String(upstreamResponse.headers['content-encoding'] ?? '').toLowerCase();
 	const canTransform = protocol !== null && (!contentEncoding || contentEncoding === 'identity');
@@ -1301,7 +1534,7 @@ function proxyUpstreamResponse(upstreamResponse, response, options) {
 		}
 		const transform =
 			protocol === 'responses'
-				? createResponsesSseTransform({ mapping, model, logger, maxInputTokens })
+				? createResponsesSseTransform({ mapping, model, logger, maxInputTokens, yieldCellId, waitToolAvailable })
 				: createChatSseTransform(mapping);
 		pipeline(upstreamResponse, transform, response, (error) => {
 			if (!error || isExpectedDisconnect(error, state, response)) return;
@@ -1373,7 +1606,9 @@ function proxyRequest({
 	model,
 	onUpstreamAbort,
 	logger,
-	maxInputTokens
+	maxInputTokens,
+	yieldCellId,
+	waitToolAvailable
 }) {
 	const transport = targetUrl.protocol === 'https:' ? https : http;
 	const startedAt = Date.now();
@@ -1393,7 +1628,16 @@ function proxyRequest({
 					`[${SERVICE_NAME}] ${request.method} ${targetUrl.pathname} -> ${upstreamResponse.statusCode} (${Date.now() - startedAt}ms)`
 				);
 			});
-			proxyUpstreamResponse(upstreamResponse, response, { mapping, protocol, model, logger, maxInputTokens, state });
+			proxyUpstreamResponse(upstreamResponse, response, {
+				mapping,
+				protocol,
+				model,
+				logger,
+				maxInputTokens,
+				state,
+				yieldCellId,
+				waitToolAvailable
+			});
 		}
 	);
 
@@ -1463,6 +1707,8 @@ export function createBridgeServer(options = {}) {
 		let body;
 		let mapping = emptyMapping();
 		let model = 'unknown';
+		let yieldCellId = null;
+		let waitToolAvailable = false;
 		try {
 			if (protocol !== null) {
 				const requestBody = await readBody(request, maxBodyBytes);
@@ -1475,6 +1721,8 @@ export function createBridgeServer(options = {}) {
 				const flattened = flattenOpenAiRequest(parsed);
 				mapping = flattened.mapping;
 				model = typeof flattened.body.model === 'string' ? flattened.body.model : model;
+				yieldCellId = unresolvedYieldCellId(parsed);
+				waitToolAvailable = requestHasWaitTool(parsed);
 				body = Buffer.from(JSON.stringify(flattened.body));
 				headers['content-length'] = body.length;
 			}
@@ -1500,7 +1748,9 @@ export function createBridgeServer(options = {}) {
 			model,
 			onUpstreamAbort: options.onUpstreamAbort,
 			logger,
-			maxInputTokens
+			maxInputTokens,
+			yieldCellId,
+			waitToolAvailable
 		});
 	});
 }

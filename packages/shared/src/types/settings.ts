@@ -14,6 +14,16 @@ export interface ModelMappingConfig {
 	reasoningBudget: ReasoningBudgetTier | null;
 }
 
+export interface ProviderModelCatalogItem {
+	upstreamModel: string;
+	label: string;
+}
+
+export interface ProviderModelsResponse {
+	provider: ModelMappingProvider;
+	models: ProviderModelCatalogItem[];
+}
+
 export interface AppSettings {
 	port: number;
 	apiKey: string | null;

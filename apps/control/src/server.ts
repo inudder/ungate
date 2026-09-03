@@ -65,6 +65,13 @@ function requiresCsrf(method: string, pathname: string): boolean {
 	return method !== 'GET' && method !== 'HEAD' && pathname.startsWith('/api/control/');
 }
 
+function isAllowedBackendRoute(pathname: string, method: string): boolean {
+	const allowedMethods = BACKEND_ROUTES.get(pathname);
+	if (allowedMethods?.has(method)) return true;
+
+	return method === 'GET' && /^\/models\/available\/(claude|minimax|openai)$/.test(pathname);
+}
+
 function normalizedLimit(value: unknown): number {
 	const parsed = Number.parseInt(typeof value === 'string' ? value : '', 10);
 	if (!Number.isInteger(parsed)) return 500;
@@ -155,9 +162,8 @@ export async function buildServer(config: ControlConfig, dependencies: ServerDep
 	app.all('/api/backend/*', async (request, reply) => {
 		const incomingUrl = new URL(request.raw.url ?? '/', 'http://localhost');
 		const backendPath = incomingUrl.pathname.slice('/api/backend'.length);
-		const allowedMethods = BACKEND_ROUTES.get(backendPath);
 
-		if (!allowedMethods?.has(request.method)) {
+		if (!isAllowedBackendRoute(backendPath, request.method)) {
 			return reply.code(404).send({ error: 'Dashboard backend route is not allowed' });
 		}
 
