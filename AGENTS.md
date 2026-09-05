@@ -49,21 +49,36 @@ process does not pick up MCP changes until it is restarted via the launcher.
 
 ## Codex Beta and Mimo session logs
 
-When diagnosing a Codex Desktop session routed through Mimo, inspect the logs
-in this order:
+
+When diagnosing a Codex Desktop session, start with the session transcript.
+OmniRoute call logs are an extra hop for Mimo (mode 7) and other OmniRoute
+routes (modes 4-6). Do not treat OmniRoute as the primary session log.
+
+Two Codex homes:
+
+- Codex Beta (`CODEX_HOME` `.codex-ungate`): this launcher profile.
+- Normal Codex (`.codex`): the non-Beta Desktop profile.
+
+Inspect logs in this order:
 
 1. Session transcript (model-visible events, tool calls, turn lifecycle):
-   `C:\Users\kalvinclein\.codex-ungate\sessions\YYYY\MM\DD\rollout-*.jsonl`
+   Beta: `C:\Users\kalvinclein\.codex-ungate\sessions\YYYY\MM\DD\rollout-*.jsonl`
+   Normal: `C:\Users\kalvinclein\.codex\sessions\YYYY\MM\DD\rollout-*.jsonl`
+   The newest `LastWriteTime` in that home is usually the active chat.
+   Match a project by `payload.cwd` in the first `session_meta` / later
+   `turn_context` records (for example `J:\\Dev\\gambling-landing-generator`).
 2. Codex Beta desktop/app-server log (renderer and CLI bridge errors):
    `C:\Users\kalvinclein\AppData\Local\Packages\OpenAI.CodexBeta_2p2nqsd0c76g0\LocalCache\Local\Codex\Logs\YYYY\MM\DD\codex-desktop-*.log`
-3. OmniRoute request/response record (upstream status, timing, token counts,
-   finish reason and disconnect errors):
-   `C:\Users\kalvinclein\AppData\Roaming\omniroute\call_logs\YYYY-MM-DD\*.json`
-4. Local model-shell router lifecycle and request timings:
+3. Local model-shell router lifecycle and request timings:
    `C:\Users\kalvinclein\.codex-ungate\logs\codex-model-shell-router.out.log`
+4. Grok 4.6 / CLIProxy bridge (mode 3 only):
+   `C:\Users\kalvinclein\.codex-ungate\logs\cliproxy-namespace-bridge.out.log`
+5. For Mimo and other OmniRoute routes, also inspect OmniRoute request/response
+   records (upstream status, timing, token counts, finish reason, disconnects):
+   `C:\Users\kalvinclein\AppData\Roaming\omniroute\call_logs\YYYY-MM-DD\*.json`
 
 Correlate records by UTC timestamp, then by `turn_id`/`threadId` and the
-OmniRoute request timestamp. Useful search terms are
+OmniRoute request timestamp when that hop is in the route. Useful search terms are
 `turn_aborted`, `task_complete`, `OutputTextDelta without active item`,
 `turn_completed_with_incomplete_plan`, `mimo-responses-adapter`,
 `mimo_tool_call_parse_error`, `request_signal_aborted` and `finish_reason`.
@@ -90,6 +105,10 @@ PowerShell commands for the newest records:
 ```powershell
 $sessionRoot = Join-Path $env:USERPROFILE '.codex-ungate\sessions'
 Get-ChildItem -LiteralPath $sessionRoot -Recurse -File -Filter '*.jsonl' |
+    Sort-Object LastWriteTime -Descending | Select-Object -First 1
+
+$normalSessionRoot = Join-Path $env:USERPROFILE '.codex\sessions'
+Get-ChildItem -LiteralPath $normalSessionRoot -Recurse -File -Filter '*.jsonl' |
     Sort-Object LastWriteTime -Descending | Select-Object -First 1
 
 $desktopLogRoot = Join-Path $env:LOCALAPPDATA 'Packages\OpenAI.CodexBeta_2p2nqsd0c76g0\LocalCache\Local\Codex\Logs'
