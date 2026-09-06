@@ -16,6 +16,25 @@ change when routes change.
 | Codex model-shell router | `http://127.0.0.1:8319` | `J:\Dev\ungate-local\scripts\codex-model-shell-router.mjs` | Selects the route, rewrites model id, and enables only the configured stream adapter |
 | OmniRoute | `http://127.0.0.1:20128` | `%APPDATA%\omniroute` | OmniRoute provider/combo routing and call logs |
 
+## OmniRoute credential separation
+
+Keep the OmniRoute server master key and the Codex client key distinct. The
+OmniRoute process treats its `OMNIROUTE_API_KEY` value as an unrestricted
+environment/master key before consulting SQLite API-key permissions. Reusing
+that value for a restricted `codex-local` database record therefore bypasses
+its model allow-list and exposes the full `/v1/models` catalog.
+
+The launcher resolves its OmniRoute client credential in this order:
+
+1. Explicit `-ApiKey` argument.
+2. `OMNIROUTE_CODEX_API_KEY` (preferred restricted client key).
+3. `OMNIROUTE_API_KEY` (legacy compatibility fallback).
+
+The resolved client credential is still exported to the router and Codex child
+process as `OMNIROUTE_API_KEY`, because that is the provider `env_key` contract.
+This does not change the already-running OmniRoute server process environment.
+Never store either secret in this repository or in diagnostic output.
+
 ## Launcher modes
 
 | Mode | Display model | Upstream model | Provider/transport | Tool adapter |

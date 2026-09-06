@@ -13,7 +13,8 @@
 
 .PARAMETER ApiKey
     API key. If omitted for Ungate, falls back to $env:UNGATE_API_KEY, then ~/.ungate/data.db.
-    If omitted for OmniRoute, falls back to $env:OMNIROUTE_API_KEY.
+    If omitted for OmniRoute, falls back to $env:OMNIROUTE_CODEX_API_KEY,
+    then to the legacy $env:OMNIROUTE_API_KEY.
 
 .PARAMETER Profile
     Model id or combo to use (default: ungate-opus-4-8).
@@ -144,4 +145,3 @@ Invoke-CodexWithProxy `
     -ProviderDisplayName $ProviderDisplayName `
     -ProxyOpenAiBaseUrl $ProxyOpenAiBaseUrl `
     -EnvKey $EnvKey
-

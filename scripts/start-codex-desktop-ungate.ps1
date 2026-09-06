@@ -16,7 +16,9 @@
     fully closed before launching this isolated instance.
 
 .PARAMETER ApiKey
-    Ungate API key. If omitted, uses UNGATE_API_KEY or ~/.ungate/data.db.
+    Explicit API key for the selected provider. For OmniRoute, the fallback
+    order is OMNIROUTE_CODEX_API_KEY followed by the legacy
+    OMNIROUTE_API_KEY. For Ungate, uses UNGATE_API_KEY or ~/.ungate/data.db.
 
 .PARAMETER Model
     Ungate model id selected by default in Desktop. When omitted during a
@@ -1672,11 +1674,14 @@ function Resolve-ModelApiKey {
         if ($ApiKey) {
             return $ApiKey
         }
+        if ($env:OMNIROUTE_CODEX_API_KEY) {
+            return $env:OMNIROUTE_CODEX_API_KEY
+        }
         if ($env:OMNIROUTE_API_KEY) {
             return $env:OMNIROUTE_API_KEY
         }
 
-        throw 'OmniRoute client key is required. Pass -ApiKey or set OMNIROUTE_API_KEY.'
+        throw 'OmniRoute client key is required. Pass -ApiKey or set OMNIROUTE_CODEX_API_KEY (preferred) or OMNIROUTE_API_KEY (legacy fallback).'
     }
 
     if ($Definition.RequiresUngate) {
@@ -1722,7 +1727,7 @@ function Invoke-OmniRoutePreflight {
             -ErrorAction Stop
     }
     catch {
-        throw "Could not list OmniRoute /v1/models. Verify OMNIROUTE_API_KEY and the codex-local key permissions: $($_.Exception.Message)"
+        throw "Could not list OmniRoute /v1/models. Verify OMNIROUTE_CODEX_API_KEY and the codex-local key permissions: $($_.Exception.Message)"
     }
 
     $ids = @($models.data | ForEach-Object { $_.id })

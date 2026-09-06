@@ -124,7 +124,9 @@ Describe 'Optional OmniRoute provider fallback' {
             EnvKey = 'UNGATE_API_KEY'
         }
         $script:previousOmniRouteApiKey = $env:OMNIROUTE_API_KEY
+        $script:previousOmniRouteCodexApiKey = $env:OMNIROUTE_CODEX_API_KEY
         Remove-Item Env:\OMNIROUTE_API_KEY -ErrorAction SilentlyContinue
+        Remove-Item Env:\OMNIROUTE_CODEX_API_KEY -ErrorAction SilentlyContinue
     }
 
     AfterEach {
@@ -134,23 +136,34 @@ Describe 'Optional OmniRoute provider fallback' {
         else {
             $env:OMNIROUTE_API_KEY = $script:previousOmniRouteApiKey
         }
+        if ($null -eq $script:previousOmniRouteCodexApiKey) {
+            Remove-Item Env:\OMNIROUTE_CODEX_API_KEY -ErrorAction SilentlyContinue
+        }
+        else {
+            $env:OMNIROUTE_CODEX_API_KEY = $script:previousOmniRouteCodexApiKey
+        }
     }
 
-    It 'uses an explicit OmniRoute key before the environment and never falls back to SQLite' {
-        $env:OMNIROUTE_API_KEY = 'environment-key'
+    It 'prefers an explicit key, then the Codex client key, then the legacy environment key' {
+        $env:OMNIROUTE_API_KEY = 'master-key'
+        $env:OMNIROUTE_CODEX_API_KEY = 'codex-client-key'
         $definition = [pscustomobject]@{ ProviderName = 'omniroute'; RequiresUngate = $false }
 
         Resolve-ModelApiKey -Definition $definition -ApiKey 'argument-key' |
             Should -BeExactly 'argument-key'
         Resolve-ModelApiKey -Definition $definition |
-            Should -BeExactly 'environment-key'
+            Should -BeExactly 'codex-client-key'
+
+        Remove-Item Env:\OMNIROUTE_CODEX_API_KEY
+        Resolve-ModelApiKey -Definition $definition |
+            Should -BeExactly 'master-key'
     }
 
     It 'fails clearly when no OmniRoute client key is configured' {
         $definition = [pscustomobject]@{ ProviderName = 'omniroute'; RequiresUngate = $false }
 
         { Resolve-ModelApiKey -Definition $definition } |
-            Should -Throw '*Pass -ApiKey or set OMNIROUTE_API_KEY*'
+            Should -Throw '*set OMNIROUTE_CODEX_API_KEY*OMNIROUTE_API_KEY*'
     }
 
     It 'does not add OmniRoute to active providers without the switch' {

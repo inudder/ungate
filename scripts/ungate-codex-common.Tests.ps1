@@ -2,6 +2,46 @@ BeforeAll {
     . (Join-Path $PSScriptRoot 'ungate-codex-common.ps1')
 }
 
+Describe 'Resolve-OmniRouteApiKey' {
+    BeforeEach {
+        $script:previousOmniRouteApiKey = $env:OMNIROUTE_API_KEY
+        $script:previousOmniRouteCodexApiKey = $env:OMNIROUTE_CODEX_API_KEY
+        Remove-Item Env:\OMNIROUTE_API_KEY -ErrorAction SilentlyContinue
+        Remove-Item Env:\OMNIROUTE_CODEX_API_KEY -ErrorAction SilentlyContinue
+    }
+
+    AfterEach {
+        if ($null -eq $script:previousOmniRouteApiKey) {
+            Remove-Item Env:\OMNIROUTE_API_KEY -ErrorAction SilentlyContinue
+        }
+        else {
+            $env:OMNIROUTE_API_KEY = $script:previousOmniRouteApiKey
+        }
+        if ($null -eq $script:previousOmniRouteCodexApiKey) {
+            Remove-Item Env:\OMNIROUTE_CODEX_API_KEY -ErrorAction SilentlyContinue
+        }
+        else {
+            $env:OMNIROUTE_CODEX_API_KEY = $script:previousOmniRouteCodexApiKey
+        }
+    }
+
+    It 'prefers an explicit key, then the Codex client key, then the legacy environment key' {
+        $env:OMNIROUTE_API_KEY = 'master-key'
+        $env:OMNIROUTE_CODEX_API_KEY = 'codex-client-key'
+
+        Resolve-OmniRouteApiKey -ApiKey 'argument-key' | Should -BeExactly 'argument-key'
+        Resolve-OmniRouteApiKey | Should -BeExactly 'codex-client-key'
+
+        Remove-Item Env:\OMNIROUTE_CODEX_API_KEY
+        Resolve-OmniRouteApiKey | Should -BeExactly 'master-key'
+    }
+
+    It 'fails clearly when no OmniRoute client key is configured' {
+        { Resolve-OmniRouteApiKey } |
+            Should -Throw '*set OMNIROUTE_CODEX_API_KEY*OMNIROUTE_API_KEY*'
+    }
+}
+
 Describe 'Test-UngateResponsesBridge' {
     It 'uses the authenticated health endpoint without a request body' {
         Mock Invoke-WebRequest {

@@ -396,9 +396,10 @@ function Resolve-OmniRouteApiKey {
     )
 
     if ($ApiKey) { return $ApiKey }
+    if ($env:OMNIROUTE_CODEX_API_KEY) { return $env:OMNIROUTE_CODEX_API_KEY }
     if ($env:OMNIROUTE_API_KEY) { return $env:OMNIROUTE_API_KEY }
 
-    throw 'OmniRoute client key is required. Pass -ApiKey or set OMNIROUTE_API_KEY.'
+    throw 'OmniRoute client key is required. Pass -ApiKey or set OMNIROUTE_CODEX_API_KEY (preferred) or OMNIROUTE_API_KEY (legacy fallback).'
 }
 
 function Invoke-OmniRoutePreflight {
