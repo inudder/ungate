@@ -45,7 +45,9 @@ BeforeAll {
         'Get-CodexHistoryProfileInfo',
         'Get-CodexCliExecutable',
         'Test-CodexMcpConfiguration',
-        'Sync-CodexMcpServers'
+        'Sync-CodexMcpServers',
+        'Format-CodexSessionEvent',
+        'Watch-CodexActivity'
     )
     foreach ($functionName in $functionNames) {
         $definition = $launcherAst.FindAll(
@@ -1307,3 +1309,31 @@ Describe 'Ungate environment source-edit instructions' {
         $identity | Should -Match "@' \.\.\. '@ \| ssh host 'bash -s'"
     }
 }
+
+Describe 'Format-CodexSessionEvent' {
+    It 'does not throw on empty or malformed input' {
+        { Format-CodexSessionEvent -Line '' } | Should -Not -Throw
+        { Format-CodexSessionEvent -Line 'not-json' } | Should -Not -Throw
+        { Format-CodexSessionEvent -Line '{"type":"unknown"}' } | Should -Not -Throw
+    }
+
+    It 'formats agent_reasoning events without error' {
+        $json = '{"type":"event_msg","payload":{"type":"agent_reasoning","text":"Thinking about something"}}'
+        { Format-CodexSessionEvent -Line $json } | Should -Not -Throw
+    }
+
+    It 'formats custom_tool_call and output events without error' {
+        $callJson = '{"type":"response_item","payload":{"type":"custom_tool_call","name":"exec","input":"tools.shell_command()"}}'
+        $outJson = '{"type":"response_item","payload":{"type":"custom_tool_call_output","output":[{"text":"output text"}]}}'
+        { Format-CodexSessionEvent -Line $callJson } | Should -Not -Throw
+        { Format-CodexSessionEvent -Line $outJson } | Should -Not -Throw
+    }
+
+    It 'formats user and agent messages without error' {
+        $userJson = '{"type":"event_msg","payload":{"type":"user_message","message":"Hello agent"}}'
+        $agentJson = '{"type":"event_msg","payload":{"type":"agent_message","message":"Hello user"}}'
+        { Format-CodexSessionEvent -Line $userJson } | Should -Not -Throw
+        { Format-CodexSessionEvent -Line $agentJson } | Should -Not -Throw
+    }
+}
+

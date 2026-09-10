@@ -41,6 +41,9 @@
 .PARAMETER SkipWorkspaceRestore
     Skip restoring active-workspace-roots from project-order / saved roots.
 
+.PARAMETER NoLogWatch
+    Launch Codex Beta without streaming live session and router activity in the terminal.
+
 .EXAMPLE
     pwsh J:\Dev\ungate-local\scripts\start-codex-desktop-ungate.ps1
 
@@ -61,7 +64,8 @@ param(
     [switch]$AddModel,
     [switch]$PrepareOnly,
     [switch]$SkipWorkspaceRestore,
-    [switch]$EnableProviderFallback
+    [switch]$EnableProviderFallback,
+    [switch]$NoLogWatch
 )
 
 $ErrorActionPreference = 'Stop'
@@ -3114,6 +3118,226 @@ function Stop-CodexBeta {
     Write-Host '[ungate] Previous Codex Beta instance closed.' -ForegroundColor Green
 }
 
+function Format-CodexSessionEvent {
+    param(
+        [Parameter(Mandatory = $false)]
+        [AllowNull()]
+        [AllowEmptyString()]
+        [string]$Line
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Line)) {
+        return
+    }
+
+    try {
+        $json = $Line | ConvertFrom-Json -ErrorAction Stop
+        $p = $json.payload
+        if (-not $p) { return }
+
+        $objType = [string]$json.type
+        $pType = [string]$p.type
+
+        if ($pType -eq 'agent_reasoning' -and $p.text) {
+            $text = $p.text.Trim()
+            if ($text) {
+                Write-Host "`n[THINK] " -ForegroundColor Magenta -NoNewline
+                Write-Host $text -ForegroundColor DarkGray
+            }
+            return
+        }
+
+        if ($pType -eq 'user_message' -and $p.message) {
+            Write-Host "`n=== USER ===" -ForegroundColor Cyan
+            Write-Host $p.message.Trim() -ForegroundColor White
+            return
+        }
+
+        if ($objType -eq 'response_item' -and ($pType -eq 'custom_tool_call' -or $pType -eq 'function_call')) {
+            $toolName = if ($p.name) { $p.name } else { $p.call.name }
+            $toolInput = if ($p.input) { $p.input } else { $p.arguments }
+            Write-Host "`n--> [TOOL CALL: $toolName]" -ForegroundColor Yellow
+            if ($toolInput) {
+                Write-Host $toolInput.Trim() -ForegroundColor DarkYellow
+            }
+            return
+        }
+
+        if ($objType -eq 'response_item' -and ($pType -eq 'custom_tool_call_output' -or $pType -eq 'function_call_output')) {
+            $outLines = @()
+            if ($p.output) {
+                if ($p.output -is [array]) {
+                    $outLines = $p.output | ForEach-Object { if ($_.text) { $_.text } else { [string]$_.content } }
+                } else {
+                    $outLines = @([string]$p.output)
+                }
+            }
+            $outText = ($outLines -join "`n").Trim()
+            if ($outText) {
+                $preview = if ($outText.Length -gt 800) { $outText.Substring(0, 800) + '... [truncated]' } else { $outText }
+                Write-Host '<-- [TOOL OUTPUT]' -ForegroundColor Blue
+                Write-Host $preview -ForegroundColor Gray
+            }
+            return
+        }
+
+        if ($pType -eq 'agent_message' -and $p.message) {
+            Write-Host "`n=== AGENT ===" -ForegroundColor Green
+            Write-Host $p.message.Trim() -ForegroundColor White
+            return
+        }
+
+        if ($pType -eq 'turn_aborted') {
+            Write-Host "`n[TURN ABORTED]" -ForegroundColor Red
+            return
+        }
+    }
+    catch {
+        # Malformed or non-JSON line ignored
+    }
+}
+
+function Watch-CodexActivity {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$CustomCodexHome,
+        [Parameter(Mandatory = $true)]
+        [string]$DesktopExecutablePath,
+        [int]$PollIntervalMs = 250
+    )
+
+    Write-Host "`n[ungate] Streaming live Codex Beta activity in this terminal (Ctrl+C to detach)..." -ForegroundColor Cyan
+
+    $sessionsRoot = Join-Path $CustomCodexHome 'sessions'
+    $routerLogPath = Join-Path $CustomCodexHome 'logs\codex-model-shell-router.out.log'
+
+    $sessionFs = $null
+    $sessionSr = $null
+    $currentSessionPath = $null
+
+    $routerFs = $null
+    $routerSr = $null
+
+    try {
+        if (Test-Path -LiteralPath $routerLogPath -PathType Leaf) {
+            try {
+                $routerFs = [System.IO.FileStream]::new(
+                    $routerLogPath,
+                    [System.IO.FileMode]::Open,
+                    [System.IO.FileAccess]::Read,
+                    [System.IO.FileShare]::ReadWrite
+                )
+                $routerFs.Seek(0, [System.IO.SeekOrigin]::End) | Out-Null
+                $routerSr = [System.IO.StreamReader]::new($routerFs, [System.Text.Encoding]::UTF8)
+            }
+            catch { }
+        }
+
+        $startupGraceDeadline = [System.DateTime]::UtcNow.AddSeconds(15)
+        $lastHealthCheck = [System.Diagnostics.Stopwatch]::StartNew()
+        $lastSessionCheck = [System.Diagnostics.Stopwatch]::StartNew()
+
+        while ($true) {
+            # 1. Read router lines
+            if ($routerSr) {
+                while (-not $routerSr.EndOfStream) {
+                    $rLine = $routerSr.ReadLine()
+                    if (-not [string]::IsNullOrWhiteSpace($rLine)) {
+                        Write-Host "[router] $rLine" -ForegroundColor DarkCyan
+                    }
+                }
+            }
+            elseif (Test-Path -LiteralPath $routerLogPath -PathType Leaf) {
+                try {
+                    $routerFs = [System.IO.FileStream]::new(
+                        $routerLogPath,
+                        [System.IO.FileMode]::Open,
+                        [System.IO.FileAccess]::Read,
+                        [System.IO.FileShare]::ReadWrite
+                    )
+                    $routerFs.Seek(0, [System.IO.SeekOrigin]::End) | Out-Null
+                    $routerSr = [System.IO.StreamReader]::new($routerFs, [System.Text.Encoding]::UTF8)
+                }
+                catch { }
+            }
+
+            # 2. Check for active session or switch to newer
+            if ($null -eq $sessionSr -or $lastSessionCheck.ElapsedMilliseconds -gt 1500) {
+                $lastSessionCheck.Restart()
+                if (Test-Path -LiteralPath $sessionsRoot) {
+                    $newest = Get-ChildItem -LiteralPath $sessionsRoot -Recurse -File -Filter '*.jsonl' -ErrorAction SilentlyContinue |
+                        Sort-Object LastWriteTime -Descending | Select-Object -First 1
+
+                    if ($newest -and $newest.FullName -ne $currentSessionPath) {
+                        if ($sessionSr) {
+                            $sessionSr.Dispose()
+                            $sessionFs.Dispose()
+                            $sessionSr = $null
+                            $sessionFs = $null
+                        }
+
+                        $isFirstAttach = ($null -eq $currentSessionPath)
+                        $currentSessionPath = $newest.FullName
+                        try {
+                            $sessionFs = [System.IO.FileStream]::new(
+                                $currentSessionPath,
+                                [System.IO.FileMode]::Open,
+                                [System.IO.FileAccess]::Read,
+                                [System.IO.FileShare]::ReadWrite
+                            )
+                            if ($isFirstAttach) {
+                                $sessionFs.Seek(0, [System.IO.SeekOrigin]::End) | Out-Null
+                                Write-Host "[ungate] Attached to active session: $($newest.Name)" -ForegroundColor DarkGray
+                            }
+                            else {
+                                Write-Host "`n[ungate] Switched to new session: $($newest.Name)" -ForegroundColor Cyan
+                            }
+                            $sessionSr = [System.IO.StreamReader]::new($sessionFs, [System.Text.Encoding]::UTF8)
+                        }
+                        catch { }
+                    }
+                }
+            }
+
+            # 3. Read session lines
+            if ($sessionSr) {
+                while (-not $sessionSr.EndOfStream) {
+                    $sLine = $sessionSr.ReadLine()
+                    if (-not [string]::IsNullOrWhiteSpace($sLine)) {
+                        Format-CodexSessionEvent -Line $sLine
+                    }
+                }
+            }
+
+            # 4. Periodically verify Codex Beta process is still alive after grace period
+            if ($lastHealthCheck.ElapsedMilliseconds -gt 3000) {
+                $lastHealthCheck.Restart()
+                if ([System.DateTime]::UtcNow -gt $startupGraceDeadline) {
+                    $running = @(Get-CodexBetaProcesses -ExecutablePath $DesktopExecutablePath).Count -gt 0
+                    if (-not $running) {
+                        Write-Host "`n[ungate] Codex Beta process exited. Log streaming finished." -ForegroundColor Yellow
+                        break
+                    }
+                }
+            }
+
+            Start-Sleep -Milliseconds $PollIntervalMs
+        }
+    }
+    catch [System.Management.Automation.PipelineStoppedException] {
+        Write-Host "`n[ungate] Log stream detached." -ForegroundColor DarkGray
+    }
+    catch {
+        Write-Warning "[ungate] Log stream stopped: $_"
+    }
+    finally {
+        if ($sessionSr) { $sessionSr.Dispose() }
+        if ($sessionFs) { $sessionFs.Dispose() }
+        if ($routerSr) { $routerSr.Dispose() }
+        if ($routerFs) { $routerFs.Dispose() }
+    }
+}
+
 function Normalize-WorkspaceRootPath {
     param([AllowNull()][string]$PathValue)
 
@@ -3505,3 +3729,9 @@ Start-CodexBetaDesktop `
     -PackageInfo $codexBeta `
     -LaunchEnvironment $launchEnv `
     -WorkingDirectory $RepoRoot
+
+if (-not $NoLogWatch) {
+    Watch-CodexActivity `
+        -CustomCodexHome $CustomCodexHome `
+        -DesktopExecutablePath ([string]$desktopExecutable)
+}
