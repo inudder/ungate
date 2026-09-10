@@ -1303,5 +1303,7 @@ Describe 'Ungate environment source-edit instructions' {
         $identity | Should -Match 'Wall time 0\.0'
         $identity | Should -Match 'ok: true'
         $identity | Should -Match 'only patch path'
+        $identity | Should -Match 'Remote SSH scripts via PowerShell'
+        $identity | Should -Match "@' \.\.\. '@ \| ssh host 'bash -s'"
     }
 }

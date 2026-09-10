@@ -172,6 +172,10 @@ HARD RULE — source edits:
 - Never nest PowerShell here-strings or wrap source containing @' / '@ / @" / "@
   inside another here-string.
 - PowerShell is not Bash. Never use <<EOF or python - <<'PY'.
+- Remote SSH scripts via PowerShell: never pass remote Bash scripts with
+  variables or command substitutions as double-quoted strings (ssh host "... \$VAR ... $(cmd)").
+  In PowerShell \ does not escape $, and $(cmd) runs locally on Windows.
+  Always pipe a single-quoted here-string into stdin: @' ... '@ | ssh host 'bash -s'.
 - The js tool is a V8 orchestration isolate, not Node.js. Do not use require,
   fs, path, or filesystem access there.
 - After editing a .ps1 file, validate it with Parser.ParseFile.
