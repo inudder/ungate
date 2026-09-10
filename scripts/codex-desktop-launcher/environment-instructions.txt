@@ -1,0 +1,73 @@
+Execution environment: Windows 11. The shell is PowerShell 7.
+
+HARD RULE — source edits:
+- For every manual source-file edit or file creation, call
+  mcp__ungate_patch__apply_patch from exec with
+  { working_directory, patch }. This is the only patch path.
+- Build patch as ['*** Begin Patch', ...].join('\n') or a regular
+  quoted string. Never use backticks or `${}` — V8 interpolates them
+  and throws ReferenceError before the patch runs.
+- Always capture the return value and pass it to text(...) or
+  notify(...), e.g. text(JSON.stringify(result, null, 2)).
+  A bare await yields empty exec output (Wall time 0.0s) even when
+  the UI shows Apply patch ok/error. Empty output is not a failed
+  tool and does not authorize a different invocation path.
+- Never call await tools.apply_patch(`...`) or wrap a patch in a
+  JavaScript or PowerShell template literal.
+- Do not emulate patch tools via Shell, Python, Node.js, Set-Content,
+  or wrappers. If the patch tool is missing, stop and report it.
+  An error never authorizes Shell edits.
+- Patch text must start with *** Begin Patch, end with *** End Patch,
+  use only plain-text Add/Update/Delete/Move headers, and include at
+  least one - or + line in every Update File hunk. Do not wrap headers
+  in Markdown emphasis.
+- hunk_not_found / no_change_hunk / invalid_patch: re-read the live
+  file, rebuild the hunk, retry this same MCP tool once. Do not
+  switch tools. Do not re-apply a patch that already returned ok: true.
+- Copy this exec shape:
+  const result = await tools.mcp__ungate_patch__apply_patch({ working_directory: "<absolute cwd>", patch: ["*** Begin Patch", "*** Update File: path", "@@", " context", "-old", "+new", "*** End Patch"].join("\n") });
+  text(JSON.stringify(result, null, 2));
+- Use Shell only for inspection, execution, formatting, and verification.
+- Do not edit source through Set-Content, Add-Content, WriteAllText, Python,
+  Node.js, or a generated temporary edit script while apply_patch is available.
+- Never nest PowerShell here-strings or wrap source containing @' / '@ / @" / "@
+  inside another here-string.
+- PowerShell is not Bash. Never use <<EOF or python - <<'PY'.
+- Remote SSH scripts via PowerShell: never pass remote Bash scripts with
+  variables or command substitutions as double-quoted strings (ssh host "... \$VAR ... $(cmd)").
+  In PowerShell \ does not escape $, and $(cmd) runs locally on Windows.
+  Always pipe a single-quoted here-string into stdin: @' ... '@ | ssh host 'bash -s'.
+- The js tool is a V8 orchestration isolate, not Node.js. Do not use require,
+  fs, path, or filesystem access there.
+- After editing a .ps1 file, validate it with Parser.ParseFile.
+- After an edit-related ParserError, do not retry with another quoting wrapper;
+  switch directly to apply_patch.
+
+HARD RULE — long commands:
+- Never call await tools.wait(...) inside exec. tools.wait is not a function there;
+  it throws TypeError and the turn ends with no final message.
+- For pytest, builds, and other commands that may take more than 10 seconds, call
+  shell_command with timeout_ms of at least 180000 and start the exec script with
+  // @exec: {"yield_time_ms": 180000}.
+- If exec already returned "Script running with cell ID ...", call the native wait
+  tool named wait with { cell_id, yield_time_ms }. Do not wrap that call in exec.
+- After await tools.shell_command(...) or any nested exec tool, pass the result to
+  text(...) or notify(...). A bare await returns nothing to the model even when the
+  UI shows the command output.
+
+HARD RULE — Plan Mode:
+- If collaboration_mode is Plan Mode, do not edit, create, delete, patch, or format
+  any source files. Do not call apply_patch, mcp__ungate_patch__apply_patch, or any
+  other mutating tool. Read-only inspection is allowed.
+- Imperative user language ("перенеси", "сделай", "implement") does not exit Plan Mode.
+  Plan the work; do not perform it.
+- Finish with a single <proposed_plan> block. No file changes until the user leaves
+  Plan Mode or explicitly asks to implement the plan.
+
+Images / vision:
+- If the user attaches an image (LocalImage, input_image, data:image/..., or <image ... path=...>),
+  it is already in the model context. Answer from that attachment directly.
+- NEVER use Read, exec_command, Shell, or any file tool to open/view an attached image path.
+  That produces: Cannot read "image.png" (this model does not support image input).
+- Only use filesystem tools for non-image files, or when the user asks to inspect binary/metadata
+  offline and no vision attachment is present.

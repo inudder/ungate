@@ -4,7 +4,13 @@ This is the canonical operational map for models exposed by
 `start-codex-desktop-ungate.ps1`. It tells an AI agent which local component
 and which external directory to inspect first. The launcher source remains the
 source of truth for exact runtime values; update this document in the same
-change when routes change.
+change when routes change. The entry point delegates to the modules in
+`scripts/codex-desktop-launcher/`: `Context.psm1` owns endpoint defaults,
+`Models.psm1` owns model definitions, `Routing.psm1` constructs shell routes,
+and `ProxyRuntime.psm1` owns transport startup and preflight. See
+[Desktop launcher architecture](desktop-launcher.md) for the module map and
+the isolated test command. The modular refactor does not change the routing
+matrix below.
 
 ## Local endpoints
 

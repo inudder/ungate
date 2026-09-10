@@ -1,7 +1,11 @@
 ## Launcher model routing contract
 
-The Desktop launcher is implemented in
-`J:\Dev\ungate-local\scripts\start-codex-desktop-ungate.ps1`. The complete
+The Desktop launcher entry point is
+`J:\Dev\ungate-local\scripts\start-codex-desktop-ungate.ps1`; its implementation
+is in `scripts/codex-desktop-launcher/`. Start with `Launcher.psm1` for execution
+order, `Models.psm1` for model definitions, `Routing.psm1` for route generation,
+and `ProxyRuntime.psm1` for transport startup and preflight. See
+`docs/desktop-launcher.md` for module contracts and isolated tests. The complete
 model/provider matrix and external-directory map are maintained in
 `J:\Dev\ungate-local\docs\model-routing.md`.
 
@@ -26,8 +30,9 @@ When investigating a model, follow its actual route before changing code:
   Mimo adapter for these routes.
 
 If the launcher, this file, and the detailed matrix disagree, the launcher
-route definitions are authoritative. Keep this contract short and update the
-detailed matrix whenever a route, port, adapter, or external project changes.
+module definitions (`Context`, `Models`, `Routing`) are authoritative. Keep this
+contract short and update the detailed matrix whenever a route, port, adapter,
+or external project changes.
 
 ## Codex Beta config sync
 

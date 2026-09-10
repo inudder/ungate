@@ -1,71 +1,16 @@
 BeforeAll {
     $script:launcherPath = Join-Path $PSScriptRoot 'start-codex-desktop-ungate.ps1'
-    $tokens = $null
-    $parseErrors = $null
-    $launcherAst = [System.Management.Automation.Language.Parser]::ParseFile(
-        $script:launcherPath,
-        [ref]$tokens,
-        [ref]$parseErrors
-    )
-    if ($parseErrors.Count -gt 0) {
-        throw ($parseErrors | ForEach-Object Message | Out-String)
-    }
-
-    $functionNames = @(
-        'Get-UngateModelIdentity',
-        'ConvertTo-UngateModelDefinition',
-        'Get-UngateModelContextWindow',
-        'Read-UngateCustomModelDefinitions',
-        'Write-UngateCustomModelDefinitions',
-        'Get-UngateModelDefinitions',
-        'Get-DefaultUngatePickerModelSlugs',
-        'Read-UngatePickerModelSelection',
-        'Write-UngatePickerModelSelection',
-        'Get-UngatePickerModelDefinitions',
-        'Read-UngatePickerKey',
-        'Invoke-UngatePickerConfiguration',
-        'Read-UngateMenuChoice',
-        'Read-UngateYesNo',
-        'Invoke-AddUngateModelMode',
-        'Select-UngateDesktopModel',
-        'Get-ProviderDefinitions',
-        'Set-CodexModelShellSlugs',
-        'Get-CodexCatalogModelSlug',
-        'Get-CodexConfigProviderDefinitions',
-        'Resolve-ModelApiKey',
-        'Invoke-OmniRoutePreflight',
-        'Get-ProviderTomlBlock',
-        'Ensure-ModelProvidersInConfig',
-        'Set-TopLevelTomlValue',
-        'Set-ModelIdentity',
-        'Write-UngateModelCatalog',
-        'Remove-TomlTable',
-        'Get-TomlTableFamilyContent',
-        'Normalize-CodexHomePath',
-        'Get-CodexHistoryProfileInfo',
-        'Get-CodexCliExecutable',
-        'Test-CodexMcpConfiguration',
-        'Sync-CodexMcpServers',
-        'Read-UngateLogSettings',
-        'Write-UngateLogSettings',
-        'Invoke-UngateLoggingMenu',
-        'Format-CodexSessionEvent',
-        'Watch-CodexActivity'
-    )
-    foreach ($functionName in $functionNames) {
-        $definition = $launcherAst.FindAll(
-            {
-                param($ast)
-                $ast -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
-                $ast.Name -eq $functionName
-            },
-            $true
-        ) | Select-Object -First 1
-        if (-not $definition) {
-            throw "Launcher function '$functionName' was not found."
-        }
-        Set-Item -Path "Function:$functionName" -Value $definition.Body.GetScriptBlock()
-    }
+    Import-Module (Join-Path $PSScriptRoot 'codex-desktop-launcher/Context.psm1') -DisableNameChecking -ErrorAction Stop
+    Import-Module (Join-Path $PSScriptRoot 'codex-desktop-launcher/Models.psm1') -DisableNameChecking -ErrorAction Stop
+    Import-Module (Join-Path $PSScriptRoot 'codex-desktop-launcher/Picker.psm1') -DisableNameChecking -ErrorAction Stop
+    Import-Module (Join-Path $PSScriptRoot 'codex-desktop-launcher/Routing.psm1') -DisableNameChecking -ErrorAction Stop
+    Import-Module (Join-Path $PSScriptRoot 'codex-desktop-launcher/ProxyRuntime.psm1') -DisableNameChecking -ErrorAction Stop
+    Import-Module (Join-Path $PSScriptRoot 'codex-desktop-launcher/Logging.psm1') -DisableNameChecking -ErrorAction Stop
+    Import-Module (Join-Path $PSScriptRoot 'codex-desktop-launcher/Toml.psm1') -DisableNameChecking -ErrorAction Stop
+    Import-Module (Join-Path $PSScriptRoot 'codex-desktop-launcher/Profile.psm1') -DisableNameChecking -ErrorAction Stop
+    Import-Module (Join-Path $PSScriptRoot 'codex-desktop-launcher/Catalog.psm1') -DisableNameChecking -ErrorAction Stop
+    Import-Module (Join-Path $PSScriptRoot 'codex-desktop-launcher/Desktop.psm1') -DisableNameChecking -ErrorAction Stop
+    Import-Module (Join-Path $PSScriptRoot 'codex-desktop-launcher/Launcher.psm1') -DisableNameChecking -ErrorAction Stop
 
     function New-McpSyncTestHomes {
         param([Parameter(Mandatory = $true)][string]$Root)
@@ -117,12 +62,25 @@ BeforeAll {
     }
 }
 
+Describe 'Desktop launcher modules' {
+BeforeEach {
+    $script:Context = New-CodexDesktopLaunchContext -CustomCodexHome (Join-Path $TestDrive 'isolated-home')
+    $script:Selection = [pscustomobject]@{
+        Definitions = @()
+        EnableProviderFallback = $false
+        FallbackDefinition = (New-UngateModelSet -Context $script:Context).FallbackDefinition
+        LaunchModel = $null
+        LaunchProvider = $null
+        SelectedModel = $null
+    }
+}
+
 Describe 'Optional OmniRoute provider fallback' {
     BeforeEach {
-        $script:OmniRouteProviderName = 'omniroute'
-        $script:RepoRoot = $TestDrive
-        $script:EnableProviderFallback = $false
-        $script:CodexModelShellRouterProviderDefinition = [pscustomobject][ordered]@{
+        $script:Context.OmniRouteProviderName = 'omniroute'
+        $script:Context.RepoRoot = $TestDrive
+        $script:Selection.EnableProviderFallback = $false
+        $script:Context.CodexModelShellRouterProviderDefinition = [pscustomobject][ordered]@{
             Name = 'ungate_model_shell_router'
             DisplayName = 'Ungate Codex Model Router'
             ProxyBaseUrl = 'http://127.0.0.1:8319'
@@ -154,25 +112,25 @@ Describe 'Optional OmniRoute provider fallback' {
         $env:OMNIROUTE_CODEX_API_KEY = 'codex-client-key'
         $definition = [pscustomobject]@{ ProviderName = 'omniroute'; RequiresUngate = $false }
 
-        Resolve-ModelApiKey -Definition $definition -ApiKey 'argument-key' |
+        Resolve-ModelApiKey -Context $script:Context -Definition $definition -ApiKey 'argument-key' |
             Should -BeExactly 'argument-key'
-        Resolve-ModelApiKey -Definition $definition |
+        Resolve-ModelApiKey -Context $script:Context -Definition $definition |
             Should -BeExactly 'codex-client-key'
 
         Remove-Item Env:\OMNIROUTE_CODEX_API_KEY
-        Resolve-ModelApiKey -Definition $definition |
+        Resolve-ModelApiKey -Context $script:Context -Definition $definition |
             Should -BeExactly 'master-key'
     }
 
     It 'fails clearly when no OmniRoute client key is configured' {
         $definition = [pscustomobject]@{ ProviderName = 'omniroute'; RequiresUngate = $false }
 
-        { Resolve-ModelApiKey -Definition $definition } |
+        { Resolve-ModelApiKey -Context $script:Context -Definition $definition } |
             Should -Throw '*set OMNIROUTE_CODEX_API_KEY*OMNIROUTE_API_KEY*'
     }
 
     It 'does not add OmniRoute to active providers without the switch' {
-        $script:UngateModelDefinitions = @(
+        $script:Selection.Definitions = @(
             [pscustomobject]@{
                 ProviderName = 'ungate_proxy'
                 ProviderDisplayName = 'Ungate Proxy'
@@ -181,20 +139,20 @@ Describe 'Optional OmniRoute provider fallback' {
             }
         )
 
-        @((Get-ProviderDefinitions).Name) | Should -Be @('ungate_proxy')
-        @((Get-CodexConfigProviderDefinitions).Name) | Should -Be @('ungate_model_shell_router')
+        @((Get-ProviderDefinitions -Selection $script:Selection).Name) | Should -Be @('ungate_proxy')
+        @((Get-CodexConfigProviderDefinitions -Context $script:Context -Selection $script:Selection).Name) | Should -Be @('ungate_model_shell_router')
     }
 
     It 'keeps OmniRoute as the only active provider in fallback mode' {
-        $script:EnableProviderFallback = $true
-        $script:OmniRouteFallbackModelDefinition = [pscustomobject][ordered]@{
+        $script:Selection.EnableProviderFallback = $true
+        $script:Selection.FallbackDefinition = [pscustomobject][ordered]@{
             ProviderName = 'omniroute'
             ProviderDisplayName = 'OmniRoute'
             ProxyBaseUrl = 'http://127.0.0.1:20128'
             EnvKey = 'OMNIROUTE_API_KEY'
         }
 
-        @((Get-CodexConfigProviderDefinitions).Name) | Should -Be @('omniroute')
+        @((Get-CodexConfigProviderDefinitions -Context $script:Context -Selection $script:Selection).Name) | Should -Be @('omniroute')
     }
 
     It 'rejects an explicit model together with provider fallback' {
@@ -252,24 +210,24 @@ Describe 'Launcher context window labels' {
 
 Describe 'Custom launcher model registry' {
     BeforeEach {
-        $script:UngateEnvironmentInstruction = 'Test environment instructions.'
-        $script:ProviderName = 'ungate_proxy'
-        $script:ProxyBaseUrl = 'http://127.0.0.1:47821'
-        $script:CliProxyProviderName = 'cliproxyapi'
-        $script:CliProxyBaseUrl = 'http://127.0.0.1:8318'
-        $script:OmniRouteProviderName = 'omniroute'
-        $script:OmniRouteBaseUrl = 'http://127.0.0.1:20128'
-        $script:CodexModelShellRouterProviderName = 'ungate_model_shell_router'
-        $script:CodexModelShellRouterBaseUrl = 'http://127.0.0.1:8319'
-        $script:CodexModelShellRouterProviderDefinition = [pscustomobject][ordered]@{
-            Name = $script:CodexModelShellRouterProviderName
+        $script:Context.UngateEnvironmentInstruction = 'Test environment instructions.'
+        $script:Context.ProviderName = 'ungate_proxy'
+        $script:Context.ProxyBaseUrl = 'http://127.0.0.1:47821'
+        $script:Context.CliProxyProviderName = 'cliproxyapi'
+        $script:Context.CliProxyBaseUrl = 'http://127.0.0.1:8318'
+        $script:Context.OmniRouteProviderName = 'omniroute'
+        $script:Context.OmniRouteBaseUrl = 'http://127.0.0.1:20128'
+        $script:Context.CodexModelShellRouterProviderName = 'ungate_model_shell_router'
+        $script:Context.CodexModelShellRouterBaseUrl = 'http://127.0.0.1:8319'
+        $script:Context.CodexModelShellRouterProviderDefinition = [pscustomobject][ordered]@{
+            Name = $script:Context.CodexModelShellRouterProviderName
             DisplayName = 'Ungate Codex Model Router'
-            ProxyBaseUrl = $script:CodexModelShellRouterBaseUrl
+            ProxyBaseUrl = $script:Context.CodexModelShellRouterBaseUrl
             EnvKey = 'UNGATE_API_KEY'
         }
-        $script:CodexModelShellPool = @('gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna')
-        $script:CodexDesktopPickerCapacity = 3
-        $script:EnableProviderFallback = $false
+        $script:Context.CodexModelShellPool = @('gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna')
+        $script:Context.CodexDesktopPickerCapacity = 3
+        $script:Selection.EnableProviderFallback = $false
         $script:builtInDefinitions = @(
             [pscustomobject][ordered]@{
                 Slug = 'ungate-opus-4-8'
@@ -288,7 +246,7 @@ Describe 'Custom launcher model registry' {
 
     It 'returns only built-in definitions when the registry does not exist' {
         $definitions = @(
-            Get-UngateModelDefinitions `
+            Get-UngateModelDefinitions -Context $script:Context `
                 -BuiltInDefinitions $script:builtInDefinitions `
                 -RegistryPath $script:registryPath
         )
@@ -300,7 +258,7 @@ Describe 'Custom launcher model registry' {
     It 'round-trips a versioned registry without losing persisted fields' {
         $record = New-CustomModelTestRecord
 
-        $savedPath = Write-UngateCustomModelDefinitions `
+        $savedPath = Write-UngateCustomModelDefinitions -Context $script:Context `
             -RegistryPath $script:registryPath `
             -Records @($record) `
             -BuiltInDefinitions $script:builtInDefinitions
@@ -318,7 +276,7 @@ Describe 'Custom launcher model registry' {
         $registry.Models[0].SupportsImageInput | Should -BeTrue
 
         $definitions = @(
-            Read-UngateCustomModelDefinitions `
+            Read-UngateCustomModelDefinitions -Context $script:Context `
                 -RegistryPath $script:registryPath `
                 -BuiltInDefinitions $script:builtInDefinitions
         )
@@ -339,13 +297,13 @@ Describe 'Custom launcher model registry' {
                 -ReasoningLevel 'medium' `
                 -SupportsImageInput $false
         )
-        $null = Write-UngateCustomModelDefinitions `
+        $null = Write-UngateCustomModelDefinitions -Context $script:Context `
             -RegistryPath $script:registryPath `
             -Records $records `
             -BuiltInDefinitions $script:builtInDefinitions
 
         $definitions = @(
-            Get-UngateModelDefinitions `
+            Get-UngateModelDefinitions -Context $script:Context `
                 -BuiltInDefinitions $script:builtInDefinitions `
                 -RegistryPath $script:registryPath
         )
@@ -365,17 +323,17 @@ Describe 'Custom launcher model registry' {
 
     It 'rejects empty, whitespace-containing, and duplicate model IDs' {
         {
-            ConvertTo-UngateModelDefinition `
+            ConvertTo-UngateModelDefinition -Context $script:Context `
                 -Record (New-CustomModelTestRecord -Slug '') `
                 -Priority 2
         } | Should -Throw '*cannot be empty*'
         {
-            ConvertTo-UngateModelDefinition `
+            ConvertTo-UngateModelDefinition -Context $script:Context `
                 -Record (New-CustomModelTestRecord -Slug 'bad model') `
                 -Priority 2
         } | Should -Throw '*cannot contain whitespace*'
         {
-            Write-UngateCustomModelDefinitions `
+            Write-UngateCustomModelDefinitions -Context $script:Context `
                 -RegistryPath $script:registryPath `
                 -Records @(
                     New-CustomModelTestRecord -Slug 'UNGATE-OPUS-4-8'
@@ -386,26 +344,26 @@ Describe 'Custom launcher model registry' {
 
     It 'rejects unsupported transports and reasoning levels' {
         {
-            ConvertTo-UngateModelDefinition `
+            ConvertTo-UngateModelDefinition -Context $script:Context `
                 -Record (New-CustomModelTestRecord -Transport 'unknown') `
                 -Priority 2
         } | Should -Throw '*unsupported transport*'
         {
-            ConvertTo-UngateModelDefinition `
+            ConvertTo-UngateModelDefinition -Context $script:Context `
                 -Record (New-CustomModelTestRecord -ReasoningLevel 'extreme') `
                 -Priority 2
         } | Should -Throw '*unsupported reasoning level*'
     }
 
     It 'preserves the existing registry and leaves no temporary file after validation fails' {
-        $null = Write-UngateCustomModelDefinitions `
+        $null = Write-UngateCustomModelDefinitions -Context $script:Context `
             -RegistryPath $script:registryPath `
             -Records @((New-CustomModelTestRecord)) `
             -BuiltInDefinitions $script:builtInDefinitions
         $beforeHash = (Get-FileHash -LiteralPath $script:registryPath -Algorithm SHA256).Hash
 
         {
-            Write-UngateCustomModelDefinitions `
+            Write-UngateCustomModelDefinitions -Context $script:Context `
                 -RegistryPath $script:registryPath `
                 -Records @(
                     New-CustomModelTestRecord
@@ -420,7 +378,7 @@ Describe 'Custom launcher model registry' {
     }
 
     It 'generates the expected Ungate launcher definition for Claude Opus 5' {
-        $definition = ConvertTo-UngateModelDefinition `
+        $definition = ConvertTo-UngateModelDefinition -Context $script:Context `
             -Record (New-CustomModelTestRecord) `
             -Priority 2
 
@@ -440,7 +398,7 @@ Describe 'Custom launcher model registry' {
     }
 
     It 'generates the expected OmniRoute launcher definition for a custom model' {
-        $definition = ConvertTo-UngateModelDefinition `
+        $definition = ConvertTo-UngateModelDefinition -Context $script:Context `
             -Record (New-CustomModelTestRecord -Slug 'custom-ds' -DisplayName 'Custom DeepSeek (OmniRoute)' -UpstreamModel 'deepseek/deepseek-v4-pro' -Transport 'omniroute' -SupportsImageInput $false) `
             -Priority 3
 
@@ -488,7 +446,7 @@ Describe 'Custom launcher model registry' {
     }
 
     It 'includes the custom model in the generated Codex model catalog' {
-        $builtInDefinition = ConvertTo-UngateModelDefinition `
+        $builtInDefinition = ConvertTo-UngateModelDefinition -Context $script:Context `
             -Record (
                 New-CustomModelTestRecord `
                     -Slug 'ungate-opus-4-8' `
@@ -496,21 +454,21 @@ Describe 'Custom launcher model registry' {
                     -UpstreamModel 'claude-opus-4-8'
             ) `
             -Priority 0
-        $customDefinition = ConvertTo-UngateModelDefinition `
+        $customDefinition = ConvertTo-UngateModelDefinition -Context $script:Context `
             -Record (New-CustomModelTestRecord) `
             -Priority 1
-        $script:UngateModelDefinitions = @(
-            Set-CodexModelShellSlugs -Definitions @($builtInDefinition, $customDefinition)
+        $script:Selection.Definitions = @(
+            Set-CodexModelShellSlugs -Context $script:Context -Definitions @($builtInDefinition, $customDefinition)
         )
         $script:Model = 'ungate-opus-5'
-        $script:selectedModelDefinition = $script:UngateModelDefinitions |
+        $script:Selection.SelectedModel = $script:Selection.Definitions |
             Where-Object { $_.Slug -eq $script:Model } |
             Select-Object -First 1
-        $script:CodexLaunchModel = $script:selectedModelDefinition.ShellSlug
-        $script:CodexLaunchProvider = $script:CodexModelShellRouterProviderDefinition
-        $script:DefaultModelCachePath = Join-Path $TestDrive 'models_cache.json'
-        $script:CustomModelCatalogPath = Join-Path $TestDrive 'ungate-models.json'
-        $script:CustomConfigPath = Join-Path $TestDrive 'config.toml'
+        $script:Selection.LaunchModel = $script:Selection.SelectedModel.ShellSlug
+        $script:Selection.LaunchProvider = $script:Context.CodexModelShellRouterProviderDefinition
+        $script:Context.DefaultModelCachePath = Join-Path $TestDrive 'models_cache.json'
+        $script:Context.CustomModelCatalogPath = Join-Path $TestDrive 'ungate-models.json'
+        $script:Context.CustomConfigPath = Join-Path $TestDrive 'config.toml'
 
         $defaultCatalog = [ordered]@{
             models = @(
@@ -525,10 +483,10 @@ Describe 'Custom launcher model registry' {
             )
         } | ConvertTo-Json -Depth 20
         Write-Utf8TestFile `
-            -LiteralPath $script:DefaultModelCachePath `
+            -LiteralPath $script:Context.DefaultModelCachePath `
             -Content $defaultCatalog
         Write-Utf8TestFile `
-            -LiteralPath $script:CustomConfigPath `
+            -LiteralPath $script:Context.CustomConfigPath `
             -Content @'
 model = "gpt-template"
 
@@ -538,9 +496,9 @@ base_url = "http://127.0.0.1:20128/v1"
 env_key = "OMNIROUTE_API_KEY"
 '@
 
-        Write-UngateModelCatalog
+        Write-UngateModelCatalog -Context $script:Context -Selection $script:Selection
 
-        $catalog = Get-Content -LiteralPath $script:CustomModelCatalogPath -Raw -Encoding utf8 |
+        $catalog = Get-Content -LiteralPath $script:Context.CustomModelCatalogPath -Raw -Encoding utf8 |
             ConvertFrom-Json -Depth 100
         @($catalog.Models) | Should -HaveCount 2
         foreach ($catalogModel in @($catalog.Models)) {
@@ -563,7 +521,7 @@ env_key = "OMNIROUTE_API_KEY"
         $opus5.model_messages.instructions_template | Should -Match 'environment instructions'
         $opus5.model_messages.instructions_template | Should -Not -Match 'GPT model'
 
-        $config = Get-Content -LiteralPath $script:CustomConfigPath -Raw
+        $config = Get-Content -LiteralPath $script:Context.CustomConfigPath -Raw
         $config | Should -Match '(?m)^model = "gpt-5.6-terra"\r?$'
         $config | Should -Match '(?m)^model_provider = "ungate_model_shell_router"\r?$'
         $config | Should -Match '(?m)^model_reasoning_effort = "high"\r?$'
@@ -578,36 +536,21 @@ env_key = "OMNIROUTE_API_KEY"
             [pscustomobject]@{ Slug = 'miniMax-M3' }
         )
 
-        $mapped = @(Set-CodexModelShellSlugs -Definitions $definitions)
+        $mapped = @(Set-CodexModelShellSlugs -Context $script:Context -Definitions $definitions)
 
         @($mapped.Slug) | Should -Be @('ungate-opus-4-8', 'grok-4.6', 'miniMax-M3')
         @($mapped.ShellSlug) | Should -Be @('gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna')
     }
 
     It 'uses official unsqueezed 1M context windows for MiniMax M3, Mimo, and DeepSeek V4 Pro' {
-        $launcherSource = Get-Content -LiteralPath $script:launcherPath -Raw
-        if ($launcherSource -notmatch "(?s)Slug = 'miniMax-M3'\r?\n(?<block>.*?)\r?\n    \[pscustomobject\]") {
-            throw 'MiniMax M3 model definition was not found.'
+        $definitions = (New-UngateModelSet -Context $script:Context).BuiltInDefinitions
+        foreach ($slug in @('miniMax-M3', 'mimo-v2.5-pro', 'deepseek-v4-pro')) {
+            $definition = $definitions | Where-Object Slug -EQ $slug
+            $definition.ContextWindow | Should -Be 1000000
+            $definition.MaxContextWindow | Should -Be 1000000
+            $definition.EffectiveContextWindowPercent | Should -BeNullOrEmpty
         }
-        $Matches['block'] | Should -Match 'ContextWindow = 1000000'
-        $Matches['block'] | Should -Match 'MaxContextWindow = 1000000'
-        $Matches['block'] | Should -Not -Match 'EffectiveContextWindowPercent'
-
-        if ($launcherSource -notmatch "(?s)Slug = 'mimo-v2.5-pro'\r?\n(?<block>.*?)\r?\n    \[pscustomobject\]") {
-            throw 'Mimo v2.5 Pro model definition was not found.'
-        }
-        $Matches['block'] | Should -Match 'ContextWindow = 1000000'
-        $Matches['block'] | Should -Match 'MaxContextWindow = 1000000'
-        $Matches['block'] | Should -Not -Match 'EffectiveContextWindowPercent'
-
-        if ($launcherSource -notmatch "(?s)Slug = 'deepseek-v4-pro'\r?\n(?<block>.*?)\r?\n\)") {
-            throw 'DeepSeek V4 Pro model definition was not found.'
-        }
-        $Matches['block'] | Should -Match 'ContextWindow = 1000000'
-        $Matches['block'] | Should -Match 'MaxContextWindow = 1000000'
-        $Matches['block'] | Should -Not -Match 'EffectiveContextWindowPercent'
-        $launcherSource | Should -Not -Match 'EffectiveContextWindowPercent = 95'
-        $launcherSource | Should -Not -Match 'ContextWindow = 1048576'
+        @($definitions | Where-Object ContextWindow -EQ 1048576).Count | Should -Be 0
     }
 
     It 'rejects launch parameters combined with AddModel before writing the registry' {
@@ -645,41 +588,41 @@ env_key = "OMNIROUTE_API_KEY"
                 DisplayName = 'Claude Opus 5 (Ungate)'
             }
         )
-        Mock Read-Host {
+        Mock -ModuleName Picker Read-Host {
             return $script:selectionInputs.Dequeue()
         }
-        Mock Invoke-AddUngateModelMode { return 'ungate-opus-5' }
-        Mock Invoke-UngatePickerConfiguration {}
-        Mock Get-UngateModelDefinitions {
+        Mock -ModuleName Picker Invoke-AddUngateModelMode { return 'ungate-opus-5' }
+        Mock -ModuleName Picker Invoke-UngatePickerConfiguration {}
+        Mock -ModuleName Picker Get-UngateModelDefinitions {
             return @($script:selectionDefinitionsAfterAdd)
         }
 
-        $selected = Select-UngateDesktopModel `
+        $selected = Select-UngateDesktopModel -Context $script:Context `
             -Definitions $script:selectionDefinitions `
             -BuiltInDefinitions $script:builtInDefinitions `
             -RegistryPath $script:registryPath `
             -PickerSettingsPath $script:pickerSettingsPath `
-            -PickerCapacity $script:CodexDesktopPickerCapacity
+            -PickerCapacity $script:Context.CodexDesktopPickerCapacity
 
         $selected | Should -BeExactly 'ungate-opus-5'
-        Should -Invoke Invoke-AddUngateModelMode -Times 1 -Exactly
-        Should -Invoke Invoke-UngatePickerConfiguration -Times 1 -Exactly
-        Should -Invoke Get-UngateModelDefinitions -Times 1 -Exactly
+        Should -ModuleName Picker -Invoke Invoke-AddUngateModelMode -Times 1 -Exactly
+        Should -ModuleName Picker -Invoke Invoke-UngatePickerConfiguration -Times 1 -Exactly
+        Should -ModuleName Picker -Invoke Get-UngateModelDefinitions -Times 1 -Exactly
     }
 
     It 'selects the OmniRoute fallback checkbox with a keyboard shortcut' {
         $script:selectionInputs = [System.Collections.Generic.Queue[string]]::new()
         $script:selectionInputs.Enqueue('f')
-        Mock Read-Host {
+        Mock -ModuleName Picker Read-Host {
             return $script:selectionInputs.Dequeue()
         }
 
-        $selected = Select-UngateDesktopModel `
+        $selected = Select-UngateDesktopModel -Context $script:Context `
             -Definitions $script:selectionDefinitions `
             -BuiltInDefinitions $script:builtInDefinitions `
             -RegistryPath $script:registryPath `
             -PickerSettingsPath $script:pickerSettingsPath `
-            -PickerCapacity $script:CodexDesktopPickerCapacity `
+            -PickerCapacity $script:Context.CodexDesktopPickerCapacity `
             -IncludeProviderFallback `
             -ProviderFallbackModel 'codex-fallback'
 
@@ -690,31 +633,31 @@ env_key = "OMNIROUTE_API_KEY"
         $script:selectionInputs = [System.Collections.Generic.Queue[string]]::new()
         $script:selectionInputs.Enqueue('L')
         $script:selectionInputs.Enqueue('1')
-        Mock Read-Host {
+        Mock -ModuleName Picker Read-Host {
             return $script:selectionInputs.Dequeue()
         }
-        Mock Invoke-UngateLoggingMenu { return 'Compact' }
+        Mock -ModuleName Picker Invoke-UngateLoggingMenu { return 'Compact' }
 
-        $selected = Select-UngateDesktopModel `
+        $selected = Select-UngateDesktopModel -Context $script:Context `
             -Definitions $script:selectionDefinitions `
             -BuiltInDefinitions $script:builtInDefinitions `
             -RegistryPath $script:registryPath `
             -PickerSettingsPath $script:pickerSettingsPath `
-            -PickerCapacity $script:CodexDesktopPickerCapacity
+            -PickerCapacity $script:Context.CodexDesktopPickerCapacity
 
         $selected | Should -BeExactly 'ungate-opus-4-8'
-        Should -Invoke Invoke-UngateLoggingMenu -Times 1 -Exactly
+        Should -ModuleName Picker -Invoke Invoke-UngateLoggingMenu -Times 1 -Exactly
     }
 
     It 'prints each picker model with its catalog context window' {
         $script:hostLines = [System.Collections.Generic.List[string]]::new()
-        Mock Write-Host {
+        Mock -ModuleName Picker Write-Host {
             param($Object)
             $script:hostLines.Add([string]$Object)
         }
-        Mock Read-Host { return '1' }
-        Mock Invoke-AddUngateModelMode {}
-        Mock Invoke-UngatePickerConfiguration {}
+        Mock -ModuleName Picker Read-Host { return '1' }
+        Mock -ModuleName Picker Invoke-AddUngateModelMode {}
+        Mock -ModuleName Picker Invoke-UngatePickerConfiguration {}
 
         $definitions = @(
             [pscustomobject]@{
@@ -735,12 +678,12 @@ env_key = "OMNIROUTE_API_KEY"
             }
         )
 
-        $selected = Select-UngateDesktopModel `
+        $selected = Select-UngateDesktopModel -Context $script:Context `
             -Definitions $definitions `
             -BuiltInDefinitions $script:builtInDefinitions `
             -RegistryPath $script:registryPath `
             -PickerSettingsPath $script:pickerSettingsPath `
-            -PickerCapacity $script:CodexDesktopPickerCapacity
+            -PickerCapacity $script:Context.CodexDesktopPickerCapacity
 
         $selected | Should -BeExactly 'miniMax-M3'
         $menu = $script:hostLines -join "`n"
@@ -883,8 +826,8 @@ Describe 'Desktop picker model selection' {
             -Capacity $script:pickerCapacity
         $beforeHash = (Get-FileHash -LiteralPath $script:pickerSettingsPath -Algorithm SHA256).Hash
 
-        Mock Read-UngatePickerKey { return 'cancel' }
-        Mock Clear-Host {}
+        Mock -ModuleName Picker Read-UngatePickerKey { return 'cancel' }
+        Mock -ModuleName Picker Clear-Host {}
 
         $result = Invoke-UngatePickerConfiguration `
             -Definitions $script:pickerDefinitions `
@@ -901,10 +844,10 @@ Describe 'Desktop picker model selection' {
         foreach ($key in @('down', 'toggle', 'down', 'toggle', 'save')) {
             $script:pickerKeyInputs.Enqueue($key)
         }
-        Mock Read-UngatePickerKey {
+        Mock -ModuleName Picker Read-UngatePickerKey {
             return $script:pickerKeyInputs.Dequeue()
         }
-        Mock Clear-Host {}
+        Mock -ModuleName Picker Clear-Host {}
 
         $result = Invoke-UngatePickerConfiguration `
             -Definitions $script:pickerDefinitions `
@@ -926,10 +869,10 @@ Describe 'Desktop picker model selection' {
         foreach ($key in @('up', 'toggle', 'down', 'toggle', 'up', 'toggle', 'save')) {
             $script:pickerKeyInputs.Enqueue($key)
         }
-        Mock Read-UngatePickerKey {
+        Mock -ModuleName Picker Read-UngatePickerKey {
             return $script:pickerKeyInputs.Dequeue()
         }
-        Mock Clear-Host {}
+        Mock -ModuleName Picker Clear-Host {}
 
         $result = Invoke-UngatePickerConfiguration `
             -Definitions $script:pickerDefinitions `
@@ -993,8 +936,8 @@ Describe 'Get-CodexCliExecutable' {
     BeforeEach {
         $script:cliTestRoot = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $script:cliTestRoot -Force | Out-Null
-        $script:DefaultConfigPath = Join-Path $script:cliTestRoot 'default-config.toml'
-        $script:CustomConfigPath = Join-Path $script:cliTestRoot 'custom-config.toml'
+        $script:Context.DefaultConfigPath = Join-Path $script:cliTestRoot 'default-config.toml'
+        $script:Context.CustomConfigPath = Join-Path $script:cliTestRoot 'custom-config.toml'
         $script:previousLocalAppData = $env:LOCALAPPDATA
         $env:LOCALAPPDATA = Join-Path $script:cliTestRoot 'local-app-data'
         New-Item -ItemType Directory -Path $env:LOCALAPPDATA -Force | Out-Null
@@ -1014,16 +957,16 @@ Describe 'Get-CodexCliExecutable' {
         New-Item -ItemType Directory -Path (Split-Path -Parent $nativeCli) -Force | Out-Null
         New-Item -ItemType File -Path $nativeCli -Force | Out-Null
         Write-Utf8TestFile `
-            -LiteralPath $script:DefaultConfigPath `
+            -LiteralPath $script:Context.DefaultConfigPath `
             -Content "CODEX_CLI_PATH = '$nativeCli'"
-        Mock Get-Command { $null }
+        Mock -ModuleName Desktop Get-Command { $null }
 
-        Get-CodexCliExecutable | Should -BeExactly (Resolve-Path -LiteralPath $nativeCli).Path
+        Get-CodexCliExecutable -Context $script:Context | Should -BeExactly (Resolve-Path -LiteralPath $nativeCli).Path
     }
 
     It 'ignores a stale configured path and resolves the native npm CLI behind a PowerShell wrapper' {
         Write-Utf8TestFile `
-            -LiteralPath $script:DefaultConfigPath `
+            -LiteralPath $script:Context.DefaultConfigPath `
             -Content "CODEX_CLI_PATH = 'C:\missing\codex.exe'"
         $npmRoot = Join-Path $script:cliTestRoot 'npm'
         $wrapperPath = Join-Path $npmRoot 'codex.ps1'
@@ -1033,58 +976,77 @@ Describe 'Get-CodexCliExecutable' {
         New-Item -ItemType Directory -Path (Split-Path -Parent $nativeCli) -Force | Out-Null
         New-Item -ItemType File -Path $wrapperPath -Force | Out-Null
         New-Item -ItemType File -Path $nativeCli -Force | Out-Null
-        Mock Get-Command {
+        Mock -ModuleName Desktop Get-Command {
             [pscustomobject]@{
                 Source = $wrapperPath
                 CommandType = 'ExternalScript'
             }
         }
 
-        Get-CodexCliExecutable | Should -BeExactly (Resolve-Path -LiteralPath $nativeCli).Path
+        Get-CodexCliExecutable -Context $script:Context | Should -BeExactly (Resolve-Path -LiteralPath $nativeCli).Path
     }
 
     It 'does not return a PowerShell wrapper when no native executable exists' {
         $wrapperPath = Join-Path $script:cliTestRoot 'npm\codex.ps1'
         New-Item -ItemType Directory -Path (Split-Path -Parent $wrapperPath) -Force | Out-Null
         New-Item -ItemType File -Path $wrapperPath -Force | Out-Null
-        Mock Get-Command {
+        Mock -ModuleName Desktop Get-Command {
             [pscustomobject]@{
                 Source = $wrapperPath
                 CommandType = 'ExternalScript'
             }
         }
 
-        Get-CodexCliExecutable | Should -BeNullOrEmpty
+        Get-CodexCliExecutable -Context $script:Context | Should -BeNullOrEmpty
     }
 }
 
-Describe 'Launcher initialization order' {
+Describe 'Launcher profile preparation order and logging' {
+    BeforeEach {
+        $script:profileEvents = [System.Collections.Generic.List[string]]::new()
+        Mock -ModuleName Launcher Initialize-UngateCodexConfig { $script:profileEvents.Add('config') }
+        Mock -ModuleName Launcher Write-UngateModelCatalog { $script:profileEvents.Add('catalog') }
+        Mock -ModuleName Launcher Sync-CodexMcpServers { $script:profileEvents.Add('mcp') }
+        Mock -ModuleName Launcher Ensure-SharedDirectory {}
+        Mock -ModuleName Launcher Sync-CodexGlobalInstructions {}
+        Mock -ModuleName Launcher Sync-CodexAuthentication {}
+        Mock -ModuleName Launcher Get-CodexCliExecutable { 'C:\test\codex.exe' }
+        Mock -ModuleName Launcher Get-CodexBetaProcesses { @() }
+        Mock -ModuleName Launcher Initialize-CodexBetaPluginIsolation {
+            [pscustomobject]@{ Changed = $true; SyncReasons = @('package changed'); Action = 'Synced'; PluginIds = @('browser'); BrowserSha256 = 'test-hash'; UnsupportedBundledPluginIds = @() }
+        }
+        Mock -ModuleName Launcher Assert-UngateCodexConfig { $script:profileEvents.Add('validate') }
+        Mock -ModuleName Launcher Initialize-CodexWindowsSandbox {}
+        Mock -ModuleName Launcher Restore-CodexWorkspaceRoots {}
+        Mock -ModuleName Launcher Write-Host { param($Object) $script:profileEvents.Add([string]$Object) }
+    }
+
     It 'writes the model catalog before validating the isolated MCP configuration' {
-        $launcherSource = Get-Content -LiteralPath $script:launcherPath -Raw
-        $catalogWriteIndex = $launcherSource.LastIndexOf('Write-UngateModelCatalog')
-        $mcpSyncIndex = $launcherSource.LastIndexOf('Sync-CodexMcpServers')
-
-        $catalogWriteIndex | Should -BeGreaterThan -1
-        $mcpSyncIndex | Should -BeGreaterThan -1
-        $catalogWriteIndex | Should -BeLessThan $mcpSyncIndex
+        & (Get-Module Launcher) {
+            param($context, $selection)
+            Initialize-CodexDesktopProfile -Context $context -Selection $selection -codexBeta ([pscustomobject]@{ExecutablePath='test.exe';BundledMarketplacePath='test';Version='1'}) -providerKeys @{} -selectedKey 'test'
+        } $script:Context $script:Selection
+        $script:profileEvents.IndexOf('catalog') | Should -BeLessThan $script:profileEvents.IndexOf('mcp')
+        $script:profileEvents.IndexOf('mcp') | Should -BeLessThan $script:profileEvents.IndexOf('validate')
     }
-}
 
-Describe 'Plugin isolation launcher logging' {
     It 'prints sync reasons before the isolation result' {
-        $launcherSource = Get-Content -LiteralPath $script:launcherPath -Raw
-        $reasonIndex = $launcherSource.LastIndexOf('[ungate] Plugin isolation will sync because:')
-        $resultIndex = $launcherSource.LastIndexOf('[ungate] Codex Beta plugins $($pluginIsolation.Action.ToLowerInvariant()) and isolated')
-
-        $reasonIndex | Should -BeGreaterThan -1
-        $resultIndex | Should -BeGreaterThan $reasonIndex
+        & (Get-Module Launcher) {
+            param($context, $selection)
+            Initialize-CodexDesktopProfile -Context $context -Selection $selection -codexBeta ([pscustomobject]@{ExecutablePath='test.exe';BundledMarketplacePath='test';Version='1'}) -providerKeys @{} -selectedKey 'test'
+        } $script:Context $script:Selection
+        $reason = @($script:profileEvents | Where-Object { $_ -like '*will sync because:*' })
+        $result = @($script:profileEvents | Where-Object { $_ -like '*plugins synced and isolated*' })
+        $reason.Count | Should -Be 1
+        $result.Count | Should -Be 1
+        $script:profileEvents.IndexOf($reason[0]) | Should -BeLessThan $script:profileEvents.IndexOf($result[0])
     }
 }
 
 Describe 'Sync-CodexMcpServers' {
     BeforeEach {
-        Mock Get-CodexCliExecutable { 'C:\test\codex.exe' }
-        Mock Test-CodexMcpConfiguration { @('context7', 'node_repl', 'openaiDeveloperDocs', 'playwright') }
+        Mock -ModuleName Profile Get-CodexCliExecutable { 'C:\test\codex.exe' }
+        Mock -ModuleName Profile Test-CodexMcpConfiguration { @('context7', 'node_repl', 'openaiDeveloperDocs', 'playwright') }
     }
 
     It 'mirrors nested MCP tables and preserves isolated settings' {
@@ -1131,7 +1093,7 @@ enabled = true
         Write-Utf8TestFile -LiteralPath $homes.SourceConfigPath -Content $sourceConfig
         Write-Utf8TestFile -LiteralPath $homes.TargetConfigPath -Content $targetConfig
 
-        Sync-CodexMcpServers `
+        Sync-CodexMcpServers -Context $script:Context `
             -SourceCodexHome $homes.SourceCodexHome `
             -TargetCodexHome $homes.TargetCodexHome
 
@@ -1161,7 +1123,7 @@ url = "https://mcp.context7.com/mcp"
         $beforeWriteTime = (Get-Item -LiteralPath $homes.TargetConfigPath).LastWriteTimeUtc
         Start-Sleep -Milliseconds 50
 
-        Sync-CodexMcpServers `
+        Sync-CodexMcpServers -Context $script:Context `
             -SourceCodexHome $homes.SourceCodexHome `
             -TargetCodexHome $homes.TargetCodexHome
 
@@ -1184,7 +1146,7 @@ command = "beta-only"
 enabled = true
 '@
 
-        Sync-CodexMcpServers `
+        Sync-CodexMcpServers -Context $script:Context `
             -SourceCodexHome $homes.SourceCodexHome `
             -TargetCodexHome $homes.TargetCodexHome
 
@@ -1198,10 +1160,10 @@ enabled = true
         Write-Utf8TestFile -LiteralPath $homes.SourceConfigPath -Content 'invalid source'
         Write-Utf8TestFile -LiteralPath $homes.TargetConfigPath -Content 'model = "grok-4.5"'
         $beforeHash = (Get-FileHash -LiteralPath $homes.TargetConfigPath -Algorithm SHA256).Hash
-        Mock Test-CodexMcpConfiguration { throw 'source config rejected' }
+        Mock -ModuleName Profile Test-CodexMcpConfiguration { throw 'source config rejected' }
 
         {
-            Sync-CodexMcpServers `
+            Sync-CodexMcpServers -Context $script:Context `
                 -SourceCodexHome $homes.SourceCodexHome `
                 -TargetCodexHome $homes.TargetCodexHome
         } | Should -Throw '*source config rejected*'
@@ -1216,14 +1178,14 @@ enabled = true
         $beforeHash = (Get-FileHash -LiteralPath $homes.TargetConfigPath -Algorithm SHA256).Hash
 
         {
-            Sync-CodexMcpServers `
+            Sync-CodexMcpServers -Context $script:Context `
                 -SourceCodexHome $homes.SourceCodexHome `
                 -TargetCodexHome $homes.TargetCodexHome
         } | Should -Throw '*Default Codex config not found*'
 
         (Get-FileHash -LiteralPath $homes.TargetConfigPath -Algorithm SHA256).Hash |
             Should -BeExactly $beforeHash
-        Should -Not -Invoke Test-CodexMcpConfiguration
+        Should -ModuleName Profile -Not -Invoke Test-CodexMcpConfiguration
     }
 
     It 'restores the previous Beta config when post-write validation fails' {
@@ -1241,7 +1203,7 @@ model = "grok-4.5"
 command = "npx"
 '@
         $beforeHash = (Get-FileHash -LiteralPath $homes.TargetConfigPath -Algorithm SHA256).Hash
-        Mock Test-CodexMcpConfiguration {
+        Mock -ModuleName Profile Test-CodexMcpConfiguration {
             param($CodexExecutable, $CodexHome)
             if ($CodexHome -eq $homes.TargetCodexHome) {
                 throw 'target config rejected'
@@ -1250,7 +1212,7 @@ command = "npx"
         }
 
         {
-            Sync-CodexMcpServers `
+            Sync-CodexMcpServers -Context $script:Context `
                 -SourceCodexHome $homes.SourceCodexHome `
                 -TargetCodexHome $homes.TargetCodexHome
         } | Should -Throw '*previous Beta config was restored*'
@@ -1272,7 +1234,7 @@ url = "https://mcp.context7.com/mcp"
         Write-Utf8TestFile -LiteralPath $homes.TargetConfigPath -Content 'model = "grok-4.5"'
         $betaOnlyMcpContent = "[mcp_servers.ungate_patch]`ncommand = 'node'`nargs = ['patch.mjs']"
 
-        Mock Test-CodexMcpConfiguration {
+        Mock -ModuleName Profile Test-CodexMcpConfiguration {
             param($CodexExecutable, $CodexHome)
             if ($CodexHome -eq $homes.TargetCodexHome) {
                 $path = Join-Path $CodexHome 'config.toml'
@@ -1287,7 +1249,7 @@ url = "https://mcp.context7.com/mcp"
             return @('context7', 'ungate_patch')
         }
 
-        Sync-CodexMcpServers `
+        Sync-CodexMcpServers -Context $script:Context `
             -SourceCodexHome $homes.SourceCodexHome `
             -TargetCodexHome $homes.TargetCodexHome `
             -BetaOnlyMcpContent $betaOnlyMcpContent
@@ -1300,13 +1262,9 @@ url = "https://mcp.context7.com/mcp"
 
 Describe 'Ungate environment source-edit instructions' {
     It 'tells Grok 4.6 to use MCP apply_patch and never wrap patches in exec template literals' {
-        $launcherSource = Get-Content -LiteralPath $script:launcherPath -Raw
-        if ($launcherSource -notmatch '(?s)\$UngateEnvironmentInstruction = @''\r?\n(.*?)\r?\n''@\r?\nfunction Get-UngateModelIdentity') {
-            throw 'Could not extract UngateEnvironmentInstruction from the launcher.'
-        }
-        $script:UngateEnvironmentInstruction = $Matches[1].Trim()
+        $script:Context.UngateEnvironmentInstruction | Should -Not -BeNullOrEmpty
 
-        $identity = Get-UngateModelIdentity `
+        $identity = Get-UngateModelIdentity -Context $script:Context `
             -DisplayName 'Grok 4.6 (CLIProxyAPI)' `
             -UpstreamModel 'grok-4.6' `
             -ProviderDisplayName 'CLIProxyAPI' `
@@ -1373,7 +1331,7 @@ Describe 'Ungate live log settings' {
     It 'allows user to interactively select a log level in Invoke-UngateLoggingMenu' {
         $tempSettings = Join-Path ([System.IO.Path]::GetTempPath()) ("ungate-test-log-" + [guid]::NewGuid().ToString('N') + ".json")
         try {
-            Mock Read-Host { return '3' }
+            Mock -ModuleName Logging Read-Host { return '3' }
             $chosen = Invoke-UngateLoggingMenu -SettingsPath $tempSettings
             $chosen | Should -BeExactly 'Compact'
             (Read-UngateLogSettings -SettingsPath $tempSettings).LogLevel | Should -BeExactly 'Compact'
@@ -1412,7 +1370,7 @@ Describe 'Format-CodexSessionEvent' {
 
     It 'suppresses all output when LogLevel is Off' {
         $printed = [System.Collections.Generic.List[string]]::new()
-        Mock Write-Host { param($Object) $printed.Add([string]$Object) }
+        Mock -ModuleName Logging Write-Host { param($Object) $printed.Add([string]$Object) }
         $json = '{"type":"event_msg","payload":{"type":"agent_reasoning","text":"Thinking"}}'
         Format-CodexSessionEvent -Line $json -LogLevel 'Off'
         $printed.Count | Should -Be 0
@@ -1420,7 +1378,7 @@ Describe 'Format-CodexSessionEvent' {
 
     It 'suppresses reasoning in Compact and Minimal modes' {
         $printed = [System.Collections.Generic.List[string]]::new()
-        Mock Write-Host { param($Object) $printed.Add([string]$Object) }
+        Mock -ModuleName Logging Write-Host { param($Object) $printed.Add([string]$Object) }
         $thinkJson = '{"type":"event_msg","payload":{"type":"agent_reasoning","text":"Thinking deeply"}}'
         Format-CodexSessionEvent -Line $thinkJson -LogLevel 'Compact'
         Format-CodexSessionEvent -Line $thinkJson -LogLevel 'Minimal'
@@ -1432,7 +1390,7 @@ Describe 'Format-CodexSessionEvent' {
 
     It 'suppresses tool output in Minimal mode and formats single line tool call' {
         $printed = [System.Collections.Generic.List[string]]::new()
-        Mock Write-Host { param($Object) $printed.Add([string]$Object) }
+        Mock -ModuleName Logging Write-Host { param($Object) $printed.Add([string]$Object) }
         $callJson = '{"type":"response_item","payload":{"type":"custom_tool_call","name":"exec","input":"{\"command\":\"git status\"}"}}'
         $outJson = '{"type":"response_item","payload":{"type":"custom_tool_call_output","output":[{"text":"On branch main"}]}}'
 
@@ -1446,7 +1404,7 @@ Describe 'Format-CodexSessionEvent' {
 
     It 'truncates tool output appropriately for Compact vs Full' {
         $printed = [System.Collections.Generic.List[string]]::new()
-        Mock Write-Host { param($Object) $printed.Add([string]$Object) }
+        Mock -ModuleName Logging Write-Host { param($Object) $printed.Add([string]$Object) }
         $longOutput = 'x' * 1000
         $outJson = '{"type":"response_item","payload":{"type":"custom_tool_call_output","output":[{"text":"' + $longOutput + '"}]}}'
 
@@ -1459,4 +1417,4 @@ Describe 'Format-CodexSessionEvent' {
         ($printed -join "`n") | Should -Match ('x' * 1000)
     }
 }
-
+}
