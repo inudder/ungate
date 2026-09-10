@@ -1288,6 +1288,8 @@ Describe 'Ungate environment source-edit instructions' {
         $identity | Should -Match 'only patch path'
         $identity | Should -Match 'Remote SSH scripts via PowerShell'
         $identity | Should -Match "@' \.\.\. '@ \| ssh host 'bash -s'"
+        $identity | Should -Match 'Quoting CLI arguments in PowerShell'
+        $identity | Should -Match "rg -n 'id=""domain-list""'"
     }
 }
 
