@@ -46,6 +46,9 @@ BeforeAll {
         'Get-CodexCliExecutable',
         'Test-CodexMcpConfiguration',
         'Sync-CodexMcpServers',
+        'Read-UngateLogSettings',
+        'Write-UngateLogSettings',
+        'Invoke-UngateLoggingMenu',
         'Format-CodexSessionEvent',
         'Watch-CodexActivity'
     )
@@ -683,6 +686,26 @@ env_key = "OMNIROUTE_API_KEY"
         $selected | Should -BeExactly 'codex-fallback'
     }
 
+    It 'opens live logging menu with L shortcut and then selects model' {
+        $script:selectionInputs = [System.Collections.Generic.Queue[string]]::new()
+        $script:selectionInputs.Enqueue('L')
+        $script:selectionInputs.Enqueue('1')
+        Mock Read-Host {
+            return $script:selectionInputs.Dequeue()
+        }
+        Mock Invoke-UngateLoggingMenu { return 'Compact' }
+
+        $selected = Select-UngateDesktopModel `
+            -Definitions $script:selectionDefinitions `
+            -BuiltInDefinitions $script:builtInDefinitions `
+            -RegistryPath $script:registryPath `
+            -PickerSettingsPath $script:pickerSettingsPath `
+            -PickerCapacity $script:CodexDesktopPickerCapacity
+
+        $selected | Should -BeExactly 'ungate-opus-4-8'
+        Should -Invoke Invoke-UngateLoggingMenu -Times 1 -Exactly
+    }
+
     It 'prints each picker model with its catalog context window' {
         $script:hostLines = [System.Collections.Generic.List[string]]::new()
         Mock Write-Host {
@@ -1310,6 +1333,57 @@ Describe 'Ungate environment source-edit instructions' {
     }
 }
 
+Describe 'Ungate live log settings' {
+    It 'returns Standard by default when settings file is missing or empty' {
+        $tempSettings = Join-Path ([System.IO.Path]::GetTempPath()) ("ungate-test-log-" + [guid]::NewGuid().ToString('N') + ".json")
+        try {
+            (Read-UngateLogSettings -SettingsPath $tempSettings).LogLevel | Should -BeExactly 'Standard'
+            Set-Content -LiteralPath $tempSettings -Value ''
+            (Read-UngateLogSettings -SettingsPath $tempSettings).LogLevel | Should -BeExactly 'Standard'
+        }
+        finally {
+            Remove-Item -LiteralPath $tempSettings -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'writes valid JSON and reads it back for all supported log levels' {
+        $tempSettings = Join-Path ([System.IO.Path]::GetTempPath()) ("ungate-test-log-" + [guid]::NewGuid().ToString('N') + ".json")
+        try {
+            foreach ($level in @('Full', 'Standard', 'Compact', 'Minimal', 'Off')) {
+                Write-UngateLogSettings -SettingsPath $tempSettings -LogLevel $level
+                (Read-UngateLogSettings -SettingsPath $tempSettings).LogLevel | Should -BeExactly $level
+            }
+        }
+        finally {
+            Remove-Item -LiteralPath $tempSettings -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'normalizes unknown level string to Standard' {
+        $tempSettings = Join-Path ([System.IO.Path]::GetTempPath()) ("ungate-test-log-" + [guid]::NewGuid().ToString('N') + ".json")
+        try {
+            Set-Content -LiteralPath $tempSettings -Value '{"LogLevel":"UnknownLevel"}'
+            (Read-UngateLogSettings -SettingsPath $tempSettings).LogLevel | Should -BeExactly 'Standard'
+        }
+        finally {
+            Remove-Item -LiteralPath $tempSettings -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'allows user to interactively select a log level in Invoke-UngateLoggingMenu' {
+        $tempSettings = Join-Path ([System.IO.Path]::GetTempPath()) ("ungate-test-log-" + [guid]::NewGuid().ToString('N') + ".json")
+        try {
+            Mock Read-Host { return '3' }
+            $chosen = Invoke-UngateLoggingMenu -SettingsPath $tempSettings
+            $chosen | Should -BeExactly 'Compact'
+            (Read-UngateLogSettings -SettingsPath $tempSettings).LogLevel | Should -BeExactly 'Compact'
+        }
+        finally {
+            Remove-Item -LiteralPath $tempSettings -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 Describe 'Format-CodexSessionEvent' {
     It 'does not throw on empty or malformed input' {
         { Format-CodexSessionEvent -Line '' } | Should -Not -Throw
@@ -1334,6 +1408,55 @@ Describe 'Format-CodexSessionEvent' {
         $agentJson = '{"type":"event_msg","payload":{"type":"agent_message","message":"Hello user"}}'
         { Format-CodexSessionEvent -Line $userJson } | Should -Not -Throw
         { Format-CodexSessionEvent -Line $agentJson } | Should -Not -Throw
+    }
+
+    It 'suppresses all output when LogLevel is Off' {
+        $printed = [System.Collections.Generic.List[string]]::new()
+        Mock Write-Host { param($Object) $printed.Add([string]$Object) }
+        $json = '{"type":"event_msg","payload":{"type":"agent_reasoning","text":"Thinking"}}'
+        Format-CodexSessionEvent -Line $json -LogLevel 'Off'
+        $printed.Count | Should -Be 0
+    }
+
+    It 'suppresses reasoning in Compact and Minimal modes' {
+        $printed = [System.Collections.Generic.List[string]]::new()
+        Mock Write-Host { param($Object) $printed.Add([string]$Object) }
+        $thinkJson = '{"type":"event_msg","payload":{"type":"agent_reasoning","text":"Thinking deeply"}}'
+        Format-CodexSessionEvent -Line $thinkJson -LogLevel 'Compact'
+        Format-CodexSessionEvent -Line $thinkJson -LogLevel 'Minimal'
+        $printed.Count | Should -Be 0
+
+        Format-CodexSessionEvent -Line $thinkJson -LogLevel 'Standard'
+        ($printed -join ' ') | Should -Match 'Thinking deeply'
+    }
+
+    It 'suppresses tool output in Minimal mode and formats single line tool call' {
+        $printed = [System.Collections.Generic.List[string]]::new()
+        Mock Write-Host { param($Object) $printed.Add([string]$Object) }
+        $callJson = '{"type":"response_item","payload":{"type":"custom_tool_call","name":"exec","input":"{\"command\":\"git status\"}"}}'
+        $outJson = '{"type":"response_item","payload":{"type":"custom_tool_call_output","output":[{"text":"On branch main"}]}}'
+
+        Format-CodexSessionEvent -Line $callJson -LogLevel 'Minimal'
+        Format-CodexSessionEvent -Line $outJson -LogLevel 'Minimal'
+
+        $all = $printed -join "`n"
+        $all | Should -Match '--> \[TOOL: exec\] git status'
+        $all | Should -Not -Match 'On branch main'
+    }
+
+    It 'truncates tool output appropriately for Compact vs Full' {
+        $printed = [System.Collections.Generic.List[string]]::new()
+        Mock Write-Host { param($Object) $printed.Add([string]$Object) }
+        $longOutput = 'x' * 1000
+        $outJson = '{"type":"response_item","payload":{"type":"custom_tool_call_output","output":[{"text":"' + $longOutput + '"}]}}'
+
+        Format-CodexSessionEvent -Line $outJson -LogLevel 'Compact'
+        ($printed -join "`n") | Should -Match '\[truncated: 1000 chars total\]'
+
+        $printed.Clear()
+        Format-CodexSessionEvent -Line $outJson -LogLevel 'Full'
+        ($printed -join "`n") | Should -Not -Match '\[truncated'
+        ($printed -join "`n") | Should -Match ('x' * 1000)
     }
 }
 

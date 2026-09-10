@@ -41,8 +41,12 @@
 .PARAMETER SkipWorkspaceRestore
     Skip restoring active-workspace-roots from project-order / saved roots.
 
+.PARAMETER LogLevel
+    Terminal log stream verbosity level: Full, Standard, Compact, Minimal, or Off (default: Standard).
+    Can also be changed interactively in the launcher menu or live during streaming using keys 1-5.
+
 .PARAMETER NoLogWatch
-    Launch Codex Beta without streaming live session and router activity in the terminal.
+    Launch Codex Beta without streaming live session and router activity in the terminal (equivalent to -LogLevel Off).
 
 .EXAMPLE
     pwsh J:\Dev\ungate-local\scripts\start-codex-desktop-ungate.ps1
@@ -61,6 +65,7 @@ param(
     [string]$ApiKey,
     [string]$Model = 'ungate-opus-4-8',
     [string]$CustomCodexHome = (Join-Path $HOME '.codex-ungate'),
+    [ValidateSet('Full', 'Standard', 'Compact', 'Minimal', 'Off', '')][string]$LogLevel,
     [switch]$AddModel,
     [switch]$PrepareOnly,
     [switch]$SkipWorkspaceRestore,
@@ -99,6 +104,7 @@ $DefaultModelCachePath = Join-Path $DefaultCodexHome 'models_cache.json'
 $CustomModelCatalogPath = Join-Path $CustomCodexHome 'ungate-models.json'
 $CustomModelDefinitionsPath = Join-Path $CustomCodexHome 'ungate-model-definitions.json'
 $PickerModelSelectionPath = Join-Path $CustomCodexHome 'ungate-picker-models.json'
+$LogSettingsPath = Join-Path $CustomCodexHome 'ungate-log-settings.json'
 $CustomGlobalStatePath = Join-Path $CustomCodexHome '.codex-global-state.json'
 $ProxyBaseUrl = 'http://127.0.0.1:47821'
 $ProviderName = 'ungate_proxy'
@@ -1890,6 +1896,107 @@ function Get-UngateModelContextWindow {
     }
 }
 
+function Read-UngateLogSettings {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SettingsPath
+    )
+
+    $defaultSettings = [pscustomobject]@{
+        LogLevel = 'Standard'
+    }
+
+    if (-not (Test-Path -LiteralPath $SettingsPath -PathType Leaf)) {
+        return $defaultSettings
+    }
+
+    try {
+        $raw = Get-Content -LiteralPath $SettingsPath -Raw -Encoding utf8
+        if ([string]::IsNullOrWhiteSpace($raw)) {
+            return $defaultSettings
+        }
+        $parsed = $raw | ConvertFrom-Json
+        $validLevels = @('Full', 'Standard', 'Compact', 'Minimal', 'Off')
+        $level = if ($parsed.LogLevel -and $validLevels -contains [string]$parsed.LogLevel) {
+            [string]$parsed.LogLevel
+        } else {
+            'Standard'
+        }
+        return [pscustomobject]@{
+            LogLevel = $level
+        }
+    }
+    catch {
+        return $defaultSettings
+    }
+}
+
+function Write-UngateLogSettings {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SettingsPath,
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('Full', 'Standard', 'Compact', 'Minimal', 'Off')]
+        [string]$LogLevel
+    )
+
+    $parent = [System.IO.Path]::GetDirectoryName($SettingsPath)
+    if ($parent -and -not (Test-Path -LiteralPath $parent -PathType Container)) {
+        [void][System.IO.Directory]::CreateDirectory($parent)
+    }
+
+    $settings = [pscustomobject]@{
+        LogLevel = $LogLevel
+    }
+    $json = $settings | ConvertTo-Json -Depth 5
+    [System.IO.File]::WriteAllText($SettingsPath, $json + "`r`n", [System.Text.UTF8Encoding]::new($false))
+}
+
+function Invoke-UngateLoggingMenu {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SettingsPath
+    )
+
+    $current = (Read-UngateLogSettings -SettingsPath $SettingsPath).LogLevel
+
+    while ($true) {
+        Write-Host ''
+        Write-Host '--- Live Terminal Log Level ---' -ForegroundColor Cyan
+        Write-Host "Current level: $current" -ForegroundColor Yellow
+        Write-Host ''
+        Write-Host '  1) Full      - All events, reasoning, full tool output (no truncation), router logs'
+        Write-Host '  2) Standard  - Default: reasoning, tool calls/output (truncated to 800 chars), agent text, router logs'
+        Write-Host '  3) Compact   - Hide reasoning [THINK], short tool output (400 chars), agent text, router logs'
+        Write-Host '  4) Minimal   - Clean summary: user, single-line tool calls, agent text only (no think, no output, no router)'
+        Write-Host '  5) Off       - Disable terminal log stream completely (detach immediately to prompt)'
+        Write-Host '  B) Back to main menu'
+        Write-Host ''
+
+        $choice = Read-Host 'Select log level [1-5 or B] (default: keep current)'
+        if ([string]::IsNullOrWhiteSpace($choice) -or $choice.Trim().Equals('b', [System.StringComparison]::OrdinalIgnoreCase)) {
+            return $current
+        }
+
+        $chosen = switch ($choice.Trim()) {
+            '1' { 'Full' }
+            '2' { 'Standard' }
+            '3' { 'Compact' }
+            '4' { 'Minimal' }
+            '5' { 'Off' }
+            default { $null }
+        }
+
+        if ($chosen) {
+            Write-UngateLogSettings -SettingsPath $SettingsPath -LogLevel $chosen
+            Write-Host "  [x] Log level updated to: $chosen" -ForegroundColor Green
+            return $chosen
+        }
+
+        Write-Host 'Invalid choice. Enter 1-5 or B.' -ForegroundColor Yellow
+    }
+}
+
 function Select-UngateDesktopModel {
     param(
         [Parameter(Mandatory = $true)]
@@ -1902,9 +2009,15 @@ function Select-UngateDesktopModel {
         [string]$PickerSettingsPath,
         [Parameter(Mandatory = $true)]
         [int]$PickerCapacity,
+        [string]$LogSettingsPath,
         [switch]$IncludeProviderFallback,
         [string]$ProviderFallbackModel = 'codex-fallback'
     )
+
+    if ([string]::IsNullOrWhiteSpace($LogSettingsPath)) {
+        $parentDir = Split-Path $PickerSettingsPath -Parent
+        $LogSettingsPath = Join-Path $parentDir 'ungate-log-settings.json'
+    }
 
     while ($true) {
         $pickerDefinitions = @(
@@ -1931,14 +2044,14 @@ function Select-UngateDesktopModel {
         }
         $addModelIndex = $configurePickerIndex + $(if ($IncludeProviderFallback) { 2 } else { 1 })
         Write-Host ("  {0}) Add a new model" -f $addModelIndex) -ForegroundColor DarkCyan
+
+        $currentLogLevel = (Read-UngateLogSettings -SettingsPath $LogSettingsPath).LogLevel
+        $loggingMenuIndex = $addModelIndex + 1
+        Write-Host ("  {0}) Configure live logging [Current: {1}]" -f $loggingMenuIndex, $currentLogLevel) -ForegroundColor DarkCyan
         Write-Host ''
 
-        $choicePrompt = if ($IncludeProviderFallback) {
-            "Mode [1-$addModelIndex or F] (default: 1)"
-        }
-        else {
-            "Mode [1-$addModelIndex] (default: 1)"
-        }
+        $fallbackHint = if ($IncludeProviderFallback) { ' or F' } else { '' }
+        $choicePrompt = "Mode [1-$loggingMenuIndex$fallbackHint or L] (default: 1)"
         $choice = Read-Host $choicePrompt
         if ([string]::IsNullOrWhiteSpace($choice)) {
             return $pickerDefinitions[0].Slug
@@ -1949,11 +2062,16 @@ function Select-UngateDesktopModel {
             return $ProviderFallbackModel
         }
 
+        if ($choice.Trim().Equals('l', [System.StringComparison]::OrdinalIgnoreCase)) {
+            $null = Invoke-UngateLoggingMenu -SettingsPath $LogSettingsPath
+            continue
+        }
+
         $selectedNumber = 0
         if (
             [int]::TryParse($choice, [ref]$selectedNumber) -and
             $selectedNumber -ge 1 -and
-            $selectedNumber -le $addModelIndex
+            $selectedNumber -le $loggingMenuIndex
         ) {
             if ($selectedNumber -le $pickerDefinitions.Count) {
                 return $pickerDefinitions[$selectedNumber - 1].Slug
@@ -1972,25 +2090,31 @@ function Select-UngateDesktopModel {
                 return $ProviderFallbackModel
             }
 
-            $addedModelSlug = Invoke-AddUngateModelMode `
-                -RegistryPath $RegistryPath `
-                -BuiltInDefinitions $BuiltInDefinitions
-            if ($addedModelSlug) {
-                $Definitions = @(
-                    Get-UngateModelDefinitions `
-                        -BuiltInDefinitions $BuiltInDefinitions `
-                        -RegistryPath $RegistryPath
-                )
-                $null = Invoke-UngatePickerConfiguration `
-                    -Definitions $Definitions `
-                    -SettingsPath $PickerSettingsPath `
-                    -Capacity $PickerCapacity
+            if ($selectedNumber -eq $addModelIndex) {
+                $addedModelSlug = Invoke-AddUngateModelMode `
+                    -RegistryPath $RegistryPath `
+                    -BuiltInDefinitions $BuiltInDefinitions
+                if ($addedModelSlug) {
+                    $Definitions = @(
+                        Get-UngateModelDefinitions `
+                            -BuiltInDefinitions $BuiltInDefinitions `
+                            -RegistryPath $RegistryPath
+                    )
+                    $null = Invoke-UngatePickerConfiguration `
+                        -Definitions $Definitions `
+                        -SettingsPath $PickerSettingsPath `
+                        -Capacity $PickerCapacity
+                }
+                continue
             }
-            continue
+
+            if ($selectedNumber -eq $loggingMenuIndex) {
+                $null = Invoke-UngateLoggingMenu -SettingsPath $LogSettingsPath
+                continue
+            }
         }
 
-        $fallbackHint = if ($IncludeProviderFallback) { ' or F' } else { '' }
-        Write-Host "Enter a number from 1 to $addModelIndex$fallbackHint." -ForegroundColor Yellow
+        Write-Host "Enter a number from 1 to $loggingMenuIndex$fallbackHint or L." -ForegroundColor Yellow
     }
 }
 
@@ -3123,10 +3247,13 @@ function Format-CodexSessionEvent {
         [Parameter(Mandatory = $false)]
         [AllowNull()]
         [AllowEmptyString()]
-        [string]$Line
+        [string]$Line,
+        [Parameter(Mandatory = $false)]
+        [ValidateSet('Full', 'Standard', 'Compact', 'Minimal', 'Off')]
+        [string]$LogLevel = 'Standard'
     )
 
-    if ([string]::IsNullOrWhiteSpace($Line)) {
+    if ([string]::IsNullOrWhiteSpace($Line) -or $LogLevel -eq 'Off') {
         return
     }
 
@@ -3138,7 +3265,11 @@ function Format-CodexSessionEvent {
         $objType = [string]$json.type
         $pType = [string]$p.type
 
+        # 1. Agent Reasoning [THINK]
         if ($pType -eq 'agent_reasoning' -and $p.text) {
+            if ($LogLevel -in @('Compact', 'Minimal')) {
+                return
+            }
             $text = $p.text.Trim()
             if ($text) {
                 Write-Host "`n[THINK] " -ForegroundColor Magenta -NoNewline
@@ -3147,15 +3278,38 @@ function Format-CodexSessionEvent {
             return
         }
 
+        # 2. User Message
         if ($pType -eq 'user_message' -and $p.message) {
             Write-Host "`n=== USER ===" -ForegroundColor Cyan
             Write-Host $p.message.Trim() -ForegroundColor White
             return
         }
 
+        # 3. Tool Call
         if ($objType -eq 'response_item' -and ($pType -eq 'custom_tool_call' -or $pType -eq 'function_call')) {
             $toolName = if ($p.name) { $p.name } else { $p.call.name }
             $toolInput = if ($p.input) { $p.input } else { $p.arguments }
+
+            if ($LogLevel -eq 'Minimal') {
+                $summary = ''
+                if ($toolInput) {
+                    try {
+                        $parsedInput = $toolInput | ConvertFrom-Json -ErrorAction SilentlyContinue
+                        if ($parsedInput.command) { $summary = " $($parsedInput.command)" }
+                        elseif ($parsedInput.path) { $summary = " $($parsedInput.path)" }
+                        elseif ($parsedInput.file_path) { $summary = " $($parsedInput.file_path)" }
+                        elseif ($parsedInput.pattern) { $summary = " $($parsedInput.pattern)" }
+                    } catch { }
+                    if (-not $summary) {
+                        $firstLine = ($toolInput.Trim() -split "`r?`n")[0]
+                        if ($firstLine.Length -gt 70) { $firstLine = $firstLine.Substring(0, 70) + '...' }
+                        $summary = " $firstLine"
+                    }
+                }
+                Write-Host "--> [TOOL: $toolName]$summary" -ForegroundColor Yellow
+                return
+            }
+
             Write-Host "`n--> [TOOL CALL: $toolName]" -ForegroundColor Yellow
             if ($toolInput) {
                 Write-Host $toolInput.Trim() -ForegroundColor DarkYellow
@@ -3163,7 +3317,12 @@ function Format-CodexSessionEvent {
             return
         }
 
+        # 4. Tool Output
         if ($objType -eq 'response_item' -and ($pType -eq 'custom_tool_call_output' -or $pType -eq 'function_call_output')) {
+            if ($LogLevel -eq 'Minimal') {
+                return
+            }
+
             $outLines = @()
             if ($p.output) {
                 if ($p.output -is [array]) {
@@ -3174,19 +3333,30 @@ function Format-CodexSessionEvent {
             }
             $outText = ($outLines -join "`n").Trim()
             if ($outText) {
-                $preview = if ($outText.Length -gt 800) { $outText.Substring(0, 800) + '... [truncated]' } else { $outText }
+                $limit = switch ($LogLevel) {
+                    'Full' { 0 }
+                    'Compact' { 400 }
+                    default { 800 }
+                }
+                $preview = if ($limit -gt 0 -and $outText.Length -gt $limit) {
+                    $outText.Substring(0, $limit) + "... [truncated: $($outText.Length) chars total]"
+                } else {
+                    $outText
+                }
                 Write-Host '<-- [TOOL OUTPUT]' -ForegroundColor Blue
                 Write-Host $preview -ForegroundColor Gray
             }
             return
         }
 
+        # 5. Agent Message
         if ($pType -eq 'agent_message' -and $p.message) {
             Write-Host "`n=== AGENT ===" -ForegroundColor Green
             Write-Host $p.message.Trim() -ForegroundColor White
             return
         }
 
+        # 6. Turn Aborted
         if ($pType -eq 'turn_aborted') {
             Write-Host "`n[TURN ABORTED]" -ForegroundColor Red
             return
@@ -3203,10 +3373,18 @@ function Watch-CodexActivity {
         [string]$CustomCodexHome,
         [Parameter(Mandatory = $true)]
         [string]$DesktopExecutablePath,
+        [ValidateSet('Full', 'Standard', 'Compact', 'Minimal', 'Off')]
+        [string]$LogLevel = 'Standard',
+        [string]$LogSettingsPath = (Join-Path $CustomCodexHome 'ungate-log-settings.json'),
         [int]$PollIntervalMs = 250
     )
 
-    Write-Host "`n[ungate] Streaming live Codex Beta activity in this terminal (Ctrl+C to detach)..." -ForegroundColor Cyan
+    if ($LogLevel -eq 'Off') {
+        Write-Host '[ungate] Live terminal logging is Off.' -ForegroundColor DarkGray
+        return
+    }
+
+    Write-Host "`n[ungate] Streaming live Codex Beta activity in terminal (Level: $LogLevel | Keys: 1-5 switch level, Ctrl+C to detach)..." -ForegroundColor Cyan
 
     $sessionsRoot = Join-Path $CustomCodexHome 'sessions'
     $routerLogPath = Join-Path $CustomCodexHome 'logs\codex-model-shell-router.out.log'
@@ -3238,27 +3416,53 @@ function Watch-CodexActivity {
         $lastSessionCheck = [System.Diagnostics.Stopwatch]::StartNew()
 
         while ($true) {
-            # 1. Read router lines
-            if ($routerSr) {
-                while (-not $routerSr.EndOfStream) {
-                    $rLine = $routerSr.ReadLine()
-                    if (-not [string]::IsNullOrWhiteSpace($rLine)) {
-                        Write-Host "[router] $rLine" -ForegroundColor DarkCyan
+            # 0. Live keyboard shortcuts to change log level
+            if (-not [Console]::IsInputRedirected -and [Console]::KeyAvailable) {
+                $keyInfo = [Console]::ReadKey($true)
+                $newLevel = switch ($keyInfo.KeyChar) {
+                    '1' { 'Full' }
+                    '2' { 'Standard' }
+                    '3' { 'Compact' }
+                    '4' { 'Minimal' }
+                    '5' { 'Off' }
+                    default { $null }
+                }
+                if ($newLevel) {
+                    $LogLevel = $newLevel
+                    Write-Host "`n[ungate] Switched log level to: $LogLevel (Keys: 1=Full, 2=Std, 3=Compact, 4=Minimal, 5=Off)" -ForegroundColor Yellow
+                    try {
+                        Write-UngateLogSettings -SettingsPath $LogSettingsPath -LogLevel $LogLevel
+                    } catch { }
+                    if ($LogLevel -eq 'Off') {
+                        Write-Host '[ungate] Logging turned off. Detaching...' -ForegroundColor DarkGray
+                        break
                     }
                 }
             }
-            elseif (Test-Path -LiteralPath $routerLogPath -PathType Leaf) {
-                try {
-                    $routerFs = [System.IO.FileStream]::new(
-                        $routerLogPath,
-                        [System.IO.FileMode]::Open,
-                        [System.IO.FileAccess]::Read,
-                        [System.IO.FileShare]::ReadWrite
-                    )
-                    $routerFs.Seek(0, [System.IO.SeekOrigin]::End) | Out-Null
-                    $routerSr = [System.IO.StreamReader]::new($routerFs, [System.Text.Encoding]::UTF8)
+
+            # 1. Read router lines (skipped in Minimal mode)
+            if ($LogLevel -ne 'Minimal') {
+                if ($routerSr) {
+                    while (-not $routerSr.EndOfStream) {
+                        $rLine = $routerSr.ReadLine()
+                        if (-not [string]::IsNullOrWhiteSpace($rLine)) {
+                            Write-Host "[router] $rLine" -ForegroundColor DarkCyan
+                        }
+                    }
                 }
-                catch { }
+                elseif (Test-Path -LiteralPath $routerLogPath -PathType Leaf) {
+                    try {
+                        $routerFs = [System.IO.FileStream]::new(
+                            $routerLogPath,
+                            [System.IO.FileMode]::Open,
+                            [System.IO.FileAccess]::Read,
+                            [System.IO.FileShare]::ReadWrite
+                        )
+                        $routerFs.Seek(0, [System.IO.SeekOrigin]::End) | Out-Null
+                        $routerSr = [System.IO.StreamReader]::new($routerFs, [System.Text.Encoding]::UTF8)
+                    }
+                    catch { }
+                }
             }
 
             # 2. Check for active session or switch to newer
@@ -3304,7 +3508,7 @@ function Watch-CodexActivity {
                 while (-not $sessionSr.EndOfStream) {
                     $sLine = $sessionSr.ReadLine()
                     if (-not [string]::IsNullOrWhiteSpace($sLine)) {
-                        Format-CodexSessionEvent -Line $sLine
+                        Format-CodexSessionEvent -Line $sLine -LogLevel $LogLevel
                     }
                 }
             }
@@ -3506,6 +3710,7 @@ if (-not $EnableProviderFallback -and -not $PrepareOnly -and -not $PSBoundParame
         -RegistryPath $CustomModelDefinitionsPath `
         -PickerSettingsPath $PickerModelSelectionPath `
         -PickerCapacity $CodexDesktopPickerCapacity `
+        -LogSettingsPath $LogSettingsPath `
         -IncludeProviderFallback `
         -ProviderFallbackModel $OmniRouteFallbackModel
 
@@ -3731,7 +3936,20 @@ Start-CodexBetaDesktop `
     -WorkingDirectory $RepoRoot
 
 if (-not $NoLogWatch) {
-    Watch-CodexActivity `
-        -CustomCodexHome $CustomCodexHome `
-        -DesktopExecutablePath ([string]$desktopExecutable)
+    $activeLogLevel = if ($PSBoundParameters.ContainsKey('LogLevel') -and -not [string]::IsNullOrWhiteSpace($LogLevel)) {
+        Write-UngateLogSettings -SettingsPath $LogSettingsPath -LogLevel $LogLevel
+        $LogLevel
+    } else {
+        (Read-UngateLogSettings -SettingsPath $LogSettingsPath).LogLevel
+    }
+
+    if ($activeLogLevel -ne 'Off') {
+        Watch-CodexActivity `
+            -CustomCodexHome $CustomCodexHome `
+            -DesktopExecutablePath ([string]$desktopExecutable) `
+            -LogLevel $activeLogLevel `
+            -LogSettingsPath $LogSettingsPath
+    } else {
+        Write-Host '[ungate] Live terminal logging is Off.' -ForegroundColor DarkGray
+    }
 }
