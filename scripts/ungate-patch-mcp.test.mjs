@@ -492,7 +492,7 @@ content without the required marker
 *** Update File: missing-marker.txt
 @@
  context before
-
+invalid line without marker
 +replacement
 *** End Patch`,
 			code: 'invalid_patch',
@@ -561,4 +561,31 @@ test('documents exact Add File and Update File grammar', async (t) => {
 	assert.match(tool.inputSchema.properties.patch.description, /\*\*\* Add File: relative\/path\n\+content/iu);
 	assert.match(tool.inputSchema.properties.patch.description, /\*\*\* Update File: relative\/path\n@@\n unchanged context/iu);
 	assert.doesNotMatch(tool.description, /\*\*\* Begin Patch \*\*\*/u);
+});
+
+test('accepts raw empty lines in update hunks and add files gracefully', async (t) => {
+	const root = await temporaryDirectory(t);
+	await writeFile(join(root, 'update.txt'), 'line 1\n\nline 3\n');
+
+	await applyPatchTransaction(
+		{
+			workingDirectory: root,
+			patch: `*** Begin Patch
+*** Update File: update.txt
+@@
+ line 1
+
+-line 3
++line THREE
+*** Add File: added.txt
++item 1
+
++item 2
+*** End Patch`
+		},
+		unrestrictedOptions()
+	);
+
+	assert.equal(await readFile(join(root, 'update.txt'), 'utf8'), 'line 1\n\nline THREE\n');
+	assert.equal(await readFile(join(root, 'added.txt'), 'utf8'), 'item 1\n\nitem 2\n');
 });

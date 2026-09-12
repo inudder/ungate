@@ -223,6 +223,26 @@ function parseUpdateBody(lines, startIndex, sourcePath) {
 			index += 1;
 			continue;
 		}
+		if (line === '') {
+			let peek = index + 1;
+			while (peek < lines.length && lines[peek] === '') {
+				peek += 1;
+			}
+			const nextLine = lines[peek];
+			const isTrailingOrBoundary =
+				!currentChunk ||
+				peek >= lines.length ||
+				nextLine === '@@' ||
+				Boolean(nextLine?.startsWith('@@ ')) ||
+				Boolean(nextLine && operationBoundary(nextLine));
+			if (isTrailingOrBoundary) {
+				index += 1;
+				continue;
+			}
+			currentChunk.lines.push({ marker: ' ', text: '' });
+			index += 1;
+			continue;
+		}
 		if (![' ', '+', '-'].includes(line[0])) {
 			fail('invalid_patch', `Invalid update line for '${sourcePath}': every line must start with space, +, or -.`, {
 				line: index + 1
@@ -289,6 +309,19 @@ export function parsePatch(patch, { maxPatchBytes = DEFAULT_MAX_PATCH_BYTES } = 
 			index += 1;
 			while (index < lines.length && !operationBoundary(lines[index])) {
 				const line = lines[index];
+				if (line === '') {
+					let peek = index + 1;
+					while (peek < lines.length && lines[peek] === '') {
+						peek += 1;
+					}
+					if (peek >= lines.length || operationBoundary(lines[peek])) {
+						index += 1;
+						continue;
+					}
+					contentLines.push('');
+					index += 1;
+					continue;
+				}
 				if (!line.startsWith('+')) {
 					fail('invalid_patch', `Every Add File content line for '${targetPath}' must start with +.`, {
 						line: index + 1
