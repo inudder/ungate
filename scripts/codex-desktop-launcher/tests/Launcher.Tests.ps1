@@ -445,15 +445,15 @@ Describe 'Desktop package launch fallback' {
 }
 
 Describe 'Desktop performance configuration' {
-    It 'provides anti-throttling flags and V8 heap expansion' {
+    It 'provides anti-throttling flags and V8 heap expansion without experimental zero-copy' {
         $arguments = @(Get-CodexPerformanceArguments)
         $arguments | Should -Contain '--disable-renderer-backgrounding'
         $arguments | Should -Contain '--disable-backgrounding-occluded-windows'
         $arguments | Should -Contain '--disable-background-timer-throttling'
         $arguments | Should -Contain '--disable-features=CalculateNativeWinOcclusion,IntensiveWakeUpThrottling'
         $arguments | Should -Contain '--enable-gpu-rasterization'
-        $arguments | Should -Contain '--enable-zero-copy'
-        ($arguments -match 'max-old-space-size').Count | Should -BeGreaterThan 0
+        $arguments | Should -Not -Contain '--enable-zero-copy'
+        ($arguments -match 'max-old-space-size=8192').Count | Should -BeGreaterThan 0
     }
 
     It 'passes performance arguments and optimizes priority on direct launch' {

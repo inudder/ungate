@@ -166,8 +166,7 @@ function Get-CodexPerformanceArguments {
         '--disable-background-timer-throttling',
         '--disable-features=CalculateNativeWinOcclusion,IntensiveWakeUpThrottling',
         '--enable-gpu-rasterization',
-        '--enable-zero-copy',
-        '--js-flags="--max-old-space-size=8192 --initial-old-space-size=1024"'
+        '--js-flags="--max-old-space-size=8192"'
     )
 }
 
@@ -347,9 +346,40 @@ function Get-CodexBetaProcesses {
     )
     $ErrorActionPreference = 'Stop'
 
-    return @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
-        $_.ExecutablePath -and $_.ExecutablePath -ieq $ExecutablePath
-    })
+    $processName = [System.IO.Path]::GetFileNameWithoutExtension($ExecutablePath)
+    $matched = [System.Collections.Generic.List[pscustomobject]]::new()
+
+    try {
+        $candidates = [System.Diagnostics.Process]::GetProcessesByName($processName)
+        foreach ($proc in $candidates) {
+            try {
+                $mainModule = $proc.MainModule
+                if ($mainModule -and $mainModule.FileName -ieq $ExecutablePath) {
+                    $matched.Add([pscustomobject]@{
+                        ProcessId = $proc.Id
+                        ExecutablePath = $mainModule.FileName
+                    })
+                    continue
+                }
+            }
+            catch {
+                $matched.Add([pscustomobject]@{
+                    ProcessId = $proc.Id
+                    ExecutablePath = $ExecutablePath
+                })
+                continue
+            }
+            finally {
+                $proc.Dispose()
+            }
+        }
+        return @($matched)
+    }
+    catch {
+        return @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+            $_.ExecutablePath -and $_.ExecutablePath -ieq $ExecutablePath
+        })
+    }
 }
 
 function Stop-CodexBeta {

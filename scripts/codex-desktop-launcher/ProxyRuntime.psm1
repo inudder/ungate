@@ -81,16 +81,29 @@ function Test-CliProxyBridgeProcessIdentity {
     )
     $ErrorActionPreference = 'Stop'
 
-    $process = Get-CimInstance `
-        -ClassName Win32_Process `
-        -Filter "ProcessId = $ProcessId" `
-        -ErrorAction SilentlyContinue
-    if (-not $process -or [string]::IsNullOrWhiteSpace($process.CommandLine)) {
+    $commandLine = $null
+    try {
+        $p = Get-Process -Id $ProcessId -ErrorAction Stop
+        $commandLine = $p.CommandLine
+    }
+    catch { }
+
+    if ([string]::IsNullOrWhiteSpace($commandLine)) {
+        $process = Get-CimInstance `
+            -ClassName Win32_Process `
+            -Filter "ProcessId = $ProcessId" `
+            -ErrorAction SilentlyContinue
+        if ($process) {
+            $commandLine = $process.CommandLine
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($commandLine)) {
         return $false
     }
 
     $expectedPath = [System.IO.Path]::GetFullPath($Context.CliProxyBridgePath)
-    return $process.CommandLine.IndexOf(
+    return $commandLine.IndexOf(
         $expectedPath,
         [System.StringComparison]::OrdinalIgnoreCase
     ) -ge 0
@@ -255,16 +268,29 @@ function Test-CodexModelShellRouterProcessIdentity {
     )
     $ErrorActionPreference = 'Stop'
 
-    $process = Get-CimInstance `
-        -ClassName Win32_Process `
-        -Filter "ProcessId = $ProcessId" `
-        -ErrorAction SilentlyContinue
-    if (-not $process -or [string]::IsNullOrWhiteSpace($process.CommandLine)) {
+    $commandLine = $null
+    try {
+        $p = Get-Process -Id $ProcessId -ErrorAction Stop
+        $commandLine = $p.CommandLine
+    }
+    catch { }
+
+    if ([string]::IsNullOrWhiteSpace($commandLine)) {
+        $process = Get-CimInstance `
+            -ClassName Win32_Process `
+            -Filter "ProcessId = $ProcessId" `
+            -ErrorAction SilentlyContinue
+        if ($process) {
+            $commandLine = $process.CommandLine
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($commandLine)) {
         return $false
     }
 
     $expectedPath = [System.IO.Path]::GetFullPath($Context.CodexModelShellRouterPath)
-    return $process.CommandLine.IndexOf(
+    return $commandLine.IndexOf(
         $expectedPath,
         [System.StringComparison]::OrdinalIgnoreCase
     ) -ge 0
