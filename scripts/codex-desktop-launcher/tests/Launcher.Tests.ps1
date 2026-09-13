@@ -444,6 +444,33 @@ Describe 'Desktop package launch fallback' {
     }
 }
 
+Describe 'Desktop performance configuration' {
+    It 'provides anti-throttling flags and V8 heap expansion' {
+        $arguments = @(Get-CodexPerformanceArguments)
+        $arguments | Should -Contain '--disable-renderer-backgrounding'
+        $arguments | Should -Contain '--disable-backgrounding-occluded-windows'
+        $arguments | Should -Contain '--disable-background-timer-throttling'
+        $arguments | Should -Contain '--disable-features=CalculateNativeWinOcclusion,IntensiveWakeUpThrottling'
+        $arguments | Should -Contain '--enable-gpu-rasterization'
+        $arguments | Should -Contain '--enable-zero-copy'
+        ($arguments -match 'max-old-space-size').Count | Should -BeGreaterThan 0
+    }
+
+    It 'passes performance arguments and optimizes priority on direct launch' {
+        $context = New-TestContext
+        $package = [pscustomobject]@{ExecutablePath='fixture.exe'}
+        Mock -ModuleName Desktop Start-Process {}
+        Mock -ModuleName Desktop Optimize-CodexBetaPriority {}
+        Start-CodexBetaDesktop -Context $context -PackageInfo $package -LaunchEnvironment @{CODEX_HOME='fixture-home'} -WorkingDirectory $TestDrive
+        Should -Invoke -ModuleName Desktop Start-Process -Times 1 -Exactly -ParameterFilter {
+            $ArgumentList -contains '--disable-renderer-backgrounding' -and $ArgumentList -contains '--disable-background-timer-throttling'
+        }
+        Should -Invoke -ModuleName Desktop Optimize-CodexBetaPriority -Times 1 -Exactly -ParameterFilter {
+            $ExecutablePath -eq 'fixture.exe'
+        }
+    }
+}
+
 Describe 'Session logging precedence' {
     BeforeEach {
         Mock -ModuleName Launcher Start-CodexBetaDesktop {}

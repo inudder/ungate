@@ -379,9 +379,10 @@ function Watch-CodexActivity {
                 }
             }
 
-            # 4. Periodically verify Codex Beta process is still alive after grace period
+            # 4. Periodically verify Codex Beta process is still alive and maintain AboveNormal priority
             if ($lastHealthCheck.ElapsedMilliseconds -gt 3000) {
                 $lastHealthCheck.Restart()
+                Optimize-CodexBetaPriority -ExecutablePath $DesktopExecutablePath
                 if ([System.DateTime]::UtcNow -gt $startupGraceDeadline) {
                     $running = @(Get-CodexBetaProcesses -ExecutablePath $DesktopExecutablePath).Count -gt 0
                     if (-not $running) {

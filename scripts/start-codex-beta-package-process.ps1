@@ -3,7 +3,8 @@
 param(
     [Parameter(Mandatory)][string]$PipeName,
     [Parameter(Mandatory)][string]$ExecutablePath,
-    [Parameter(Mandatory)][string]$WorkingDirectory
+    [Parameter(Mandatory)][string]$WorkingDirectory,
+    [string[]]$Arguments = $null
 )
 
 $ErrorActionPreference = 'Stop'
@@ -32,12 +33,18 @@ try {
             $launchEnvironment[[string]$entry.Key] = [string]$entry.Value
         }
 
-        $process = Start-Process `
-            -FilePath $ExecutablePath `
-            -WorkingDirectory $WorkingDirectory `
-            -Environment $launchEnvironment `
-            -PassThru `
-            -ErrorAction Stop
+        $startParams = @{
+            FilePath = $ExecutablePath
+            WorkingDirectory = $WorkingDirectory
+            Environment = $launchEnvironment
+            PassThru = $true
+            ErrorAction = 'Stop'
+        }
+        if ($Arguments -and $Arguments.Count -gt 0) {
+            $startParams['ArgumentList'] = $Arguments
+        }
+
+        $process = Start-Process @startParams
         $writer.WriteLine("OK:$($process.Id)")
     }
     catch {

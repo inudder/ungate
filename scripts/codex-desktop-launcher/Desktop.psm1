@@ -159,6 +159,37 @@ function Get-CodexBetaPackageInfo {
     throw "Codex Beta executable from the AppX manifest was not found under $($package.InstallLocation)."
 }
 
+function Get-CodexPerformanceArguments {
+    return @(
+        '--disable-renderer-backgrounding',
+        '--disable-backgrounding-occluded-windows',
+        '--disable-background-timer-throttling',
+        '--disable-features=CalculateNativeWinOcclusion,IntensiveWakeUpThrottling',
+        '--enable-gpu-rasterization',
+        '--enable-zero-copy',
+        '--js-flags="--max-old-space-size=8192 --initial-old-space-size=1024"'
+    )
+}
+
+function Optimize-CodexBetaPriority {
+    param(
+        [Parameter(Mandatory)][string]$ExecutablePath,
+        [System.Diagnostics.ProcessPriorityClass]$PriorityClass = [System.Diagnostics.ProcessPriorityClass]::AboveNormal
+    )
+    $ErrorActionPreference = 'SilentlyContinue'
+
+    $processes = @(Get-CodexBetaProcesses -ExecutablePath $ExecutablePath)
+    foreach ($proc in $processes) {
+        try {
+            $p = Get-Process -Id $proc.ProcessId -ErrorAction SilentlyContinue
+            if ($p -and -not $p.HasExited -and $p.PriorityClass -ne $PriorityClass) {
+                $p.PriorityClass = $PriorityClass
+            }
+        }
+        catch { }
+    }
+}
+
 function Start-CodexBetaDesktop {
     param(
         [Parameter(Mandatory)][psobject]$Context,
@@ -169,12 +200,17 @@ function Start-CodexBetaDesktop {
     )
     $ErrorActionPreference = 'Stop'
 
+    $desktopArguments = Get-CodexPerformanceArguments
+
     try {
         Start-Process `
             -FilePath ([string]$PackageInfo.ExecutablePath) `
+            -ArgumentList $desktopArguments `
             -WorkingDirectory $WorkingDirectory `
             -Environment $LaunchEnvironment `
             -ErrorAction Stop
+
+        Optimize-CodexBetaPriority -ExecutablePath ([string]$PackageInfo.ExecutablePath)
         return
     }
     catch {
@@ -182,7 +218,7 @@ function Start-CodexBetaDesktop {
     }
 
     try {
-        Start-CodexBetaPackageDesktop -Context $Context -PackageInfo $PackageInfo -LaunchEnvironment $LaunchEnvironment -WorkingDirectory $WorkingDirectory
+        Start-CodexBetaPackageDesktop -Context $Context -PackageInfo $PackageInfo -LaunchEnvironment $LaunchEnvironment -WorkingDirectory $WorkingDirectory -DesktopArguments $desktopArguments
     }
     catch {
         throw "Direct Codex Beta launch failed ($directLaunchError). MSIX package launch also failed: $($_.Exception.Message)"
@@ -196,7 +232,8 @@ function Start-CodexBetaPackageDesktop {
 
         [Parameter(Mandatory)][psobject]$PackageInfo,
         [Parameter(Mandatory)][hashtable]$LaunchEnvironment,
-        [Parameter(Mandatory)][string]$WorkingDirectory
+        [Parameter(Mandatory)][string]$WorkingDirectory,
+        [string[]]$DesktopArguments = $null
     )
     $ErrorActionPreference = 'Stop'
 
@@ -218,7 +255,8 @@ function Start-CodexBetaPackageDesktop {
             $Context.CodexPackageLaunchHelperPath,
             $pipeName,
             [string]$PackageInfo.ExecutablePath,
-            $WorkingDirectory
+            $WorkingDirectory,
+            $DesktopArguments
         ) -ScriptBlock {
             param(
                 $PackageFamilyName,
@@ -227,17 +265,24 @@ function Start-CodexBetaPackageDesktop {
                 $HelperPath,
                 $PipeName,
                 $ExecutablePath,
-                $WorkingDirectory
+                $WorkingDirectory,
+                $ExtraArguments
             )
 
-            $arguments = @(
+            $argumentsList = [System.Collections.Generic.List[string]]::new()
+            $argumentsList.AddRange(@(
                 '-NoProfile',
                 '-WindowStyle', 'Hidden',
                 '-File', "`"$HelperPath`"",
                 '-PipeName', "`"$PipeName`"",
                 '-ExecutablePath', "`"$ExecutablePath`"",
                 '-WorkingDirectory', "`"$WorkingDirectory`""
-            ) -join ' '
+            ))
+            if ($ExtraArguments -and $ExtraArguments.Count -gt 0) {
+                $joinedArgs = ($ExtraArguments | ForEach-Object { "`"$_`"" }) -join ','
+                $argumentsList.Add("-Arguments @($joinedArgs)")
+            }
+            $arguments = $argumentsList -join ' '
             Invoke-CommandInDesktopPackage `
                 -PackageFamilyName $PackageFamilyName `
                 -AppId $ApplicationId `
@@ -491,5 +536,7 @@ Export-ModuleMember -Function @(
     'Start-CodexBetaDesktop',
     'Get-CodexBetaProcesses',
     'Stop-CodexBeta',
-    'Restore-CodexWorkspaceRoots'
+    'Restore-CodexWorkspaceRoots',
+    'Get-CodexPerformanceArguments',
+    'Optimize-CodexBetaPriority'
 )
