@@ -188,8 +188,29 @@ reauthentication in CLIProxyAPI.
 2. MiniMax inline tool-call and Responses synthesizer tests.
 3. `ungate-api` service logs and the `47821` health/preflight result.
 
+## Adding an OmniRoute model checklist
+
+When exposing a new provider model from OmniRoute through the Desktop launcher:
+
+1. **OmniRoute client key allow-list (`api_keys.allowed_models`)**:
+   - The launcher uses the restricted `codex-local` key (resolved via `OMNIROUTE_CODEX_API_KEY`).
+   - Add the model's IDs (both prefixed and bare forms, e.g. `"deepseek/deepseek-v4-flash"`, `"deepseek-v4-flash"`, `"deepseek-flash"`) to the `allowed_models` JSON array of the `codex-local` record in `%APPDATA%\omniroute\storage.sqlite`.
+2. **OmniRoute active live catalog gating (`key_value` table)**:
+   - OmniRoute validates incoming model IDs against the connection's active synced catalog (`getActiveSyncedCatalog`).
+   - Ensure the connection entry in `key_value` (`<providerId>:<connectionId>`) lists the expected model ID (e.g. `[{"id":"deepseek-flash",...},{"id":"deepseek-v4-flash",...}]`), otherwise requests fail with HTTP 400: `Model '<id>' is not available in the active live catalog for provider '<provider>'`.
+3. **Launcher model definitions & aliases (`scripts/codex-desktop-launcher/Models.psm1`)**:
+   - Add built-in definition in `New-UngateModelSet` with `Slug`, `DisplayName`, `UpstreamModel`, `Aliases`, `ContextWindow`, and `SupportedReasoningLevels`.
+   - `Aliases` enable friendly command-line resolution (e.g. `-Model deepseek-flash` mapping to `deepseek-v4-flash`).
+4. **Desktop picker configuration (`%USERPROFILE%\.codex-ungate\ungate-picker-models.json`)**:
+   - The native desktop picker supports at most 7 models (`$CodexDesktopPickerCapacity = 7`).
+   - Add the slug to `modelSlugs` if it should appear directly in the interactive menu without manual reconfiguration.
+5. **Test fixture snapshot synchronization (`tests/fixtures/models.json`)**:
+   - `scripts/codex-desktop-launcher/tests/fixtures/models.json` holds the snapshot for `Launcher.Tests.ps1`, including `IdentitySha256` hashes computed against `environment-instructions.txt`.
+   - After adding built-ins or changing instructions, regenerate this snapshot and update the fallback model count assertion.
+
 ## Relevant tests
 
+- Launcher suite: `pwsh scripts/test-codex-desktop-launcher.ps1`
 - CLIProxy bridge: `pnpm --filter @ungate/scripts run bridge:test`
 - Mimo adapter: `pnpm --filter @ungate/scripts run mimo-adapter:test`
 - Router: `scripts\codex-model-shell-router.test.mjs`
