@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 export function schemaHash(tools) {
@@ -68,4 +68,63 @@ export async function readToolsSnapshot(filename) {
 		throw new Error('Invalid tool snapshot metadata or checksum.');
 
 	return snapshot;
+}
+
+// Bootstrap only from original Responses requests retaining Codex namespaces.
+// Do not mistake preflight/single-tool probes or translated Chat requests for a full snapshot.
+export async function ensureToolsSnapshot(filename, logRoot) {
+	try {
+		return await readToolsSnapshot(filename);
+	} catch {
+		if (!logRoot) throw new Error('Tool snapshot unavailable.');
+	}
+	const directories = await readdir(logRoot, { withFileTypes: true });
+	const days = directories
+		.filter((entry) => entry.isDirectory() && /^\d{4}-\d{2}-\d{2}$/.test(entry.name))
+		.map((entry) => entry.name)
+		.sort()
+		.reverse()
+		.slice(0, 7);
+	for (const day of days) {
+		const entries = await readdir(path.join(logRoot, day));
+		for (const entry of entries
+			.filter((name) => name.endsWith('.json'))
+			.sort()
+			.reverse()
+			.slice(0, 200)) {
+			let snapshot;
+			try {
+				const source = path.join(logRoot, day, entry);
+				const info = await stat(source);
+				if (info.size > 32 * 1024 * 1024) continue;
+				const content = await readFile(source, 'utf8');
+				const record = JSON.parse(content);
+				const tools = record.requestBody?.tools;
+				if (
+					record.summary?.sourceFormat !== 'openai-responses' ||
+					record.summary.path !== '/v1/responses' ||
+					!Array.isArray(tools) ||
+					!tools.some((tool) => tool.type === 'namespace') ||
+					!tools.some((tool) => ['apply_patch', 'shell_command', 'exec_command', 'exec'].includes(tool.name))
+				)
+					continue;
+				validateTools(tools);
+				if (!record.summary.model || !Number.isFinite(Date.parse(record.summary.timestamp))) continue;
+				snapshot = {
+					version: 1,
+					capturedAt: record.summary.timestamp,
+					sourceModel: record.summary.model,
+					source: { kind: 'omniroute-log', file: `${day}/${entry}` },
+					schemaHash: schemaHash(tools),
+					tools
+				};
+			} catch {
+				continue;
+			}
+			await writeJsonAtomic(filename, snapshot);
+
+			return snapshot;
+		}
+	}
+	throw new Error('No original Codex Responses tool snapshot found.');
 }

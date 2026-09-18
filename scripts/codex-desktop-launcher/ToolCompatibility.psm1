@@ -70,7 +70,11 @@ function Invoke-CodexToolCompatibility {
         $nodePath = (Get-Command node -ErrorAction Stop).Source
         $runnerPath = Join-Path $Context.ScriptsRoot 'codex-tool-compatibility.mjs'
         $cachePath = Join-Path $Context.CustomCodexHome 'tool-compatibility/tools-schema-cache.json'
-        & $nodePath @($runnerPath, '--validate-cache', $cachePath) 2>&1 | ForEach-Object { Write-Host $_ }
+        $cacheArguments = @($runnerPath, '--validate-cache', $cachePath)
+        if ($Context.CustomCodexHome -eq $Context.CanonicalCodexHome -and $env:APPDATA) {
+            $cacheArguments += Join-Path $env:APPDATA 'omniroute/call_logs'
+        }
+        & $nodePath $cacheArguments 2>&1 | ForEach-Object { Write-Host $_ }
         if ($LASTEXITCODE -ne 0) { return 2 }
         $models = @(
             foreach ($definition in $selected) {

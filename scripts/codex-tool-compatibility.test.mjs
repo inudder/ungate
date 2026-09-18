@@ -7,7 +7,7 @@ import test from 'node:test';
 
 import { createShellRouterServer } from './codex-model-shell-router.mjs';
 import { classifyError, individualTools, probeSchema, reportExitCode, runCompatibility } from './codex-tool-compatibility.mjs';
-import { createToolsCacheWriter, readToolsSnapshot } from './codex-tools-schema-cache.mjs';
+import { createToolsCacheWriter, ensureToolsSnapshot, readToolsSnapshot, writeJsonAtomic } from './codex-tools-schema-cache.mjs';
 
 const tools = [
 	{ type: 'function', name: 'shell_command', parameters: { type: 'object', properties: { command: { type: 'string' } } } },
@@ -22,6 +22,41 @@ const tools = [
 		]
 	}
 ];
+
+test('missing/corrupt cache recovers only original Codex schemas and preserves valid cache', async (t) => {
+	const directory = await temporary(t);
+	const cache = path.join(directory, 'cache.json');
+	const logs = path.join(directory, 'logs');
+	const original = {
+		summary: {
+			sourceFormat: 'openai-responses',
+			path: '/v1/responses',
+			model: 'source-model',
+			timestamp: '2026-09-18T13:42:00Z'
+		},
+		requestBody: { tools, input: 'PRIVATE', headers: { authorization: 'SECRET' } }
+	};
+	await writeJsonAtomic(path.join(logs, '2026-09-18', '01.json'), original);
+	await writeJsonAtomic(path.join(logs, '2026-09-18', '02.json'), { ...original, requestBody: { tools: [tools[0]] } });
+	await writeJsonAtomic(path.join(logs, '2026-09-18', '03.json'), {
+		...original,
+		summary: { ...original.summary, sourceFormat: 'anthropic' }
+	});
+	await writeJsonAtomic(path.join(logs, '2026-09-18', '04.json'), {
+		...original,
+		requestBody: { tools: [{ type: 'function', name: 'exec' }, tools[2]] }
+	});
+	const recovered = await ensureToolsSnapshot(cache, logs);
+	assert.deepEqual(recovered.tools, tools);
+	assert.equal(recovered.source.file, '2026-09-18/01.json');
+	assert.doesNotMatch(await readFile(cache, 'utf8'), /PRIVATE|SECRET|authorization/);
+	await writeFile(cache, '{broken');
+	assert.deepEqual(await ensureToolsSnapshot(cache, logs), recovered);
+	await createToolsCacheWriter(cache)([tools[0]], 'live-router');
+	const existing = await ensureToolsSnapshot(cache, logs);
+	assert.equal(existing.sourceModel, 'live-router');
+	await assert.rejects(ensureToolsSnapshot(path.join(directory, 'missing.json')));
+});
 
 async function temporary(t) {
 	const directory = await mkdtemp(path.join(os.tmpdir(), 'codex-tools-'));

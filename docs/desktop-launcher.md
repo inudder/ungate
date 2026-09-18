@@ -145,8 +145,16 @@ Cache failures do not fail model requests. Diagnostic routers do not capture
 their own single-tool probes or overwrite this cache.
 
 After installing this feature, relaunch Beta through the launcher and send
-one message to populate the cache. Missing/corrupt caches produce this
-instruction and exit 2. A run freezes one snapshot for all models and shows
+one message to populate the cache. A restart alone does not populate it.
+For the default Beta home, TT can recover a missing/corrupt cache from the
+latest qualifying original Codex Responses request in local OmniRoute logs
+(up to seven date directories and 200 newest files per day). It requires
+Codex tools and intact namespace schemas, skips translated/single-tool requests,
+and copies only schemas and provenance, never messages or keys. The terminal
+and report identify this historical source; a later live request replaces it.
+Custom homes do not import another profile's logs. When neither source is
+available, TT prints the first-message instruction and exits 2.
+A run freezes one snapshot for all models and shows
 its source/time/hash: it covers tools advertised by that specific request,
 not every tool that could later be loaded dynamically.
 

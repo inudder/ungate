@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 import { createBridgeServer } from './cliproxy-namespace-bridge.mjs';
 import { createShellRouterServer } from './codex-model-shell-router.mjs';
-import { readToolsSnapshot, writeJsonAtomic } from './codex-tools-schema-cache.mjs';
+import { ensureToolsSnapshot, readToolsSnapshot, writeJsonAtomic } from './codex-tools-schema-cache.mjs';
 
 const CACHE_HELP = 'Перезапустите Beta через обновлённый launcher, отправьте сообщение и повторите TT.';
 const LABELS = {
@@ -241,7 +241,12 @@ export async function runCompatibility(config, { signal, timeoutMs = 120000, log
 		version: 1,
 		startedAt: new Date().toISOString(),
 		completedAt: null,
-		snapshot: { capturedAt: snapshot.capturedAt, sourceModel: snapshot.sourceModel, schemaHash: snapshot.schemaHash },
+		snapshot: {
+			capturedAt: snapshot.capturedAt,
+			sourceModel: snapshot.sourceModel,
+			schemaHash: snapshot.schemaHash,
+			...(snapshot.source ? { source: snapshot.source } : {})
+		},
 		cancelled: false,
 		models: []
 	};
@@ -343,7 +348,10 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
 	try {
 		if (process.argv[2] === '--validate-cache') {
 			try {
-				await readToolsSnapshot(process.argv[3]);
+				const snapshot = await ensureToolsSnapshot(process.argv[3], process.argv[4]);
+				if (snapshot.source?.kind === 'omniroute-log') {
+					console.log(`Используется снимок из лога OmniRoute: ${snapshot.source.file} (${snapshot.capturedAt}).`);
+				}
 			} catch {
 				throw new Error(`Кэш схем отсутствует или повреждён. ${CACHE_HELP}`);
 			}
