@@ -23,7 +23,7 @@ function Read-UngateLogSettings {
             return $defaultSettings
         }
         $parsed = $raw | ConvertFrom-Json
-        $validLevels = @('Full', 'Standard', 'Compact', 'Minimal', 'Off')
+        $validLevels = @('Full', 'Standard', 'Compact', 'Minimal', 'Off', 'Errors')
         $level = if ($parsed.LogLevel -and $validLevels -contains [string]$parsed.LogLevel) {
             [string]$parsed.LogLevel
         } else {
@@ -43,7 +43,7 @@ function Write-UngateLogSettings {
         [Parameter(Mandatory = $true)]
         [string]$SettingsPath,
         [Parameter(Mandatory = $true)]
-        [ValidateSet('Full', 'Standard', 'Compact', 'Minimal', 'Off')]
+        [ValidateSet('Full', 'Standard', 'Compact', 'Minimal', 'Off', 'Errors')]
         [string]$LogLevel
     )
     $ErrorActionPreference = 'Stop'
@@ -79,10 +79,11 @@ function Invoke-UngateLoggingMenu {
         Write-Host '  3) Compact   - Hide reasoning [THINK], short tool output (400 chars), agent text, router logs'
         Write-Host '  4) Minimal   - Clean summary: user, single-line tool calls, agent text only (no think, no output, no router)'
         Write-Host '  5) Off       - Disable terminal log stream completely (detach immediately to prompt)'
+        Write-Host '  6) Errors    - Errors only: turn aborted, failed tool output, router errors (4xx/5xx)'
         Write-Host '  B) Back to main menu'
         Write-Host ''
 
-        $choice = Read-Host 'Select log level [1-5 or B] (default: keep current)'
+        $choice = Read-Host 'Select log level [1-6 or B] (default: keep current)'
         if ([string]::IsNullOrWhiteSpace($choice) -or $choice.Trim().Equals('b', [System.StringComparison]::OrdinalIgnoreCase)) {
             return $current
         }
@@ -93,6 +94,7 @@ function Invoke-UngateLoggingMenu {
             '3' { 'Compact' }
             '4' { 'Minimal' }
             '5' { 'Off' }
+            '6' { 'Errors' }
             default { $null }
         }
 
@@ -102,7 +104,7 @@ function Invoke-UngateLoggingMenu {
             return $chosen
         }
 
-        Write-Host 'Invalid choice. Enter 1-5 or B.' -ForegroundColor Yellow
+        Write-Host 'Invalid choice. Enter 1-6 or B.' -ForegroundColor Yellow
     }
 }
 
@@ -113,7 +115,7 @@ function Format-CodexSessionEvent {
         [AllowEmptyString()]
         [string]$Line,
         [Parameter(Mandatory = $false)]
-        [ValidateSet('Full', 'Standard', 'Compact', 'Minimal', 'Off')]
+        [ValidateSet('Full', 'Standard', 'Compact', 'Minimal', 'Off', 'Errors')]
         [string]$LogLevel = 'Standard'
     )
     $ErrorActionPreference = 'Stop'
@@ -132,7 +134,7 @@ function Format-CodexSessionEvent {
 
         # 1. Agent Reasoning [THINK]
         if ($pType -eq 'agent_reasoning' -and $p.text) {
-            if ($LogLevel -in @('Compact', 'Minimal')) {
+            if ($LogLevel -in @('Compact', 'Minimal', 'Errors')) {
                 return
             }
             $text = $p.text.Trim()
@@ -145,6 +147,9 @@ function Format-CodexSessionEvent {
 
         # 2. User Message
         if ($pType -eq 'user_message' -and $p.message) {
+            if ($LogLevel -eq 'Errors') {
+                return
+            }
             Write-Host "`n=== USER ===" -ForegroundColor Cyan
             Write-Host $p.message.Trim() -ForegroundColor White
             return
@@ -152,6 +157,10 @@ function Format-CodexSessionEvent {
 
         # 3. Tool Call
         if ($objType -eq 'response_item' -and ($pType -eq 'custom_tool_call' -or $pType -eq 'function_call')) {
+            if ($LogLevel -eq 'Errors') {
+                return
+            }
+
             $toolName = if ($p.name) { $p.name } else { $p.call.name }
             $toolInput = if ($p.input) { $p.input } else { $p.arguments }
 
@@ -197,10 +206,20 @@ function Format-CodexSessionEvent {
                 }
             }
             $outText = ($outLines -join "`n").Trim()
+
+            $isToolError = ($p.is_error -eq $true) -or
+                ($null -ne $p.exit_code -and $p.exit_code -ne 0) -or
+                ($outText -match '(?i)\b(error|exception|fatal|traceback|command not found)\b')
+
+            if ($LogLevel -eq 'Errors' -and -not $isToolError) {
+                return
+            }
+
             if ($outText) {
                 $limit = switch ($LogLevel) {
                     'Full' { 0 }
                     'Compact' { 400 }
+                    'Errors' { 1200 }
                     default { 800 }
                 }
                 $preview = if ($limit -gt 0 -and $outText.Length -gt $limit) {
@@ -208,14 +227,22 @@ function Format-CodexSessionEvent {
                 } else {
                     $outText
                 }
-                Write-Host '<-- [TOOL OUTPUT]' -ForegroundColor Blue
-                Write-Host $preview -ForegroundColor Gray
+                if ($isToolError) {
+                    Write-Host '<-- [TOOL ERROR]' -ForegroundColor Red
+                    Write-Host $preview -ForegroundColor DarkYellow
+                } else {
+                    Write-Host '<-- [TOOL OUTPUT]' -ForegroundColor Blue
+                    Write-Host $preview -ForegroundColor Gray
+                }
             }
             return
         }
 
         # 5. Agent Message
         if ($pType -eq 'agent_message' -and $p.message) {
+            if ($LogLevel -eq 'Errors') {
+                return
+            }
             Write-Host "`n=== AGENT ===" -ForegroundColor Green
             Write-Host $p.message.Trim() -ForegroundColor White
             return
@@ -224,6 +251,13 @@ function Format-CodexSessionEvent {
         # 6. Turn Aborted
         if ($pType -eq 'turn_aborted') {
             Write-Host "`n[TURN ABORTED]" -ForegroundColor Red
+            return
+        }
+
+        # 7. Explicit Error Events
+        if ($pType -match '(?i)error|fail|exception' -or $objType -match '(?i)error|fail' -or $p.error) {
+            $errText = if ($p.message) { $p.message } elseif ($p.error) { $p.error } else { $Line }
+            Write-Host "`n[ERROR: $pType] $errText" -ForegroundColor Red
             return
         }
     }
@@ -238,7 +272,7 @@ function Watch-CodexActivity {
         [string]$CustomCodexHome,
         [Parameter(Mandatory = $true)]
         [string]$DesktopExecutablePath,
-        [ValidateSet('Full', 'Standard', 'Compact', 'Minimal', 'Off')]
+        [ValidateSet('Full', 'Standard', 'Compact', 'Minimal', 'Off', 'Errors')]
         [string]$LogLevel = 'Standard',
         [string]$LogSettingsPath = (Join-Path $CustomCodexHome 'ungate-log-settings.json'),
         [int]$PollIntervalMs = 250
@@ -250,7 +284,7 @@ function Watch-CodexActivity {
         return
     }
 
-    Write-Host "`n[ungate] Streaming live Codex Beta activity in terminal (Level: $LogLevel | Keys: 1-5 switch level, Ctrl+C to detach)..." -ForegroundColor Cyan
+    Write-Host "`n[ungate] Streaming live Codex Beta activity in terminal (Level: $LogLevel | Keys: 1-6 switch level, Ctrl+C to detach)..." -ForegroundColor Cyan
 
     $sessionsRoot = Join-Path $CustomCodexHome 'sessions'
     $routerLogPath = Join-Path $CustomCodexHome 'logs\codex-model-shell-router.out.log'
@@ -291,11 +325,12 @@ function Watch-CodexActivity {
                     '3' { 'Compact' }
                     '4' { 'Minimal' }
                     '5' { 'Off' }
+                    '6' { 'Errors' }
                     default { $null }
                 }
                 if ($newLevel) {
                     $LogLevel = $newLevel
-                    Write-Host "`n[ungate] Switched log level to: $LogLevel (Keys: 1=Full, 2=Std, 3=Compact, 4=Minimal, 5=Off)" -ForegroundColor Yellow
+                    Write-Host "`n[ungate] Switched log level to: $LogLevel (Keys: 1=Full, 2=Std, 3=Compact, 4=Minimal, 5=Off, 6=Errors)" -ForegroundColor Yellow
                     try {
                         Write-UngateLogSettings -SettingsPath $LogSettingsPath -LogLevel $LogLevel
                     } catch { }
@@ -312,7 +347,13 @@ function Watch-CodexActivity {
                     while (-not $routerSr.EndOfStream) {
                         $rLine = $routerSr.ReadLine()
                         if (-not [string]::IsNullOrWhiteSpace($rLine)) {
-                            Write-Host "[router] $rLine" -ForegroundColor DarkCyan
+                            if ($LogLevel -eq 'Errors') {
+                                if ($rLine -match '->\s*([45]\d\d)|error|fail|exception|timeout|refused|fallback|retry') {
+                                    Write-Host "[router error] $rLine" -ForegroundColor Red
+                                }
+                            } else {
+                                Write-Host "[router] $rLine" -ForegroundColor DarkCyan
+                            }
                         }
                     }
                 }

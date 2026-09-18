@@ -46,8 +46,8 @@
     Skip restoring active-workspace-roots from project-order / saved roots.
 
 .PARAMETER LogLevel
-    Terminal log stream verbosity level: Full, Standard, Compact, Minimal, or Off (default: Standard).
-    Can also be changed interactively in the launcher menu or live during streaming using keys 1-5.
+    Terminal log stream verbosity level: Full, Standard, Compact, Minimal, Off, or Errors (default: Standard).
+    Can also be changed interactively in the launcher menu or live during streaming using keys 1-6.
 
 .PARAMETER NoLogWatch
     Launch Codex Beta without streaming live session and router activity in the terminal (equivalent to -LogLevel Off).
@@ -69,7 +69,7 @@ param(
     [string]$ApiKey,
     [string]$Model = 'ungate-opus-4-8',
     [string]$CustomCodexHome = (Join-Path $HOME '.codex-ungate'),
-    [ValidateSet('Full', 'Standard', 'Compact', 'Minimal', 'Off', '')][string]$LogLevel,
+    [ValidateSet('Full', 'Standard', 'Compact', 'Minimal', 'Off', 'Errors', '')][string]$LogLevel,
     [switch]$AddModel,
     [switch]$TestTools,
     [switch]$PrepareOnly,

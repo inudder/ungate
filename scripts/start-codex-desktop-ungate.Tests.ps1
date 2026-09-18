@@ -1309,7 +1309,7 @@ Describe 'Ungate live log settings' {
     It 'writes valid JSON and reads it back for all supported log levels' {
         $tempSettings = Join-Path ([System.IO.Path]::GetTempPath()) ("ungate-test-log-" + [guid]::NewGuid().ToString('N') + ".json")
         try {
-            foreach ($level in @('Full', 'Standard', 'Compact', 'Minimal', 'Off')) {
+            foreach ($level in @('Full', 'Standard', 'Compact', 'Minimal', 'Off', 'Errors')) {
                 Write-UngateLogSettings -SettingsPath $tempSettings -LogLevel $level
                 (Read-UngateLogSettings -SettingsPath $tempSettings).LogLevel | Should -BeExactly $level
             }
@@ -1333,10 +1333,10 @@ Describe 'Ungate live log settings' {
     It 'allows user to interactively select a log level in Invoke-UngateLoggingMenu' {
         $tempSettings = Join-Path ([System.IO.Path]::GetTempPath()) ("ungate-test-log-" + [guid]::NewGuid().ToString('N') + ".json")
         try {
-            Mock -ModuleName Logging Read-Host { return '3' }
+            Mock -ModuleName Logging Read-Host { return '6' }
             $chosen = Invoke-UngateLoggingMenu -SettingsPath $tempSettings
-            $chosen | Should -BeExactly 'Compact'
-            (Read-UngateLogSettings -SettingsPath $tempSettings).LogLevel | Should -BeExactly 'Compact'
+            $chosen | Should -BeExactly 'Errors'
+            (Read-UngateLogSettings -SettingsPath $tempSettings).LogLevel | Should -BeExactly 'Errors'
         }
         finally {
             Remove-Item -LiteralPath $tempSettings -Force -ErrorAction SilentlyContinue
@@ -1378,16 +1378,43 @@ Describe 'Format-CodexSessionEvent' {
         $printed.Count | Should -Be 0
     }
 
-    It 'suppresses reasoning in Compact and Minimal modes' {
+    It 'suppresses reasoning in Compact, Minimal, and Errors modes' {
         $printed = [System.Collections.Generic.List[string]]::new()
         Mock -ModuleName Logging Write-Host { param($Object) $printed.Add([string]$Object) }
         $thinkJson = '{"type":"event_msg","payload":{"type":"agent_reasoning","text":"Thinking deeply"}}'
         Format-CodexSessionEvent -Line $thinkJson -LogLevel 'Compact'
         Format-CodexSessionEvent -Line $thinkJson -LogLevel 'Minimal'
+        Format-CodexSessionEvent -Line $thinkJson -LogLevel 'Errors'
         $printed.Count | Should -Be 0
 
         Format-CodexSessionEvent -Line $thinkJson -LogLevel 'Standard'
         ($printed -join ' ') | Should -Match 'Thinking deeply'
+    }
+
+    It 'suppresses normal messages and shows only failures when LogLevel is Errors' {
+        $printed = [System.Collections.Generic.List[string]]::new()
+        Mock -ModuleName Logging Write-Host { param($Object) $printed.Add([string]$Object) }
+
+        $userJson = '{"type":"event_msg","payload":{"type":"user_message","message":"Hello"}}'
+        $agentJson = '{"type":"event_msg","payload":{"type":"agent_message","message":"Hi there"}}'
+        $callJson = '{"type":"response_item","payload":{"type":"custom_tool_call","name":"exec","input":"{\"command\":\"dir\"}"}}'
+        $normalOutJson = '{"type":"response_item","payload":{"type":"custom_tool_call_output","output":[{"text":"File1.txt"}]}}'
+        $abortJson = '{"type":"event_msg","payload":{"type":"turn_aborted"}}'
+        $errorOutJson = '{"type":"response_item","payload":{"type":"custom_tool_call_output","output":[{"text":"Error: file not found"}]}}'
+
+        Format-CodexSessionEvent -Line $userJson -LogLevel 'Errors'
+        Format-CodexSessionEvent -Line $agentJson -LogLevel 'Errors'
+        Format-CodexSessionEvent -Line $callJson -LogLevel 'Errors'
+        Format-CodexSessionEvent -Line $normalOutJson -LogLevel 'Errors'
+        $printed.Count | Should -Be 0
+
+        Format-CodexSessionEvent -Line $abortJson -LogLevel 'Errors'
+        Format-CodexSessionEvent -Line $errorOutJson -LogLevel 'Errors'
+
+        $all = $printed -join "`n"
+        $all | Should -Match '\[TURN ABORTED\]'
+        $all | Should -Match '<-- \[TOOL ERROR\]'
+        $all | Should -Match 'Error: file not found'
     }
 
     It 'suppresses tool output in Minimal mode and formats single line tool call' {
