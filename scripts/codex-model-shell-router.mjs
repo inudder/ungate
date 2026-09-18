@@ -210,6 +210,51 @@ function normalizeRoutes(routes) {
 	return byClientModel;
 }
 
+// DeepSeek requires tool results before intervening assistant commentary.
+// Codex may persist parallel calls, commentary, and then their results.
+export function orderDeepSeekToolHistory(input) {
+	if (!Array.isArray(input)) return input;
+	const ordered = [];
+	let segment = [];
+	const flush = () => {
+		const calls = new Map();
+		const outputs = new Map();
+		for (const [index, item] of segment.entries()) {
+			if (!item?.call_id) continue;
+			let target;
+			if (['function_call', 'custom_tool_call'].includes(item.type)) target = calls;
+			if (['function_call_output', 'custom_tool_call_output'].includes(item.type)) target = outputs;
+			if (target) target.set(item.call_id, target.has(item.call_id) ? null : index);
+		}
+		const paired = new Map();
+		const moved = new Set();
+		for (const [callId, callIndex] of calls) {
+			const outputIndex = outputs.get(callId);
+			if (callIndex === null || outputIndex == null || outputIndex <= callIndex) continue;
+			if (segment[outputIndex].type !== `${segment[callIndex].type}_output`) continue;
+			paired.set(callIndex, outputIndex);
+			moved.add(outputIndex);
+		}
+		for (const [index, item] of segment.entries()) {
+			if (moved.has(index)) continue;
+			ordered.push(item);
+			if (paired.has(index)) ordered.push(segment[paired.get(index)]);
+		}
+		segment = [];
+	};
+	for (const item of input) {
+		if (['user', 'system', 'developer'].includes(item?.role)) {
+			flush();
+			ordered.push(item);
+		} else {
+			segment.push(item);
+		}
+	}
+	flush();
+
+	return ordered;
+}
+
 function proxyRequest({
 	request,
 	response,
@@ -417,6 +462,13 @@ export function createShellRouterServer(options = {}) {
 			}
 
 			body.model = route.upstreamModel;
+			if (
+				/^deepseek\/deepseek-v4-(?:pro|flash)$/u.test(route.upstreamModel) &&
+				requestUrl.pathname === '/v1/responses' &&
+				Array.isArray(body.input)
+			) {
+				body.input = orderDeepSeekToolHistory(body.input);
+			}
 			const upstreamBody = Buffer.from(JSON.stringify(body));
 			const targetUrl = new URL(`${requestUrl.pathname}${requestUrl.search}`, route.upstreamUrl);
 			const headers = copyHeaders(request.headers);

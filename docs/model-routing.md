@@ -143,6 +143,12 @@ not rebuild or restart `ungate-api` for bridge-only changes.
   handlers. Do not insert the CLIProxy bridge or the Mimo adapter.
 - Modes 4-6, Kimi K3, Grok 4.5, Claude Opus 5, DeepSeek V4 Pro, and DeepSeek V4 Flash: router `8319`
   to OmniRoute `20128` with neither a bridge nor an adapter.
+  For DeepSeek V4 Pro/Flash Responses requests, the router places each uniquely
+  matched historical tool result immediately after its call. This handles Codex
+  histories with assistant commentary between parallel calls and results, which
+  DeepSeek otherwise rejects with `No tool output found for tool call`.
+  Contents and call IDs are preserved; results never move across user, system,
+  or developer messages. Missing or ambiguous results are not fabricated.
 - Mode 7, Mimo v2.5 Pro: router adapter only. Protocol repair for Mimo belongs
   in `mimo-responses-stream-adapter.mjs` / `mimo-responses-namespace.mjs`, not
   in the Grok bridge.

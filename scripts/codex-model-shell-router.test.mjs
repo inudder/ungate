@@ -2,7 +2,81 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import test from 'node:test';
 
-import { createShellRouterServer } from './codex-model-shell-router.mjs';
+import { createShellRouterServer, orderDeepSeekToolHistory } from './codex-model-shell-router.mjs';
+
+test('DeepSeek history pairs parallel calls across commentary without losing content', () => {
+	const call = { type: 'custom_tool_call', call_id: 'old-exec', name: 'exec', input: 'print(1)' };
+	const otherCall = { type: 'function_call', call_id: 'old-function', name: 'read', arguments: '{}' };
+	const commentary = { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Checking files.' }] };
+	const output = { type: 'custom_tool_call_output', call_id: call.call_id, output: [{ type: 'input_text', text: '1' }] };
+	const otherOutput = { type: 'function_call_output', call_id: otherCall.call_id, output: 'file contents' };
+	const input = [call, commentary, otherCall, output, otherOutput];
+	const snapshot = structuredClone(input);
+	const ordered = orderDeepSeekToolHistory(input);
+	assert.deepEqual(ordered, [call, output, commentary, otherCall, otherOutput]);
+	assert.deepEqual(input, snapshot);
+	assert.deepEqual(orderDeepSeekToolHistory(ordered), ordered);
+	assert.equal(ordered[1], output);
+});
+
+test('DeepSeek history preserves missing, duplicate and mismatched results and user boundaries', () => {
+	const call = { type: 'custom_tool_call', call_id: 'old-exec', name: 'exec', input: 'print(1)' };
+	const output = { type: 'custom_tool_call_output', call_id: call.call_id, output: '1' };
+	const commentary = { role: 'assistant', content: 'Checking.' };
+	for (const input of [
+		[call, commentary],
+		[call, commentary, output, output],
+		[call, call, commentary, output],
+		[call, commentary, { ...output, type: 'function_call_output' }],
+		[output, commentary, call],
+		...['user', 'system', 'developer'].map((role) => [call, { role, content: 'Boundary' }, output])
+	])
+		assert.deepEqual(orderDeepSeekToolHistory(input), input);
+	assert.equal(orderDeepSeekToolHistory('hello'), 'hello');
+});
+
+test('only DeepSeek Responses routes reorder historical tool results', async () => {
+	const received = [];
+	const upstream = http.createServer(async (request, response) => {
+		const chunks = [];
+		for await (const chunk of request) chunks.push(chunk);
+		received.push(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+		response.writeHead(200, { 'content-type': 'text/event-stream' });
+		response.end(sse('response.completed', { response: { status: 'completed' } }));
+	});
+	const upstreamPort = await listen(upstream);
+	const models = ['deepseek/deepseek-v4-pro', 'deepseek/deepseek-v4-flash', 'grok-4.6'];
+	const router = createShellRouterServer({
+		routes: models.map((model) => ({
+			clientModel: model,
+			upstreamModel: model,
+			upstreamBaseUrl: `http://127.0.0.1:${upstreamPort}`,
+			apiKey: 'test-key'
+		}))
+	});
+	const routerPort = await listen(router);
+	const call = { type: 'custom_tool_call', call_id: 'old-exec', name: 'exec', input: 'print(1)' };
+	const commentary = { role: 'assistant', content: 'Checking.' };
+	const output = { type: 'custom_tool_call_output', call_id: call.call_id, output: '1' };
+	const input = [call, commentary, output];
+	try {
+		for (const model of models) {
+			const response = await fetch(`http://127.0.0.1:${routerPort}/v1/responses`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ model, input, stream: true })
+			});
+			assert.equal(response.status, 200);
+			assert.match(await response.text(), /response.completed/);
+		}
+		assert.deepEqual(received[0].input, [call, output, commentary]);
+		assert.deepEqual(received[1].input, [call, output, commentary]);
+		assert.deepEqual(received[2].input, input);
+	} finally {
+		await close(router);
+		await close(upstream);
+	}
+});
 
 function listen(server) {
 	return new Promise((resolve, reject) => {
