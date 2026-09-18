@@ -1,0 +1,77 @@
+{
+  "startedAt": "2026-09-18T15:20:03.559Z",
+  "models": [
+    {
+      "model": "deepseek/deepseek-v4-pro",
+      "checks": [
+        {
+          "kind": "exec",
+          "status": "passed",
+          "calls": 1,
+          "reasoningPreserved": true,
+          "historyTypes": [
+            "reasoning",
+            "custom_tool_call",
+            "custom_tool_call_output"
+          ],
+          "durationMs": 6621
+        },
+        {
+          "kind": "parallel",
+          "status": "passed",
+          "calls": 4,
+          "reasoningPreserved": true,
+          "historyTypes": [
+            "reasoning",
+            "message",
+            "function_call",
+            "function_call",
+            "function_call",
+            "function_call",
+            "function_call_output",
+            "function_call_output",
+            "function_call_output",
+            "function_call_output"
+          ],
+          "durationMs": 10850
+        }
+      ]
+    },
+    {
+      "model": "deepseek/deepseek-v4-flash",
+      "checks": [
+        {
+          "kind": "exec",
+          "status": "passed",
+          "calls": 1,
+          "reasoningPreserved": true,
+          "historyTypes": [
+            "reasoning",
+            "custom_tool_call",
+            "custom_tool_call_output"
+          ],
+          "durationMs": 4789
+        },
+        {
+          "kind": "parallel",
+          "status": "passed",
+          "calls": 4,
+          "reasoningPreserved": true,
+          "historyTypes": [
+            "reasoning",
+            "message",
+            "function_call",
+            "function_call",
+            "function_call",
+            "function_call",
+            "function_call_output",
+            "function_call_output",
+            "function_call_output",
+            "function_call_output"
+          ],
+          "durationMs": 4934
+        }
+      ]
+    }
+  ]
+}

@@ -136,6 +136,38 @@ test('SSE buffers fragmented unicode JSON and restores parallel exec lifecycles 
 	assert.ok(restored.every((event, index) => event.sequence_number === index));
 });
 
+test('terminal output omitting commentary does not emit exec twice or lose parallel calls', async () => {
+	const { mapping } = adaptDeepSeekRequest({ tools: [exec] });
+	const items = [0, 1].map((n) => ({
+		type: 'function_call',
+		name: 'exec',
+		id: `item${n}`,
+		call_id: `call${n}`,
+		arguments: JSON.stringify({ input: `text(${n})` })
+	}));
+	const events = [
+		{ type: 'response.output_item.done', output_index: 0, item: reasoning },
+		{ type: 'response.output_item.done', output_index: 1, item: comment },
+		...items.flatMap((item, n) => [
+			{ type: 'response.output_item.added', output_index: n + 2, item: { ...item, arguments: '' } },
+			{ type: 'response.output_item.done', output_index: n + 2, item }
+		]),
+		{ type: 'response.completed', response: { status: 'completed', output: [reasoning, ...items] } }
+	];
+	const restored = await transform(events, mapping);
+	const done = restored.filter((event) => event.type === 'response.output_item.done' && event.item.type === 'custom_tool_call');
+	assert.deepEqual(
+		done.map((event) => event.item.call_id),
+		['call0', 'call1']
+	);
+	assert.deepEqual(
+		done.map((event) => event.output_index),
+		[2, 3]
+	);
+	assert.equal(restored.filter((event) => event.type === 'response.custom_tool_call_input.done').length, 2);
+	assert.equal(restored.at(-1).type, 'response.completed');
+});
+
 test('completion-only calls restored; malformed and truncated calls fail without leaking source', async () => {
 	const { mapping } = adaptDeepSeekRequest({ tools: [exec] });
 	const item = { type: 'function_call', name: 'exec', id: 'i', call_id: 'c', arguments: '{"input":"text(1)"}' };

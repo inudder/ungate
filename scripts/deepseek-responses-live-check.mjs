@@ -53,7 +53,21 @@ async function request(model, input, tools, toolChoice) {
 	const completed = events.find((event) => event.type === 'response.completed');
 	assert.ok(completed?.response.status === 'completed', 'No completed response');
 
-	return completed.response.output;
+	// Codex acts on output_item.done, not just the final response.output array.
+	// Validate those events too: terminal array positions may differ upstream.
+	const streamed = events.filter((event) => event.type === 'response.output_item.done').map((event) => event.item);
+	const calls = streamed.filter((item) => ['custom_tool_call', 'function_call'].includes(item.type));
+	assert.equal(new Set(calls.map((item) => item.call_id)).size, calls.length, 'Duplicate streamed call_id');
+	assert.deepEqual(
+		calls.map((item) => item.call_id).sort(),
+		completed.response.output
+			.filter((item) => ['custom_tool_call', 'function_call'].includes(item.type))
+			.map((item) => item.call_id)
+			.sort(),
+		'Stream and terminal calls differ'
+	);
+
+	return streamed.length ? streamed : completed.response.output;
 }
 try {
 	const healthResponse = await fetch(`${base}/_shell-router/health`);

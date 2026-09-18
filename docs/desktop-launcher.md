@@ -153,6 +153,15 @@ explicit synthetic commentary fixture when the model omits commentary, matching
 the failing session's item order. Outcomes and structural metadata (no prompts,
 reasoning text or credentials) are in [the live report](deepseek-live-check-2026-09-18.json).
 
+The initial live check inspected only terminal `response.output`. It missed a
+Flash stream where commentary appeared in SSE but was absent from the terminal
+array, shifting the exec index and causing duplicate execution. The adapter now
+matches calls by stable identity, and live checks validate unique call IDs in
+`response.output_item.done` and replay those streamed items as Codex does.
+The regression results are in [the SSE live report](deepseek-sse-live-check-2026-09-18.json).
+Already duplicated histories are not rewritten: after updating the launcher,
+start a new task if an older task contains duplicate calls/results.
+
 ```powershell
 pwsh -NoProfile -File J:\Dev\ungate-local\scripts\start-codex-desktop-ungate.ps1 -TestTools
 pwsh -NoProfile -File J:\Dev\ungate-local\scripts\start-codex-desktop-ungate.ps1 -TestTools -Model grok-4.6

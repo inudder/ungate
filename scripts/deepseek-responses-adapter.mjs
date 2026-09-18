@@ -162,12 +162,23 @@ export function createDeepSeekStreamAdapter(mapping) {
 	let failed = false;
 	const calls = new Map();
 	const emitted = new Set();
+	const emittedCallIds = new Set();
 	let stream;
 	function emit(value) {
 		stream.push(`event: ${value.type}\ndata: ${JSON.stringify({ ...value, sequence_number: sequence++ })}\n\n`);
 	}
 	function finishCall(index, item) {
-		if (emitted.has(index)) return;
+		// Terminal output can omit streamed commentary, shifting array positions.
+		// A call's identity is stable across those representations; its index is not.
+		if (typeof item.call_id !== 'string' || !item.call_id) throw new Error('deepseek_exec_call_id_missing');
+		if (emittedCallIds.has(item.call_id)) return;
+		const existing = [...calls.entries()].find(
+			([, state]) => state.item.call_id === item.call_id || (typeof state.item.id === 'string' && state.item.id === item.id)
+		);
+		if (existing) index = existing[0];
+		else if (emitted.has(index) || calls.has(index)) {
+			index = Math.max(index, ...emitted, ...calls.keys()) + 1;
+		}
 		const state = calls.get(index);
 		const args = [item.arguments, state?.arguments, state?.item.arguments].find(
 			(value) => typeof value === 'string' && value.length > 0
@@ -180,6 +191,7 @@ export function createDeepSeekStreamAdapter(mapping) {
 		emit({ type: 'response.custom_tool_call_input.done', output_index: index, item_id: restored.id, input: restored.input });
 		emit({ type: 'response.output_item.done', output_index: index, item: restored });
 		emitted.add(index);
+		emittedCallIds.add(restored.call_id);
 	}
 	function frame(block) {
 		if (failed) return;
