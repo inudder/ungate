@@ -52,8 +52,8 @@ Never store either secret in this repository or in diagnostic output.
 | 5 | Grok 4.5 (apikey.fun) | `apikey-fun/grok-4.5` | OmniRoute `20128` | No route-specific stream adapter |
 | 6 | Claude Opus 5 (apikey.fun) | `apikey-fun/claude-opus-5` | OmniRoute `20128` | No route-specific stream adapter |
 | 7 | Mimo v2.5 Pro (OmniRoute) | `mimo-v2.5-pro` | OmniRoute `20128` | `mimo-textual-tools` via `scripts\mimo-responses-stream-adapter.mjs`; 1M context window (official, unsqueezed) |
-| — | DeepSeek V4 Pro (OmniRoute) | `deepseek/deepseek-v4-pro` | OmniRoute `20128` | No route-specific stream adapter; 1M context window (official DeepSeek) |
-| — | DeepSeek V4 Flash (OmniRoute) | `deepseek/deepseek-v4-flash` | OmniRoute `20128` | No route-specific stream adapter; 1M context window (official DeepSeek) |
+| — | DeepSeek V4 Pro (OmniRoute) | `deepseek/deepseek-v4-pro` | OmniRoute `20128` | `deepseek-responses` adapter; 1M context window (official DeepSeek) |
+| — | DeepSeek V4 Flash (OmniRoute) | `deepseek/deepseek-v4-flash` | OmniRoute `20128` | `deepseek-responses` adapter; 1M context window (official DeepSeek) |
 | 9 | Provider fallback (opt-in) | `codex-fallback` | OmniRoute `20128` | Fallback policy chooses the configured upstream; verify the generated route before debugging a provider |
 
 Mode 8 only opens the Desktop model picker. Mode 10 adds a model definition;
@@ -141,14 +141,23 @@ not rebuild or restart `ungate-api` for bridge-only changes.
 - Modes 1-2, Claude Fable 5 and MiniMax M3: Ungate Responses proxy `47821`.
   Namespace and MiniMax tool compatibility live in `apps/api` Responses
   handlers. Do not insert the CLIProxy bridge or the Mimo adapter.
-- Modes 4-6, Kimi K3, Grok 4.5, Claude Opus 5, DeepSeek V4 Pro, and DeepSeek V4 Flash: router `8319`
+- Modes 4-6, Kimi K3, Grok 4.5 and Claude Opus 5: router `8319`
   to OmniRoute `20128` with neither a bridge nor an adapter.
-  For DeepSeek V4 Pro/Flash Responses requests, the router places each uniquely
-  matched historical tool result immediately after its call. This handles Codex
-  histories with assistant commentary between parallel calls and results, which
-  DeepSeek otherwise rejects with `No tool output found for tool call`.
-  Contents and call IDs are preserved; results never move across user, system,
-  or developer messages. Missing or ambiguous results are not fabricated.
+- DeepSeek V4 Pro/Flash: the same OmniRoute route, with explicit
+  `ResponsesAdapter = 'deepseek-responses'`. The router loads
+  `scripts/deepseek-responses-adapter.mjs` independently of the upstream URL.
+  Custom `exec` becomes a function with a required string `input`; history and
+  tool choice use the same mapping. JSON/SSE responses restore custom calls only
+  after validating the complete JSON arguments. The adapter never executes code.
+  Native custom `apply_patch`, MCP functions and namespaces remain unchanged.
+  Complete unambiguous parallel rounds retain `reasoning → commentary → calls →
+  outputs`, rather than alternating each call with its result. Commentary before
+  results moves ahead of the calls in the same round. Reasoning and user/system/
+  developer boundaries and completed rounds are never crossed; incomplete or
+  ambiguous matches remain unchanged. Reasoning content is preserved verbatim,
+  never synthesized or copied to another turn. Already alternating completed
+  rounds cannot safely be inferred to belong to one earlier parallel response.
+  No CLIProxy bridge or patch MCP changes are involved.
 - Mode 7, Mimo v2.5 Pro: router adapter only. Protocol repair for Mimo belongs
   in `mimo-responses-stream-adapter.mjs` / `mimo-responses-namespace.mjs`, not
   in the Grok bridge.

@@ -13,10 +13,10 @@ test('DeepSeek history pairs parallel calls across commentary without losing con
 	const input = [call, commentary, otherCall, output, otherOutput];
 	const snapshot = structuredClone(input);
 	const ordered = orderDeepSeekToolHistory(input);
-	assert.deepEqual(ordered, [call, output, commentary, otherCall, otherOutput]);
+	assert.deepEqual(ordered, [commentary, call, otherCall, output, otherOutput]);
 	assert.deepEqual(input, snapshot);
 	assert.deepEqual(orderDeepSeekToolHistory(ordered), ordered);
-	assert.equal(ordered[1], output);
+	assert.equal(ordered[3], output);
 });
 
 test('DeepSeek history preserves missing, duplicate and mismatched results and user boundaries', () => {
@@ -51,6 +51,7 @@ test('only DeepSeek Responses routes reorder historical tool results', async () 
 			clientModel: model,
 			upstreamModel: model,
 			upstreamBaseUrl: `http://127.0.0.1:${upstreamPort}`,
+			responsesAdapter: model.startsWith('deepseek/') ? 'deepseek-responses' : null,
 			apiKey: 'test-key'
 		}))
 	});
@@ -69,8 +70,15 @@ test('only DeepSeek Responses routes reorder historical tool results', async () 
 			assert.equal(response.status, 200);
 			assert.match(await response.text(), /response.completed/);
 		}
-		assert.deepEqual(received[0].input, [call, output, commentary]);
-		assert.deepEqual(received[1].input, [call, output, commentary]);
+		const adaptedCall = {
+			type: 'function_call',
+			call_id: call.call_id,
+			name: 'exec',
+			arguments: JSON.stringify({ input: call.input })
+		};
+		const adaptedOutput = { ...output, type: 'function_call_output' };
+		assert.deepEqual(received[0].input, [commentary, adaptedCall, adaptedOutput]);
+		assert.deepEqual(received[1].input, [commentary, adaptedCall, adaptedOutput]);
 		assert.deepEqual(received[2].input, input);
 	} finally {
 		await close(router);

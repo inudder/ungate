@@ -165,6 +165,7 @@ function New-UngateModelSet {
             DisplayName = 'DeepSeek V4 Pro (OmniRoute)'
             Description = 'DeepSeek V4 Pro through the local OmniRoute proxy on port 20128.'
             UpstreamModel = 'deepseek/deepseek-v4-pro'
+            ResponsesAdapter = 'deepseek-responses'
             Aliases = @('deepseek-pro', 'ds/deepseek-v4-pro')
             TransportDescription = 'the local OmniRoute proxy'
             DefaultReasoningLevel = 'high'
@@ -193,6 +194,7 @@ function New-UngateModelSet {
             DisplayName = 'DeepSeek V4 Flash (OmniRoute)'
             Description = 'DeepSeek V4 Flash through the local OmniRoute proxy on port 20128.'
             UpstreamModel = 'deepseek/deepseek-v4-flash'
+            ResponsesAdapter = 'deepseek-responses'
             Aliases = @('deepseek-flash', 'deepseek/deepseek-flash', 'ds/deepseek-flash', 'ds/deepseek-v4-flash')
             TransportDescription = 'the local OmniRoute proxy'
             DefaultReasoningLevel = 'high'

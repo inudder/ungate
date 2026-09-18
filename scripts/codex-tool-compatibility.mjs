@@ -260,6 +260,13 @@ export async function runCompatibility(config, { signal, timeoutMs = 120000, log
 	};
 	log(`Снимок: ${snapshot.capturedAt} | ${snapshot.sourceModel} | ${checks.length} инструментов | SHA256 ${snapshot.schemaHash}`);
 	log('Проверяется принятие схем, а не выполнение инструментов.');
+	const hasExec = snapshot.tools.some((tool) => tool.type === 'custom' && tool.name === 'exec');
+	report.snapshot.hasCustomExec = hasExec;
+	log(
+		hasExec
+			? 'Custom exec присутствует в снимке; проверяется только принятие его схемы.'
+			: 'Custom exec отсутствует в снимке — его поддержка этим тестом НЕ проверяется.'
+	);
 	log(`Отчёт: ${reportPath}`);
 	await writeJsonAtomic(reportPath, report);
 	try {

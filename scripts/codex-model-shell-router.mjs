@@ -4,8 +4,11 @@ import { pipeline } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 
 import { createToolsCacheWriter } from './codex-tools-schema-cache.mjs';
+import { adaptDeepSeekRequest, createDeepSeekStreamAdapter, restoreDeepSeekResponse } from './deepseek-responses-adapter.mjs';
 import { flattenMimoResponsesRequest, restoreMimoResponsesValue } from './mimo-responses-namespace.mjs';
 import { createMimoResponsesStreamAdapter } from './mimo-responses-stream-adapter.mjs';
+
+export { orderDeepSeekToolHistory } from './deepseek-responses-adapter.mjs';
 
 const SERVICE_NAME = 'codex-model-shell-router';
 const DEFAULT_HOST = '127.0.0.1';
@@ -13,6 +16,7 @@ const DEFAULT_PORT = 8319;
 const DEFAULT_MAX_BODY_BYTES = 128 * 1024 * 1024;
 const DEFAULT_SSE_KEEPALIVE_MS = 5000;
 const MIMO_RESPONSES_ADAPTER = 'mimo-textual-tools';
+const DEEPSEEK_RESPONSES_ADAPTER = 'deepseek-responses';
 const SSE_KEEPALIVE_COMMENT = ': codex-model-shell-router keep-alive\n\n';
 const SSE_KEEPALIVE_HEADERS = {
 	'cache-control': 'no-cache',
@@ -187,7 +191,7 @@ function normalizeRoute(route) {
 	if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
 		throw new Error(`Unsupported upstream protocol for model shell '${clientModel}'.`);
 	}
-	if (responsesAdapter && responsesAdapter !== MIMO_RESPONSES_ADAPTER) {
+	if (responsesAdapter && ![MIMO_RESPONSES_ADAPTER, DEEPSEEK_RESPONSES_ADAPTER].includes(responsesAdapter)) {
 		throw new Error(`Unsupported Responses stream adapter '${responsesAdapter}' for model shell '${clientModel}'.`);
 	}
 
@@ -209,51 +213,6 @@ function normalizeRoutes(routes) {
 	}
 
 	return byClientModel;
-}
-
-// DeepSeek requires tool results before intervening assistant commentary.
-// Codex may persist parallel calls, commentary, and then their results.
-export function orderDeepSeekToolHistory(input) {
-	if (!Array.isArray(input)) return input;
-	const ordered = [];
-	let segment = [];
-	const flush = () => {
-		const calls = new Map();
-		const outputs = new Map();
-		for (const [index, item] of segment.entries()) {
-			if (!item?.call_id) continue;
-			let target;
-			if (['function_call', 'custom_tool_call'].includes(item.type)) target = calls;
-			if (['function_call_output', 'custom_tool_call_output'].includes(item.type)) target = outputs;
-			if (target) target.set(item.call_id, target.has(item.call_id) ? null : index);
-		}
-		const paired = new Map();
-		const moved = new Set();
-		for (const [callId, callIndex] of calls) {
-			const outputIndex = outputs.get(callId);
-			if (callIndex === null || outputIndex == null || outputIndex <= callIndex) continue;
-			if (segment[outputIndex].type !== `${segment[callIndex].type}_output`) continue;
-			paired.set(callIndex, outputIndex);
-			moved.add(outputIndex);
-		}
-		for (const [index, item] of segment.entries()) {
-			if (moved.has(index)) continue;
-			ordered.push(item);
-			if (paired.has(index)) ordered.push(segment[paired.get(index)]);
-		}
-		segment = [];
-	};
-	for (const item of input) {
-		if (['user', 'system', 'developer'].includes(item?.role)) {
-			flush();
-			ordered.push(item);
-		} else {
-			segment.push(item);
-		}
-	}
-	flush();
-
-	return ordered;
 }
 
 function proxyRequest({
@@ -291,7 +250,7 @@ function proxyRequest({
 			});
 			const contentType = String(upstreamResponse.headers['content-type'] ?? '').toLowerCase();
 			const adapterEnabled =
-				responsesAdapter === MIMO_RESPONSES_ADAPTER &&
+				[MIMO_RESPONSES_ADAPTER, DEEPSEEK_RESPONSES_ADAPTER].includes(responsesAdapter) &&
 				(upstreamResponse.statusCode ?? 500) >= 200 &&
 				(upstreamResponse.statusCode ?? 500) < 300 &&
 				contentType.includes('text/event-stream');
@@ -303,10 +262,18 @@ function proxyRequest({
 					const originalBody = Buffer.concat(chunks);
 					let bodyBuffer = originalBody;
 					try {
-						bodyBuffer = Buffer.from(
-							JSON.stringify(restoreMimoResponsesValue(JSON.parse(originalBody.toString('utf8')), namespaceMapping))
-						);
+						const parsed = JSON.parse(originalBody.toString('utf8'));
+						const restored =
+							responsesAdapter === DEEPSEEK_RESPONSES_ADAPTER
+								? restoreDeepSeekResponse(parsed, namespaceMapping)
+								: restoreMimoResponsesValue(parsed, namespaceMapping);
+						bodyBuffer = Buffer.from(JSON.stringify(restored));
 					} catch {
+						if (responsesAdapter === DEEPSEEK_RESPONSES_ADAPTER) {
+							sendError(response, 502, 'deepseek_exec_parse_error', 'DeepSeek returned invalid exec arguments or JSON.');
+
+							return;
+						}
 						// Preserve malformed or non-JSON upstream payloads verbatim.
 					}
 					const responseHeaders = copyHeaders(upstreamResponse.headers, { stripContentLength: true });
@@ -328,13 +295,16 @@ function proxyRequest({
 			}
 			if (adapterEnabled) keepAlive?.activate();
 			else keepAlive?.stop();
-			const streamAdapter = adapterEnabled
-				? createMimoResponsesStreamAdapter({
-						model,
-						namespaceMapping,
-						logger: (message) => console.error(`[${SERVICE_NAME}] ${message}`)
-					})
-				: null;
+			const streamAdapter =
+				adapterEnabled && responsesAdapter === DEEPSEEK_RESPONSES_ADAPTER
+					? createDeepSeekStreamAdapter(namespaceMapping)
+					: adapterEnabled
+						? createMimoResponsesStreamAdapter({
+								model,
+								namespaceMapping,
+								logger: (message) => console.error(`[${SERVICE_NAME}] ${message}`)
+							})
+						: null;
 			const onPipelineError = (error) => {
 				keepAlive?.stop();
 				const expectedDisconnect = [
@@ -466,15 +436,13 @@ export function createShellRouterServer(options = {}) {
 				body = flattened.body;
 				namespaceMapping = flattened.mapping;
 			}
+			if (route.responsesAdapter === DEEPSEEK_RESPONSES_ADAPTER && requestUrl.pathname === '/v1/responses') {
+				const adapted = adaptDeepSeekRequest(body);
+				body = adapted.body;
+				namespaceMapping = adapted.mapping;
+			}
 
 			body.model = route.upstreamModel;
-			if (
-				/^deepseek\/deepseek-v4-(?:pro|flash)$/u.test(route.upstreamModel) &&
-				requestUrl.pathname === '/v1/responses' &&
-				Array.isArray(body.input)
-			) {
-				body.input = orderDeepSeekToolHistory(body.input);
-			}
 			const upstreamBody = Buffer.from(JSON.stringify(body));
 			const targetUrl = new URL(`${requestUrl.pathname}${requestUrl.search}`, route.upstreamUrl);
 			const headers = copyHeaders(request.headers);
@@ -496,10 +464,7 @@ export function createShellRouterServer(options = {}) {
 				headers,
 				body: upstreamBody,
 				model: route.upstreamModel,
-				responsesAdapter:
-					route.responsesAdapter && requestUrl.pathname === '/v1/responses' && body.stream === true
-						? route.responsesAdapter
-						: null,
+				responsesAdapter: route.responsesAdapter && requestUrl.pathname === '/v1/responses' ? route.responsesAdapter : null,
 				sseKeepAliveMs,
 				namespaceMapping
 			});

@@ -279,7 +279,7 @@
       "EffectiveContextWindowPercent": null,
       "SupportsReasoningSummaries": true,
       "SupportsParallelToolCalls": true,
-      "ResponsesAdapter": null,
+      "ResponsesAdapter": "deepseek-responses",
       "TruncationPolicy": null,
       "SupportedReasoningLevels": [
         {
@@ -330,7 +330,7 @@
       "EffectiveContextWindowPercent": null,
       "SupportsReasoningSummaries": true,
       "SupportsParallelToolCalls": true,
-      "ResponsesAdapter": null,
+      "ResponsesAdapter": "deepseek-responses",
       "TruncationPolicy": null,
       "SupportedReasoningLevels": [
         {

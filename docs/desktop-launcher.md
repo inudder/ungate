@@ -125,6 +125,34 @@ press Enter. Esc or an empty selection cancels. All registered models are
 available, including models disabled in the Desktop picker; diagnostic
 selection does not change picker settings. TT returns to the main menu.
 
+TT explicitly reports whether the snapshot contains custom `exec`, and records
+`snapshot.hasCustomExec` in its JSON report. A snapshot with only `apply_patch`
+does not establish `exec` support. These remain schema acceptance tests, not
+execution or multi-turn reasoning tests.
+
+DeepSeek V4 Pro and Flash use the explicit `deepseek-responses` router adapter
+through OmniRoute. It converts custom `exec` to a function and restores JSON/SSE
+custom calls, preserving reasoning and parallel call groups. It does not execute
+generated code. Restart Beta through the launcher to activate updated router
+code; applying the source changes does not close a running Beta session.
+
+`deepseek-responses-live-check.mjs` is an opt-in, finite live cycle check (never
+part of the offline test suite). It reads `{models, reportPath}` from stdin;
+each model uses route fields `upstreamModel`, `upstreamBaseUrl`, `apiKey`,
+`responsesAdapter`. Resolve keys with the existing launcher helpers and do not
+put them in command-line arguments or files. It uses a temporary router on an
+OS-assigned port, verifies its health/PID, submits synthetic results without
+executing generated code, and saves only outcomes/timings. Thinking mode uses
+`tool_choice: auto`: DeepSeek rejects forced/required tool choices in this mode.
+Run `pnpm --filter @ungate/scripts run deepseek-adapter:test` for offline coverage.
+
+Live verification on 2026-09-18 passed for both Pro and Flash through OmniRoute:
+one restored custom `exec` call and continuation, plus four parallel function
+calls and continuation with preserved real reasoning. The latter includes an
+explicit synthetic commentary fixture when the model omits commentary, matching
+the failing session's item order. Outcomes and structural metadata (no prompts,
+reasoning text or credentials) are in [the live report](deepseek-live-check-2026-09-18.json).
+
 ```powershell
 pwsh -NoProfile -File J:\Dev\ungate-local\scripts\start-codex-desktop-ungate.ps1 -TestTools
 pwsh -NoProfile -File J:\Dev\ungate-local\scripts\start-codex-desktop-ungate.ps1 -TestTools -Model grok-4.6

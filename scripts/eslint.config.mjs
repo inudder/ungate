@@ -18,6 +18,7 @@ export default [
 			'cliproxy-namespace-bridge*.mjs',
 			'codex-model-shell-router*.mjs',
 			'codex-tool*.mjs',
+			'deepseek-responses*.mjs',
 			'mimo-responses-namespace*.mjs',
 			'mimo-responses-stream-adapter*.mjs',
 			'ungate-patch-mcp*.mjs'

@@ -257,6 +257,8 @@ test('run freezes snapshot, covers direct/bridge/Mimo routes, disables tool use 
 	assert.equal(result.exitCode, 0);
 	assert.equal(result.report.models.length, 3);
 	assert.equal(result.report.snapshot.schemaHash, originalSnapshot.schemaHash);
+	assert.equal(result.report.snapshot.hasCustomExec, false);
+	assert.match(logs.join('\n'), /Custom exec отсутствует/);
 	assert.equal(bodies.length, 18);
 	assert.ok(bodies.every((body) => body.stream === true && (!body.tools || body.tool_choice === 'none')));
 	assert.ok(
@@ -266,6 +268,41 @@ test('run freezes snapshot, covers direct/bridge/Mimo routes, disables tool use 
 	assert.equal(JSON.parse(reportContent).exitCode, 0);
 	assert.doesNotMatch(await readFile(result.reportPath, 'utf8'), /private-key/);
 	assert.doesNotMatch(logs.join('\n'), /private-key/);
+});
+
+test('exec snapshots use DeepSeek adapter and report only schema coverage', async (t) => {
+	const directory = await temporary(t);
+	const cachePath = path.join(directory, 'cache.json');
+	await createToolsCacheWriter(cachePath)([...tools, { type: 'custom', name: 'exec', format: { type: 'text' } }], 'codex');
+	const bodies = [];
+	const upstream = await serve(t, async (request, response) => {
+		let raw = '';
+		for await (const chunk of request) raw += chunk;
+		bodies.push(JSON.parse(raw));
+		completed(response);
+	});
+	const logs = [];
+	const result = await runCompatibility(
+		{
+			cachePath,
+			reportDirectory: directory,
+			models: [
+				{
+					model: 'deepseek',
+					displayName: 'DeepSeek',
+					apiKey: 'test',
+					upstreamBaseUrl: upstream,
+					responsesAdapter: 'deepseek-responses'
+				}
+			]
+		},
+		{ log: (value) => logs.push(value) }
+	);
+	assert.equal(result.exitCode, 0);
+	assert.equal(result.report.snapshot.hasCustomExec, true);
+	assert.match(logs.join('\n'), /Custom exec присутствует/);
+	assert.ok(bodies.some((body) => body.tools?.some((tool) => tool.name === 'exec' && tool.type === 'function')));
+	assert.ok(bodies.some((body) => body.tools?.some((tool) => tool.name === 'apply_patch' && tool.type === 'custom')));
 });
 
 test('failed control skips tool requests; cancellation saves partial report; technical errors win', async (t) => {
