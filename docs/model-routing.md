@@ -53,11 +53,13 @@ Never store either secret in this repository or in diagnostic output.
 | 6 | Claude Opus 5 (apikey.fun) | `apikey-fun/claude-opus-5` | OmniRoute `20128` | No route-specific stream adapter |
 | 7 | Mimo v2.5 Pro (OmniRoute) | `mimo-v2.5-pro` | OmniRoute `20128` | `mimo-textual-tools` via `scripts\mimo-responses-stream-adapter.mjs`; 1M context window (official, unsqueezed) |
 | — | DeepSeek V4 Pro (OmniRoute) | `deepseek/deepseek-v4-pro` | OmniRoute `20128` | No route-specific stream adapter; 1M context window (official DeepSeek) |
+| — | DeepSeek V4 Flash (OmniRoute) | `deepseek/deepseek-v4-flash` | OmniRoute `20128` | No route-specific stream adapter; 1M context window (official DeepSeek) |
 | 9 | Provider fallback (opt-in) | `codex-fallback` | OmniRoute `20128` | Fallback policy chooses the configured upstream; verify the generated route before debugging a provider |
 
 Mode 8 only opens the Desktop model picker. Mode 10 adds a model definition;
 it supports Ungate, CLIProxyAPI, and OmniRoute transports. DeepSeek V4 Pro
-can be selected via the Desktop model picker (Mode 8) or via `-Model deepseek-v4-pro`.
+and DeepSeek V4 Flash can be selected via the Desktop model picker (Mode 8)
+or via `-Model deepseek-v4-pro` / `-Model deepseek-v4-flash` (alias `deepseek-flash`).
 
 ## Route boundaries
 
@@ -139,7 +141,7 @@ not rebuild or restart `ungate-api` for bridge-only changes.
 - Modes 1-2, Claude Fable 5 and MiniMax M3: Ungate Responses proxy `47821`.
   Namespace and MiniMax tool compatibility live in `apps/api` Responses
   handlers. Do not insert the CLIProxy bridge or the Mimo adapter.
-- Modes 4-6, Kimi K3, Grok 4.5, Claude Opus 5, and DeepSeek V4 Pro: router `8319`
+- Modes 4-6, Kimi K3, Grok 4.5, Claude Opus 5, DeepSeek V4 Pro, and DeepSeek V4 Flash: router `8319`
   to OmniRoute `20128` with neither a bridge nor an adapter.
 - Mode 7, Mimo v2.5 Pro: router adapter only. Protocol repair for Mimo belongs
   in `mimo-responses-stream-adapter.mjs` / `mimo-responses-namespace.mjs`, not

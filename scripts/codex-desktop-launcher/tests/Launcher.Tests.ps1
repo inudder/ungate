@@ -144,6 +144,7 @@ if ($before -cne $after) { throw 'Import changed environment' }
     It 'rejects unknown and disabled models without preparing a profile' {
         { Get-TestSelection (New-TestContext @{Model='unknown'}) } | Should -Throw '*Unsupported Desktop model*'
         { Get-TestSelection (New-TestContext @{Model='deepseek-v4-pro'}) } | Should -Throw '*not enabled in the Desktop picker*'
+        { Get-TestSelection (New-TestContext @{Model='deepseek-flash'}) } | Should -Throw '*not enabled in the Desktop picker*'
     }
 
     It 'selects fallback from the menu without leaking it into later selections' {
@@ -255,7 +256,7 @@ Describe 'Complete preparation on disposable profiles' {
 
     It 'writes and validates the complete <Mode> profile without live services' -ForEach @(
         @{Mode='router';Options=@{PrepareOnly=$true;Model='grok-4.6'};ExpectedProvider='ungate_model_shell_router';ExpectedCount=7;ExpectedModel='gpt-5.5'},
-        @{Mode='fallback';Options=@{PrepareOnly=$true;EnableProviderFallback=$true};ExpectedProvider='omniroute';ExpectedCount=10;ExpectedModel='codex-fallback'}
+        @{Mode='fallback';Options=@{PrepareOnly=$true;EnableProviderFallback=$true};ExpectedProvider='omniroute';ExpectedCount=11;ExpectedModel='codex-fallback'}
     ) {
         $context = New-TestContext $Options $Mode
         $context.DefaultCodexHome = $script:sourceHome

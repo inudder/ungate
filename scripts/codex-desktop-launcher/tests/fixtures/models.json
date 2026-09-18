@@ -5,8 +5,9 @@
       "DisplayName": "Claude Opus 4.8 (Ungate)",
       "Description": "Claude Opus 4.8 through the local Ungate Responses proxy.",
       "UpstreamModel": "claude-opus-4-8",
+      "Aliases": null,
       "TransportDescription": "the local Ungate Responses proxy",
-      "IdentitySha256": "5623a94c899aaf46a59fbf0153e933930f1422e586fd228e7c0a368680cbc050",
+      "IdentitySha256": "51ba41ae5e4ad5e15950b37e10f992f524239ffa11bf5fc71c8b75cbc0c7abba",
       "DefaultReasoningLevel": "high",
       "Priority": 0,
       "InputModalities": [
@@ -34,8 +35,9 @@
       "DisplayName": "Claude Fable 5 (Ungate)",
       "Description": "Claude Fable 5 through the local Ungate Responses proxy.",
       "UpstreamModel": "claude-fable-5",
+      "Aliases": null,
       "TransportDescription": "the local Ungate Responses proxy",
-      "IdentitySha256": "5623a94c899aaf46a59fbf0153e933930f1422e586fd228e7c0a368680cbc050",
+      "IdentitySha256": "51ba41ae5e4ad5e15950b37e10f992f524239ffa11bf5fc71c8b75cbc0c7abba",
       "DefaultReasoningLevel": "high",
       "Priority": 1,
       "InputModalities": [
@@ -63,8 +65,9 @@
       "DisplayName": "MiniMax M3 (Ungate)",
       "Description": "MiniMax M3 through the local Ungate Responses proxy with image input support.",
       "UpstreamModel": null,
+      "Aliases": null,
       "TransportDescription": "the local Ungate Responses proxy",
-      "IdentitySha256": "cfb0a6154180226148d4e9d0a0adf12666e4cd8b50821cc3a96e6628f372e03d",
+      "IdentitySha256": "36a6ed2fc0daaab36db7757a803b1c57a6214f25d3731873b6b24db0b26639d8",
       "DefaultReasoningLevel": "xhigh",
       "Priority": 2,
       "InputModalities": [
@@ -92,8 +95,9 @@
       "DisplayName": "Grok 4.6 (CLIProxyAPI)",
       "Description": "Grok 4.6 through the local CLIProxyAPI compatibility bridge on port 8318.",
       "UpstreamModel": "grok-4.6",
+      "Aliases": null,
       "TransportDescription": "the local CLIProxyAPI compatibility bridge",
-      "IdentitySha256": "a6f8dc2d51344c62a8be75c6a26bcab2f9ec4298baf8a56f8b87e64ef2356d1d",
+      "IdentitySha256": "bfebd14e754815246b53ee04e236dc4132adae318218da907c1e3501e2e9bdf3",
       "DefaultReasoningLevel": "high",
       "Priority": 3,
       "InputModalities": [
@@ -121,8 +125,9 @@
       "DisplayName": "Kimi K3 (OmniRoute)",
       "Description": "Kimi K3 through the local OmniRoute proxy on port 20128.",
       "UpstreamModel": "apikey-fun/kimi-k3",
+      "Aliases": null,
       "TransportDescription": "the local OmniRoute proxy",
-      "IdentitySha256": "4a91c04b04903bed6ceb5cfd46eb4b819153f174a1bf3affcc70d3d33574e277",
+      "IdentitySha256": "3ca31bfce3a6b3f5ed368520c2ac66813be1e59a6708cf962d380c519a5835fb",
       "DefaultReasoningLevel": "high",
       "Priority": 4,
       "InputModalities": [
@@ -150,8 +155,9 @@
       "DisplayName": "Grok 4.5 (apikey.fun)",
       "Description": "Grok 4.5 via apikey.fun through the local OmniRoute proxy on port 20128.",
       "UpstreamModel": "apikey-fun/grok-4.5",
+      "Aliases": null,
       "TransportDescription": "the local OmniRoute proxy",
-      "IdentitySha256": "c3ee8e2775be83fd28e5258e4ed3cfeea649caf5159f5de78f3774411a658b7d",
+      "IdentitySha256": "bfffd46f5072ae12880957ac9c7caab3cbd0c796b0a8099f3b936cadfb7f05dd",
       "DefaultReasoningLevel": "high",
       "Priority": 5,
       "InputModalities": [
@@ -179,8 +185,9 @@
       "DisplayName": "Claude Opus 5 (apikey.fun)",
       "Description": "Claude Opus 5 via apikey.fun through the local OmniRoute proxy on port 20128.",
       "UpstreamModel": "apikey-fun/claude-opus-5",
+      "Aliases": null,
       "TransportDescription": "the local OmniRoute proxy",
-      "IdentitySha256": "5623a94c899aaf46a59fbf0153e933930f1422e586fd228e7c0a368680cbc050",
+      "IdentitySha256": "51ba41ae5e4ad5e15950b37e10f992f524239ffa11bf5fc71c8b75cbc0c7abba",
       "DefaultReasoningLevel": "high",
       "Priority": 6,
       "InputModalities": [
@@ -208,8 +215,9 @@
       "DisplayName": "Mimo v2.5 Pro (OmniRoute)",
       "Description": "Mimo v2.5 Pro through the local OmniRoute proxy on port 20128.",
       "UpstreamModel": "mimo-v2.5-pro",
+      "Aliases": null,
       "TransportDescription": "the local OmniRoute proxy",
-      "IdentitySha256": "5148be9a43d003e877afc8207a69add96626381d808711a650a644d28b97d512",
+      "IdentitySha256": "b409f4363062944cca287afa26cf71a12d0b97d35d62e56a4cffb06e0d886c70",
       "DefaultReasoningLevel": "high",
       "Priority": 7,
       "InputModalities": [
@@ -229,17 +237,17 @@
       "SupportsParallelToolCalls": false,
       "ResponsesAdapter": "mimo-textual-tools",
       "TruncationPolicy": {
-        "limit": 10000,
-        "mode": "bytes"
+        "mode": "bytes",
+        "limit": 10000
       },
       "SupportedReasoningLevels": [
         {
-          "description": "Disable Thinking",
-          "effort": "none"
+          "effort": "none",
+          "description": "Disable Thinking"
         },
         {
-          "description": "Enabled Thinking",
-          "effort": "high"
+          "effort": "high",
+          "description": "Enabled Thinking"
         }
       ]
     },
@@ -248,8 +256,12 @@
       "DisplayName": "DeepSeek V4 Pro (OmniRoute)",
       "Description": "DeepSeek V4 Pro through the local OmniRoute proxy on port 20128.",
       "UpstreamModel": "deepseek/deepseek-v4-pro",
+      "Aliases": [
+        "deepseek-pro",
+        "ds/deepseek-v4-pro"
+      ],
       "TransportDescription": "the local OmniRoute proxy",
-      "IdentitySha256": "85bf755af40fd803f81cffd14fb0734f7eff9ccf4dab5a092a38d834da7f15f2",
+      "IdentitySha256": "6af7e909cf4494ac6255af1ba86813cb5076ac2e751468de9155edb3cad75d0a",
       "DefaultReasoningLevel": "high",
       "Priority": 8,
       "InputModalities": [
@@ -271,20 +283,71 @@
       "TruncationPolicy": null,
       "SupportedReasoningLevels": [
         {
-          "description": "Disable Thinking",
-          "effort": "none"
+          "effort": "none",
+          "description": "Disable Thinking"
         },
         {
-          "description": "Low Thinking",
-          "effort": "low"
+          "effort": "low",
+          "description": "Low Thinking"
         },
         {
-          "description": "High Thinking",
-          "effort": "high"
+          "effort": "high",
+          "description": "High Thinking"
         },
         {
-          "description": "Max Thinking",
-          "effort": "max"
+          "effort": "max",
+          "description": "Max Thinking"
+        }
+      ]
+    },
+    {
+      "Slug": "deepseek-v4-flash",
+      "DisplayName": "DeepSeek V4 Flash (OmniRoute)",
+      "Description": "DeepSeek V4 Flash through the local OmniRoute proxy on port 20128.",
+      "UpstreamModel": "deepseek/deepseek-v4-flash",
+      "Aliases": [
+        "deepseek-flash",
+        "deepseek/deepseek-flash",
+        "ds/deepseek-flash",
+        "ds/deepseek-v4-flash"
+      ],
+      "TransportDescription": "the local OmniRoute proxy",
+      "IdentitySha256": "e287af8663bb24fb97d4b268bfe146c4157d4937584f74bd953d874b0dce1fe1",
+      "DefaultReasoningLevel": "high",
+      "Priority": 9,
+      "InputModalities": [
+        "text"
+      ],
+      "SupportsImageDetailOriginal": false,
+      "WebSearchToolType": "text",
+      "ProviderName": "omniroute",
+      "ProviderDisplayName": "OmniRoute",
+      "ProxyBaseUrl": "http://127.0.0.1:20128",
+      "EnvKey": "OMNIROUTE_API_KEY",
+      "RequiresUngate": false,
+      "ContextWindow": 1000000,
+      "MaxContextWindow": 1000000,
+      "EffectiveContextWindowPercent": null,
+      "SupportsReasoningSummaries": true,
+      "SupportsParallelToolCalls": true,
+      "ResponsesAdapter": null,
+      "TruncationPolicy": null,
+      "SupportedReasoningLevels": [
+        {
+          "effort": "none",
+          "description": "Disable Thinking"
+        },
+        {
+          "effort": "low",
+          "description": "Low Thinking"
+        },
+        {
+          "effort": "high",
+          "description": "High Thinking"
+        },
+        {
+          "effort": "max",
+          "description": "Max Thinking"
         }
       ]
     }
@@ -293,7 +356,7 @@
     "Slug": "codex-fallback",
     "DisplayName": "Codex Provider Fallback (OmniRoute)",
     "Description": "Opt-in provider fallback through OmniRoute: Claude, Grok, MiniMax, then Gemini.",
-    "IdentitySha256": "95a987ceb710cb61d3831ec8a9ad2d1ef98d9955322f37c28581e924b13aed12",
+    "IdentitySha256": "f2c261d2754469d2573c49ac1023099f08ebc451aa902f90badad7330569dd35",
     "DefaultReasoningLevel": "high",
     "Priority": 0,
     "InputModalities": [

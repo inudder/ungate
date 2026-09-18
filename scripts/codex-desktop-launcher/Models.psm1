@@ -165,9 +165,38 @@ function New-UngateModelSet {
             DisplayName = 'DeepSeek V4 Pro (OmniRoute)'
             Description = 'DeepSeek V4 Pro through the local OmniRoute proxy on port 20128.'
             UpstreamModel = 'deepseek/deepseek-v4-pro'
+            Aliases = @('deepseek-pro', 'ds/deepseek-v4-pro')
             TransportDescription = 'the local OmniRoute proxy'
             DefaultReasoningLevel = 'high'
             Priority = 8
+            InputModalities = @('text')
+            SupportsImageDetailOriginal = $false
+            WebSearchToolType = 'text'
+            ProviderName = $Context.OmniRouteProviderName
+            ProviderDisplayName = 'OmniRoute'
+            ProxyBaseUrl = $Context.OmniRouteBaseUrl
+            EnvKey = 'OMNIROUTE_API_KEY'
+            RequiresUngate = $false
+            ContextWindow = 1000000
+            MaxContextWindow = 1000000
+            SupportsReasoningSummaries = $true
+            SupportsParallelToolCalls = $true
+            SupportedReasoningLevels = @(
+                @{ effort = 'none'; description = 'Disable Thinking' },
+                @{ effort = 'low'; description = 'Low Thinking' },
+                @{ effort = 'high'; description = 'High Thinking' },
+                @{ effort = 'max'; description = 'Max Thinking' }
+            )
+        }
+        [pscustomobject][ordered]@{
+            Slug = 'deepseek-v4-flash'
+            DisplayName = 'DeepSeek V4 Flash (OmniRoute)'
+            Description = 'DeepSeek V4 Flash through the local OmniRoute proxy on port 20128.'
+            UpstreamModel = 'deepseek/deepseek-v4-flash'
+            Aliases = @('deepseek-flash', 'deepseek/deepseek-flash', 'ds/deepseek-flash', 'ds/deepseek-v4-flash')
+            TransportDescription = 'the local OmniRoute proxy'
+            DefaultReasoningLevel = 'high'
+            Priority = 9
             InputModalities = @('text')
             SupportsImageDetailOriginal = $false
             WebSearchToolType = 'text'
@@ -211,6 +240,7 @@ function New-UngateModelSet {
                 DisplayName = $def.DisplayName
                 Description = $def.Description
                 UpstreamModel = $upstreamModelValue
+                Aliases = if ($def.PSObject.Properties['Aliases']) { $def.Aliases } else { $null }
                 TransportDescription = $def.TransportDescription
                 Identity = $identity
                 DefaultReasoningLevel = $def.DefaultReasoningLevel

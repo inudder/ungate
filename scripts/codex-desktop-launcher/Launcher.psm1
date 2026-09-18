@@ -88,11 +88,19 @@ function Resolve-CodexDesktopSelection {
     }
 
     $Selection.SelectedModel = $Selection.Definitions |
-        Where-Object { $_.Slug -eq $Model -or ($_.PSObject.Properties['UpstreamModel'] -and $_.UpstreamModel -eq $Model) } |
+        Where-Object {
+            $_.Slug -eq $Model -or
+            ($_.PSObject.Properties['UpstreamModel'] -and $_.UpstreamModel -eq $Model) -or
+            ($_.PSObject.Properties['Aliases'] -and $_.Aliases -and $Model -in $_.Aliases)
+        } |
         Select-Object -First 1
     if (-not $Selection.SelectedModel) {
         $knownModelDefinition = $AllUngateModelDefinitions |
-            Where-Object { $_.Slug -eq $Model -or ($_.PSObject.Properties['UpstreamModel'] -and $_.UpstreamModel -eq $Model) } |
+            Where-Object {
+                $_.Slug -eq $Model -or
+                ($_.PSObject.Properties['UpstreamModel'] -and $_.UpstreamModel -eq $Model) -or
+                ($_.PSObject.Properties['Aliases'] -and $_.Aliases -and $Model -in $_.Aliases)
+            } |
             Select-Object -First 1
         if ($knownModelDefinition -and -not $Selection.EnableProviderFallback) {
             throw "Model '$($knownModelDefinition.DisplayName)' is not enabled in the Desktop picker. Run the launcher and choose 'Configure Desktop model picker'."
