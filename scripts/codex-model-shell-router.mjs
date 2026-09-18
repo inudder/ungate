@@ -3,6 +3,7 @@ import https from 'node:https';
 import { pipeline } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 
+import { createToolsCacheWriter } from './codex-tools-schema-cache.mjs';
 import { flattenMimoResponsesRequest, restoreMimoResponsesValue } from './mimo-responses-namespace.mjs';
 import { createMimoResponsesStreamAdapter } from './mimo-responses-stream-adapter.mjs';
 
@@ -371,6 +372,9 @@ function proxyRequest({
 	};
 
 	request.once('aborted', abortUpstream);
+	response.once('close', () => {
+		if (!response.writableEnded) abortUpstream();
+	});
 	request.socket.once('close', () => {
 		if (!response.writableEnded && !response.destroyed) {
 			abortUpstream();
@@ -390,6 +394,7 @@ function proxyRequest({
 }
 
 export function createShellRouterServer(options = {}) {
+	const cacheTools = createToolsCacheWriter(options.toolsCachePath, (message) => console.error(`[${SERVICE_NAME}] ${message}`));
 	const routes = normalizeRoutes(options.routes);
 	const buildId = options.buildId ?? 'development';
 	const maxBodyBytes = options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
@@ -454,6 +459,7 @@ export function createShellRouterServer(options = {}) {
 				throw new ShellRouterRequestError(400, 'unknown_model_shell', `Unknown Codex model shell '${requestedModelLabel}'.`);
 			}
 
+			if (requestUrl.pathname === '/v1/responses') void cacheTools(body.tools, route.upstreamModel);
 			let namespaceMapping = null;
 			if (route.responsesAdapter === MIMO_RESPONSES_ADAPTER && requestUrl.pathname === '/v1/responses') {
 				const flattened = flattenMimoResponsesRequest(body);
@@ -538,6 +544,7 @@ if (isMainModule()) {
 	const maxBodyBytes = parsePositiveInteger(process.env.CODEX_SHELL_ROUTER_MAX_BODY_BYTES, DEFAULT_MAX_BODY_BYTES);
 	const server = createShellRouterServer({
 		routes: routesFromEnvironment(),
+		toolsCachePath: process.env.CODEX_SHELL_ROUTER_TOOLS_CACHE_PATH,
 		buildId,
 		maxBodyBytes
 	});

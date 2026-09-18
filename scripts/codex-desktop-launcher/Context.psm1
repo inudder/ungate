@@ -88,6 +88,7 @@ function New-CodexDesktopLaunchContext {
         Model = 'ungate-opus-4-8'
         LogLevel = ''
         AddModel = $false
+        TestTools = $false
         PrepareOnly = $false
         SkipWorkspaceRestore = $false
         EnableProviderFallback = $false

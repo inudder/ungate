@@ -225,3 +225,19 @@ When exposing a new provider model from OmniRoute through the Desktop launcher:
 
 Do not copy API keys, full tool arguments, patch contents, or provider secrets
 into this document or into diagnostic notes.
+
+## Tool schema capture and diagnostics
+
+Normal model-shell router startup receives `CODEX_SHELL_ROUTER_TOOLS_CACHE_PATH`
+from the Desktop launcher. The router stores the latest nonempty raw Responses
+`tools` array before Mimo/CLIProxy conversion in
+`CustomCodexHome/tool-compatibility/tools-schema-cache.json`. Only schemas and
+source/time/hash metadata are stored; failures to cache never block inference.
+Provider fallback bypasses this router and therefore does not refresh the cache.
+
+The launcher's `TT` / `-TestTools` mode freezes that snapshot and uses temporary
+instances of the same router and CLIProxy bridge on OS-assigned ports. Mimo
+keeps its existing adapter; direct Ungate and other OmniRoute routes keep their
+normal behavior. Working ports, profiles, and model selections are unchanged.
+See [tool diagnostics](desktop-launcher.md#tool-schema-compatibility-diagnostics)
+for first-run setup, result semantics and exit codes.

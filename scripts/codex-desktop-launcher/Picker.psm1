@@ -2,6 +2,7 @@
 # Picker: internal Desktop launcher module. No per-launch module state.
 Import-Module (Join-Path $PSScriptRoot 'Logging.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'Models.psm1') -DisableNameChecking -ErrorAction Stop
+Import-Module (Join-Path $PSScriptRoot 'ToolCompatibility.psm1') -DisableNameChecking -ErrorAction Stop
 
 function Get-DefaultUngatePickerModelSlugs {
     param(
@@ -531,13 +532,20 @@ function Select-UngateDesktopModel {
         $currentLogLevel = (Read-UngateLogSettings -SettingsPath $LogSettingsPath).LogLevel
         $loggingMenuIndex = $addModelIndex + 1
         Write-Host ("  {0}) Configure live logging [Current: {1}]" -f $loggingMenuIndex, $currentLogLevel) -ForegroundColor DarkCyan
+        Write-Host '  [TT] Тестирование совместимости инструментов (чекбоксы)' -ForegroundColor Yellow
         Write-Host ''
 
         $fallbackHint = if ($IncludeProviderFallback) { ' or F' } else { '' }
-        $choicePrompt = "Mode [1-$loggingMenuIndex$fallbackHint or L] (default: 1)"
+        $choicePrompt = "Mode [1-$loggingMenuIndex$fallbackHint or L or TT] (default: 1)"
         $choice = Read-Host $choicePrompt
         if ([string]::IsNullOrWhiteSpace($choice)) {
             return $pickerDefinitions[0].Slug
+        }
+
+        if ($choice.Trim() -match '^(tt|tools|compat|testtools)$') {
+            $null = Invoke-CodexToolCompatibility -Context $Context -Definitions $Definitions
+            $null = Read-Host 'Нажмите Enter для возврата в меню'
+            continue
         }
 
         if ($IncludeProviderFallback -and $choice.Trim().Equals('f', [System.StringComparison]::OrdinalIgnoreCase)) {

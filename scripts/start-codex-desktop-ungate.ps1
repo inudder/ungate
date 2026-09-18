@@ -38,6 +38,10 @@
     inside CustomCodexHome. This mode does not prepare configuration or launch
     Codex Beta.
 
+.PARAMETER TestTools
+    Test the cached Codex Beta tool schemas without launching or stopping Desktop.
+    With -Model, test one registry model noninteractively; otherwise select models.
+
 .PARAMETER SkipWorkspaceRestore
     Skip restoring active-workspace-roots from project-order / saved roots.
 
@@ -67,6 +71,7 @@ param(
     [string]$CustomCodexHome = (Join-Path $HOME '.codex-ungate'),
     [ValidateSet('Full', 'Standard', 'Compact', 'Minimal', 'Off', '')][string]$LogLevel,
     [switch]$AddModel,
+    [switch]$TestTools,
     [switch]$PrepareOnly,
     [switch]$SkipWorkspaceRestore,
     [switch]$EnableProviderFallback,

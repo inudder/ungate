@@ -9,6 +9,7 @@ Import-Module (Join-Path $PSScriptRoot 'Catalog.psm1') -DisableNameChecking -Err
 Import-Module (Join-Path $PSScriptRoot 'Profile.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'Desktop.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'Logging.psm1') -DisableNameChecking -ErrorAction Stop
+Import-Module (Join-Path $PSScriptRoot 'ToolCompatibility.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'codex-plugin-isolation.psm1') -DisableNameChecking -ErrorAction Stop
 
 function Get-ActiveDesktopModelDefinitions {
@@ -324,6 +325,14 @@ function Invoke-CodexDesktopLauncher {
     param([Parameter(Mandatory)][psobject]$Context)
 
     $ErrorActionPreference = 'Stop'
+    if ($Context.Options.TestTools) {
+        $conflicts = @('AddModel', 'PrepareOnly', 'EnableProviderFallback') | Where-Object { $Context.BoundParameterNames.Contains($_) }
+        if ($conflicts.Count -gt 0) { throw "-TestTools cannot be combined with: $($conflicts -join ', ')." }
+        $toolModelSet = New-UngateModelSet -Context $Context
+        $toolDefinitions = @(Get-UngateModelDefinitions -Context $Context -BuiltInDefinitions $toolModelSet.BuiltInDefinitions -RegistryPath $Context.CustomModelDefinitionsPath)
+        $toolModel = if ($Context.BoundParameterNames.Contains('Model')) { $Context.Options.Model } else { $null }
+        return Invoke-CodexToolCompatibility -Context $Context -Definitions $toolDefinitions -Model $toolModel
+    }
     foreach ($dependency in @($Context.PluginIsolationModulePath, $Context.CodexPackageLaunchHelperPath)) {
         if (-not (Test-Path -LiteralPath $dependency -PathType Leaf)) {
             throw "Codex launcher dependency not found at $dependency."

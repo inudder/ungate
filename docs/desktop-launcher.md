@@ -17,8 +17,9 @@ Implementation lives in `scripts/codex-desktop-launcher/`.
 | Desktop | CLI/AppX discovery, process lifecycle, MSIX fallback, sandbox, workspace roots | None |
 | Routing | Providers, shell IDs and route records, provider TOML | Toml |
 | Logging | Log preferences, menu, event formatting and live watch | Desktop |
-| Picker | Model selection, picker preferences and add-model wizard | Models, Logging |
+| Picker | Model selection, picker preferences and add-model wizard | Models, Logging, ToolCompatibility |
 | ProxyRuntime | Credentials, bridge/router lifecycle, provider preflight | Routing, existing common helpers |
+| ToolCompatibility | Diagnostic model selection, credentials and standalone schema runner | Models, ProxyRuntime |
 | Catalog | Model catalog generation, catalog/config verification | Models, Routing, Toml, Desktop |
 | Profile | Initial config, MCP transaction/rollback, shared skills, AGENTS and auth | Routing, Toml, Desktop |
 | Launcher | Selection, transport, profile preparation and launch orchestration | Above modules, existing plugin-isolation module |
@@ -69,7 +70,7 @@ existing common preflight behavior.
 
 ## Execution contract
 
-1. Validate launcher dependencies and handle standalone `AddModel`.
+1. Handle standalone `TestTools` before Desktop/profile operations; otherwise validate launcher dependencies and handle standalone `AddModel`.
 2. Resolve registry/picker selection and launch model/provider; print history
    diagnostics; discover the Beta package and close it unless `PrepareOnly`.
 3. Resolve provider keys, ensure required bridge/router, then preflight.
@@ -83,7 +84,7 @@ existing common preflight behavior.
    overrides log preferences; otherwise a nonempty explicit level overrides
    persisted preferences. `Off` starts Desktop without watching.
 
-The existing public parameters, persisted file formats, model order, shell
+Except for the additive `TestTools` mode, existing public parameters, persisted file formats, model order, shell
 mapping and [routing matrix](model-routing.md) are unchanged. Normal Codex
 config remains read-only. MCP rollback is preserved. Temporarily changed
 environment values are restored on failure, including removing provider
@@ -116,3 +117,60 @@ the target profile and can restart the model-shell router. Automated
 refactoring verification must not stop a working Beta instance or query live
 providers. No API rebuild or `ungate-api` service restart is needed for
 launcher-only changes.
+
+## Tool schema compatibility diagnostics
+
+Choose **TT** in the launcher menu, then mark models with arrows/Space and
+press Enter. Esc or an empty selection cancels. All registered models are
+available, including models disabled in the Desktop picker; diagnostic
+selection does not change picker settings. TT returns to the main menu.
+
+```powershell
+pwsh -NoProfile -File J:\Dev\ungate-local\scripts\start-codex-desktop-ungate.ps1 -TestTools
+pwsh -NoProfile -File J:\Dev\ungate-local\scripts\start-codex-desktop-ungate.ps1 -TestTools -Model grok-4.6
+```
+
+`-TestTools -Model <registry-id-or-alias>` is noninteractive. Unknown or
+ambiguous model names fail rather than opening a picker. `TestTools` cannot
+be combined with `AddModel`, `PrepareOnly`, or `EnableProviderFallback`.
+An explicit `ApiKey` is allowed only for a single selected model.
+
+On normal launcher startup, the router receives
+`CODEX_SHELL_ROUTER_TOOLS_CACHE_PATH`, pointing to
+`CustomCodexHome/tool-compatibility/tools-schema-cache.json`. It atomically
+saves the latest nonempty tools array before namespace/adapter conversion.
+The snapshot contains version, capture time, upstream source model, SHA256
+and tool definitions only; no messages, request headers or credentials.
+Cache failures do not fail model requests. Diagnostic routers do not capture
+their own single-tool probes or overwrite this cache.
+
+After installing this feature, relaunch Beta through the launcher and send
+one message to populate the cache. Missing/corrupt caches produce this
+instruction and exit 2. A run freezes one snapshot for all models and shows
+its source/time/hash: it covers tools advertised by that specific request,
+not every tool that could later be loaded dynamically.
+
+The finite Node runner uses the existing router and, for CLIProxy, bridge
+implementations on exclusively bound OS-assigned localhost ports. It checks
+health and owning PID, resolves the same providers/keys, and closes its
+servers in finally. It never prepares profiles, launches/stops Beta, or
+restarts the working router. Provider services must already be available.
+Keys travel from PowerShell over stdin, not command-line arguments or files.
+
+Requests run sequentially: control without tools, each tool (preserving its
+namespace wrapper), then the complete set. Each request streams Responses,
+has a 120-second timeout and 512 output-token budget, disables tool use with
+`tool_choice: none`, and is not retried. No returned tool call is executed.
+A completed response or explicit output-token-limit terminal event proves
+only schema acceptance. SSE errors, missing terminal events, authentication,
+rate limits and timeouts remain distinct from explicit schema rejection.
+A failed control skips the remaining probes for that model.
+
+JSON reports in `CustomCodexHome/tool-compatibility/reports/` are updated
+after each probe; cancellation preserves partial results. Exit codes:
+`0` all accepted (or selection cancelled before testing), `1` explicit schema
+rejection, `2` technical failure/incomplete test/cancellation. Code 2 wins
+when errors are mixed. No tool blocklist is created or modified.
+
+Run `pnpm --filter @ungate/scripts run tool-compatibility:test` for isolated
+Node tests; `launcher:test` also includes the TT PowerShell scenarios.

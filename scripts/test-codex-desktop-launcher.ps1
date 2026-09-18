@@ -7,6 +7,7 @@ $moduleRoot = Join-Path $PSScriptRoot 'codex-desktop-launcher'
 $testPaths = @(
     (Join-Path $PSScriptRoot 'start-codex-desktop-ungate.Tests.ps1'),
     (Join-Path $moduleRoot 'tests/Launcher.Tests.ps1'),
+    (Join-Path $moduleRoot 'tests/ToolCompatibility.Tests.ps1'),
     (Join-Path $PSScriptRoot 'ungate-codex-common.Tests.ps1'),
     (Join-Path $PSScriptRoot 'codex-plugin-isolation.Tests.ps1')
 )

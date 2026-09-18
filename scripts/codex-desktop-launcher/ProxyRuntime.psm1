@@ -349,6 +349,7 @@ function Ensure-CodexModelShellRouter {
 
     $routerEnvironment = @{
         CODEX_SHELL_ROUTER_HOST = '127.0.0.1'
+        CODEX_SHELL_ROUTER_TOOLS_CACHE_PATH = Join-Path $Context.CustomCodexHome 'tool-compatibility/tools-schema-cache.json'
         CODEX_SHELL_ROUTER_PORT = [string]$routerPort
         CODEX_SHELL_ROUTER_BUILD_ID = (Get-FileHash -LiteralPath $Context.CodexModelShellRouterPath -Algorithm SHA256).Hash.ToLowerInvariant()
         CODEX_SHELL_ROUTER_MAX_BODY_BYTES = '134217728'

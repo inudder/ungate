@@ -7,6 +7,7 @@
 		"bridge:test": "node --test cliproxy-namespace-bridge.test.mjs",
 		"mimo-adapter:test": "node --test mimo-responses-stream-adapter.test.mjs",
 		"shell-router:test": "node --test codex-model-shell-router.test.mjs",
+		"tool-compatibility:test": "node --test codex-tool-compatibility.test.mjs",
 		"patch-mcp:test": "node --test ungate-patch-mcp.test.mjs",
 		"launcher:test": "pwsh -NoProfile -File test-codex-desktop-launcher.ps1",
 		"plugin-isolation:test": "pwsh -NoProfile -Command \"$result = Invoke-Pester -Path ./codex-plugin-isolation.Tests.ps1 -Output Detailed -PassThru; if ($result.FailedCount -gt 0) { exit 1 }\"",
