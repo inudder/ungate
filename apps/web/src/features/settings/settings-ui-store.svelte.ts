@@ -7,6 +7,7 @@ import type { ModelMappingConfig, ModelMappingProvider } from '@ungate/shared/fr
 export enum ProviderAuthState {
 	Authorized = 'authorized',
 	NotAuthorized = 'not-authorized',
+	SessionExpired = 'session-expired',
 	Loading = 'loading'
 }
 
@@ -51,7 +52,11 @@ async function refreshAuthStates(): Promise<void> {
 	try {
 		const [claude, openai, minimax] = await Promise.all([Api.authStatus(), Api.authChatGPTStatus(), Api.authMinimaxStatus()]);
 		authStates = {
-			claude: claude.authenticated ? ProviderAuthState.Authorized : ProviderAuthState.NotAuthorized,
+			claude: claude.authenticated
+				? ProviderAuthState.Authorized
+				: claude.sessionExpired
+					? ProviderAuthState.SessionExpired
+					: ProviderAuthState.NotAuthorized,
 			openai: openai.authenticated ? ProviderAuthState.Authorized : ProviderAuthState.NotAuthorized,
 			minimax: minimax.authenticated ? ProviderAuthState.Authorized : ProviderAuthState.NotAuthorized
 		};

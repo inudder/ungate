@@ -1,4 +1,5 @@
 <script lang="ts">
+import IconAlertTriangle from 'virtual:icons/lucide/alert-triangle';
 import IconCheck from 'virtual:icons/lucide/check';
 import IconExternalLink from 'virtual:icons/lucide/external-link';
 import IconLoader from 'virtual:icons/lucide/loader-circle';
@@ -15,6 +16,7 @@ interface Props {
 let { onAuthStatusChange }: Props = $props();
 
 let authenticated = $state(false);
+let sessionExpired = $state(false);
 let email = $state<string | undefined>(undefined);
 let loading = $state(true);
 let phase = $state<Phase>('idle');
@@ -34,6 +36,7 @@ async function loadStatus() {
 	try {
 		const status = await Api.authStatus();
 		authenticated = status.authenticated;
+		sessionExpired = status.sessionExpired ?? false;
 		email = status.email;
 	} catch (e) {
 		error = e instanceof Error ? e.message : String(e);
@@ -73,6 +76,7 @@ async function handleComplete() {
 		}
 
 		authenticated = true;
+		sessionExpired = false;
 		email = result.email;
 		phase = 'idle';
 		codeInput = '';
@@ -91,6 +95,7 @@ async function handleLogout() {
 	try {
 		await Api.authLogout();
 		authenticated = false;
+		sessionExpired = false;
 		email = undefined;
 		phase = 'idle';
 		onAuthStatusChange?.();
@@ -116,26 +121,6 @@ function handleCancelLogin() {
 			<IconLoader class="size-4 animate-spin" />
 			Checking status...
 		</div>
-	{:else if authenticated}
-		<div class="space-y-3">
-			<div class="flex items-center gap-2 text-sm">
-				<IconCheck class="size-4 text-success-500" />
-				<span>Logged in{email ? ` as ${email}` : ''}</span>
-			</div>
-			<button
-				class="btn btn-sm preset-filled-surface-500 border border-surface-500/50 hover:preset-filled-surface-400 w-fit"
-				onclick={handleLogout}>
-				<IconLogOut class="size-4" />
-				Logout
-			</button>
-		</div>
-	{:else if phase === 'idle'}
-		<p class="text-sm text-surface-400">Not logged in.</p>
-		<button
-			class="btn btn-sm preset-filled-primary-500"
-			onclick={handleStartLogin}>
-			Login with Claude
-		</button>
 	{:else if phase === 'pending-code' || phase === 'completing'}
 		<div class="space-y-3">
 			<div class="flex items-center gap-2 text-sm text-surface-400">
@@ -174,6 +159,53 @@ function handleCancelLogin() {
 				</button>
 			</div>
 		</div>
+	{:else if sessionExpired}
+		<div class="space-y-3">
+			<div class="flex items-center gap-2 text-sm text-warning-400">
+				<IconAlertTriangle class="size-4" />
+				<span>Session expired{email ? ` for ${email}` : ''}</span>
+			</div>
+			<div class="flex items-center gap-2">
+				<button
+					class="btn btn-sm preset-filled-primary-500"
+					onclick={handleStartLogin}>
+					Re-authorize
+				</button>
+				<button
+					class="btn btn-sm preset-filled-surface-500 border border-surface-500/50 hover:preset-filled-surface-400 w-fit"
+					onclick={handleLogout}>
+					<IconLogOut class="size-4" />
+					Logout
+				</button>
+			</div>
+		</div>
+	{:else if authenticated}
+		<div class="space-y-3">
+			<div class="flex items-center gap-2 text-sm">
+				<IconCheck class="size-4 text-success-500" />
+				<span>Logged in{email ? ` as ${email}` : ''}</span>
+			</div>
+			<div class="flex items-center gap-2">
+				<button
+					class="btn btn-sm preset-outlined-surface-700 hover:preset-filled-surface-500"
+					onclick={handleStartLogin}>
+					Re-authorize
+				</button>
+				<button
+					class="btn btn-sm preset-filled-surface-500 border border-surface-500/50 hover:preset-filled-surface-400 w-fit"
+					onclick={handleLogout}>
+					<IconLogOut class="size-4" />
+					Logout
+				</button>
+			</div>
+		</div>
+	{:else if phase === 'idle'}
+		<p class="text-sm text-surface-400">Not logged in.</p>
+		<button
+			class="btn btn-sm preset-filled-primary-500"
+			onclick={handleStartLogin}>
+			Login with Claude
+		</button>
 	{/if}
 
 	{#if error}

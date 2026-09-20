@@ -1,4 +1,5 @@
 <script lang="ts">
+import IconAlertTriangle from 'virtual:icons/lucide/alert-triangle';
 import IconCheck from 'virtual:icons/lucide/check';
 import IconLoader from 'virtual:icons/lucide/loader-circle';
 import IconX from 'virtual:icons/lucide/x';
@@ -17,12 +18,14 @@ const providerTabs: ModelMappingProvider[] = ['claude', 'minimax', 'openai'];
 const authStatusTitle: Record<ProviderAuthState, string> = {
 	[ProviderAuthState.Authorized]: 'Authorized',
 	[ProviderAuthState.NotAuthorized]: 'Not authorized',
+	[ProviderAuthState.SessionExpired]: 'Session expired',
 	[ProviderAuthState.Loading]: 'Checking...'
 };
 
 const authStatusClass: Record<ProviderAuthState, string> = {
 	[ProviderAuthState.Authorized]: 'text-success-400',
 	[ProviderAuthState.NotAuthorized]: 'text-error-400',
+	[ProviderAuthState.SessionExpired]: 'text-warning-400',
 	[ProviderAuthState.Loading]: 'text-warning-400'
 };
 
@@ -49,6 +52,11 @@ function handleAuthStatusChange(): void {
 							aria-label={authStatusTitle[uiStore.authStates[currentProvider]]} />
 					{:else if uiStore.authStates[currentProvider] === ProviderAuthState.Authorized}
 						<IconCheck
+							class="size-3.5 {authStatusClass[uiStore.authStates[currentProvider]]}"
+							title={authStatusTitle[uiStore.authStates[currentProvider]]}
+							aria-label={authStatusTitle[uiStore.authStates[currentProvider]]} />
+					{:else if uiStore.authStates[currentProvider] === ProviderAuthState.SessionExpired}
+						<IconAlertTriangle
 							class="size-3.5 {authStatusClass[uiStore.authStates[currentProvider]]}"
 							title={authStatusTitle[uiStore.authStates[currentProvider]]}
 							aria-label={authStatusTitle[uiStore.authStates[currentProvider]]} />

@@ -72,6 +72,17 @@ export class ProviderSettings {
 		return true;
 	}
 
+	static markExpired(provider: AIProviderName): void {
+		const db = getDb();
+		const existing = this.get(provider);
+
+		if (!existing) {
+			return;
+		}
+
+		db.update(providerSettings).set({ accessToken: '', refreshToken: null }).where(eq(providerSettings.provider, provider)).run();
+	}
+
 	static remove(provider: AIProviderName): void {
 		const db = getDb();
 

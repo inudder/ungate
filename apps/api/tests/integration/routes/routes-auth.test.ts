@@ -23,6 +23,7 @@ vi.mock('src/auth/oauth', () => ({
 		startLogin: (...args: unknown[]) => oauthStartLoginMock(...args),
 		completeLogin: (...args: unknown[]) => oauthCompleteLoginMock(...args),
 		getAuthStatus: (...args: unknown[]) => oauthStatusMock(...args),
+		checkAuthStatus: (...args: unknown[]) => oauthStatusMock(...args),
 		logout: (...args: unknown[]) => oauthLogoutMock(...args)
 	}
 }));

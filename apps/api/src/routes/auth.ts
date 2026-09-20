@@ -24,8 +24,10 @@ const plugin: FastifyPluginCallback = (app) => {
 		return reply.send(result);
 	});
 
-	app.get('/auth/claude/status', (_request, reply) => {
-		return reply.send(OAuth.getAuthStatus());
+	app.get('/auth/claude/status', async (_request, reply) => {
+		const status = await OAuth.checkAuthStatus();
+
+		return reply.send(status);
 	});
 
 	app.post('/auth/claude/logout', (_request, reply) => {

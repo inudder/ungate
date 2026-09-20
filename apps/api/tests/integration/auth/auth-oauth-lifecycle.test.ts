@@ -35,4 +35,20 @@ describe('auth-oauth-lifecycle', () => {
 		ProviderSettings.remove('claude');
 		expect(await OAuth.getValidToken()).toBeNull();
 	});
+
+	it('returns sessionExpired status when markExpired is called', () => {
+		ProviderSettings.upsertOAuth('claude', {
+			accessToken: 'access',
+			refreshToken: 'refresh',
+			expiresAt: Date.now() + 10 * 60_000,
+			email: 'user@example.com'
+		});
+
+		OAuth.markExpired();
+		expect(OAuth.getAuthStatus()).toEqual({
+			authenticated: false,
+			sessionExpired: true,
+			email: 'user@example.com'
+		});
+	});
 });

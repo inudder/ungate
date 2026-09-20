@@ -1,7 +1,9 @@
 <script lang="ts">
 import { getProviderLabel, sleep } from '@ungate/shared/frontend';
+import IconAlertTriangle from 'virtual:icons/lucide/alert-triangle';
 import IconCheck from 'virtual:icons/lucide/check';
 import IconCopy from 'virtual:icons/lucide/copy';
+import IconExternalLink from 'virtual:icons/lucide/external-link';
 import IconLoader from 'virtual:icons/lucide/loader-circle';
 import IconPlay from 'virtual:icons/lucide/play';
 import IconRefresh from 'virtual:icons/lucide/refresh-cw';
@@ -10,6 +12,8 @@ import IconTrash2 from 'virtual:icons/lucide/trash-2';
 import IconX from 'virtual:icons/lucide/x';
 
 import { Api } from '$shared/api';
+
+import { getSettingsUiStore, ProviderAuthState } from './settings-ui-store.svelte';
 
 import type {
 	ModelMappingConfig,
@@ -47,6 +51,8 @@ let {
 	restarting
 }: Props = $props();
 
+const uiStore = getSettingsUiStore();
+
 let copiedId = $state<string | null>(null);
 let confirmDeleteModelId = $state<string | null>(null);
 let confirmDeleteIndex = $state<number | null>(null);
@@ -59,6 +65,12 @@ let selectedCatalogIds = $state<string[]>([]);
 let catalogSearch = $state('');
 let catalogLoading = $state(false);
 let catalogError = $state<string | null>(null);
+
+let reauthPhase = $state<'idle' | 'pending-code' | 'completing'>('idle');
+let reauthUrl = $state('');
+let reauthSessionId = $state('');
+let reauthCodeInput = $state('');
+let reauthError = $state<string | null>(null);
 
 const reasoningOptions: { label: string; value: ModelMappingConfig['reasoningBudget'] }[] = [
 	{ label: 'None', value: null },
@@ -169,6 +181,67 @@ function toggleCatalogModel(item: ProviderModelCatalogItem) {
 		: [...selectedCatalogIds, key];
 }
 
+function isCatalogAuthError(message: string): boolean {
+	const lower = message.toLowerCase();
+
+	return (
+		lower.includes('expired') ||
+		lower.includes('not connected') ||
+		lower.includes('authorization was rejected') ||
+		lower.includes('re-authorize') ||
+		lower.includes('reconnect')
+	);
+}
+
+async function handleReauthStart() {
+	reauthError = null;
+
+	try {
+		const result = await Api.authStart();
+		reauthUrl = result.authUrl;
+		reauthSessionId = result.sessionId;
+		reauthPhase = 'pending-code';
+		window.open(reauthUrl, '_blank', 'noopener,noreferrer');
+	} catch (e) {
+		reauthError = e instanceof Error ? e.message : String(e);
+	}
+}
+
+async function handleReauthComplete() {
+	reauthError = null;
+	reauthPhase = 'completing';
+	const code = reauthCodeInput.trim();
+
+	try {
+		const result = await Api.authComplete(code, reauthSessionId);
+		if (!result.ok) {
+			reauthError = result.error ?? 'Login failed';
+			reauthPhase = 'pending-code';
+
+			return;
+		}
+
+		reauthPhase = 'idle';
+		reauthCodeInput = '';
+		reauthUrl = '';
+		reauthSessionId = '';
+		catalogError = null;
+		await uiStore.refreshAuthStates();
+		void loadCatalog();
+	} catch (e) {
+		reauthError = e instanceof Error ? e.message : String(e);
+		reauthPhase = 'pending-code';
+	}
+}
+
+function handleCancelReauth() {
+	reauthPhase = 'idle';
+	reauthUrl = '';
+	reauthSessionId = '';
+	reauthCodeInput = '';
+	reauthError = null;
+}
+
 async function loadCatalog() {
 	if (!catalogProvider || catalogLoading) return;
 
@@ -181,7 +254,11 @@ async function loadCatalog() {
 		selectedCatalogIds = [];
 	} catch (error) {
 		catalogModels = [];
-		catalogError = error instanceof Error ? error.message : 'Failed to load provider models.';
+		const message = error instanceof Error ? error.message : 'Failed to load provider models.';
+		catalogError = message;
+		if (isCatalogAuthError(message)) {
+			void uiStore.refreshAuthStates();
+		}
 	} finally {
 		catalogLoading = false;
 	}
@@ -199,13 +276,14 @@ function openCatalog() {
 }
 
 function closeCatalog() {
-	if (catalogLoading) return;
+	if (catalogLoading || reauthPhase === 'completing') return;
 
 	catalogProvider = null;
 	catalogModels = [];
 	selectedCatalogIds = [];
 	catalogSearch = '';
 	catalogError = null;
+	handleCancelReauth();
 }
 
 function uniqueLocalId(upstreamModel: string, provider: ModelMappingProvider, usedIds: Set<string>): string {
@@ -410,7 +488,12 @@ $effect(() => {
 		</div>
 	</div>
 	{#if !providerAuthLoading && !providerAuthorized}
-		<p class="text-xs text-warning-400">Connect {getProviderLabel(selectedProvider)} above to load its model catalog.</p>
+		{#if uiStore.authStates[selectedProvider] === ProviderAuthState.SessionExpired}
+			<p class="text-xs text-warning-400"
+				>{getProviderLabel(selectedProvider)} session has expired. Re-authorize the provider above to load its model catalog.</p>
+		{:else}
+			<p class="text-xs text-warning-400">Connect {getProviderLabel(selectedProvider)} above to load its model catalog.</p>
+		{/if}
 	{/if}
 
 	<div class="space-y-3">
@@ -597,15 +680,80 @@ $effect(() => {
 				</div>
 			{:else if catalogError}
 				<div class="card preset-tonal-error border border-error-500/30 p-4 space-y-3">
-					<p class="text-sm">{catalogError}</p>
-					<p class="text-xs opacity-80">If the session expired, reconnect the provider above and try again.</p>
-					<button
-						class="btn btn-sm preset-outlined-error-500"
-						type="button"
-						onclick={() => void loadCatalog()}>
-						<IconRefresh class="size-4" />
-						Retry
-					</button>
+					<div class="flex items-start gap-2">
+						<IconAlertTriangle class="size-4 shrink-0 text-error-400 mt-0.5" />
+						<div class="space-y-1">
+							<p class="text-sm font-medium">{catalogError}</p>
+							{#if isCatalogAuthError(catalogError)}
+								<p class="text-xs opacity-80">
+									Session expired or provider not connected. Re-authorize below to load models directly.
+								</p>
+							{/if}
+						</div>
+					</div>
+
+					{#if reauthPhase === 'pending-code' || reauthPhase === 'completing'}
+						<div class="space-y-3 pt-2 border-t border-error-500/20">
+							<div class="flex items-center gap-2 text-xs text-surface-300">
+								<a
+									href={reauthUrl}
+									target="_blank"
+									rel="noopener noreferrer"
+									class="anchor flex items-center gap-1 font-medium">
+									<IconExternalLink class="size-3.5" />
+									Open authorization page
+								</a>
+								<span>— paste code below</span>
+							</div>
+							<input
+								class="input text-sm font-mono"
+								type="text"
+								bind:value={reauthCodeInput}
+								placeholder="CODE#STATE" />
+							{#if reauthError}
+								<p class="text-xs text-error-300">{reauthError}</p>
+							{/if}
+							<div class="flex gap-2">
+								<button
+									class="btn btn-sm preset-filled-primary-500"
+									type="button"
+									onclick={handleReauthComplete}
+									disabled={reauthPhase === 'completing' || !reauthCodeInput.trim()}>
+									{#if reauthPhase === 'completing'}
+										<IconLoader class="size-4 animate-spin" />
+										Verifying...
+									{:else}
+										Confirm & Load Models
+									{/if}
+								</button>
+								<button
+									class="btn btn-sm preset-outlined-surface-700 hover:preset-filled-surface-500"
+									type="button"
+									onclick={handleCancelReauth}
+									disabled={reauthPhase === 'completing'}>
+									Cancel
+								</button>
+							</div>
+						</div>
+					{:else}
+						<div class="flex items-center gap-2">
+							{#if catalogProvider === 'claude' && isCatalogAuthError(catalogError)}
+								<button
+									class="btn btn-sm preset-filled-primary-500"
+									type="button"
+									onclick={handleReauthStart}>
+									Re-authorize Claude
+								</button>
+							{/if}
+							<button
+								class="btn btn-sm preset-outlined-error-500 hover:preset-filled-error-500"
+								type="button"
+								onclick={() => void loadCatalog()}>
+								<IconRefresh class="size-4" />
+								Retry
+							</button>
+						</div>
+					{/if}
 				</div>
 			{:else}
 				<label class="input flex items-center gap-2">

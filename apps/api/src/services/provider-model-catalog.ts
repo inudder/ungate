@@ -120,6 +120,11 @@ function claudeHeaders(accessToken: string): Record<string, string> {
 async function fetchClaudeModels(): Promise<ProviderModelCatalogItem[]> {
 	const token = await OAuth.getValidToken();
 	if (!token) {
+		const row = ProviderSettings.get('claude');
+		if (row) {
+			OAuth.markExpired();
+			throw new ProviderModelCatalogError('Claude session has expired. Please re-authorize the provider.', 401);
+		}
 		throw new ProviderModelCatalogError('Claude is not connected. Please connect the provider first.', 401);
 	}
 
@@ -134,7 +139,16 @@ async function fetchClaudeModels(): Promise<ProviderModelCatalogItem[]> {
 		url.searchParams.set('beta', 'true');
 		if (afterId) url.searchParams.set('after_id', afterId);
 
-		const payload = await fetchCatalogJson(url.toString(), claudeHeaders(token.accessToken));
+		let payload: unknown;
+		try {
+			payload = await fetchCatalogJson(url.toString(), claudeHeaders(token.accessToken));
+		} catch (error) {
+			if (error instanceof ProviderModelCatalogError && error.statusCode === 401) {
+				OAuth.markExpired();
+				throw new ProviderModelCatalogError('Claude session has expired. Please re-authorize the provider.', 401);
+			}
+			throw error;
+		}
 		if (!isRecord(payload) || !Array.isArray(payload.data)) {
 			throw new ProviderModelCatalogError('Claude returned an invalid model catalog response.', 502);
 		}

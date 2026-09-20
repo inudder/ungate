@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
 	providerSettingsGet: vi.fn()
 }));
 
-vi.mock('src/auth/oauth', () => ({ OAuth: { getValidToken: mocks.claudeToken } }));
+vi.mock('src/auth/oauth', () => ({ OAuth: { getValidToken: mocks.claudeToken, markExpired: vi.fn() } }));
 vi.mock('src/auth/openai/openai-oauth-service', () => ({
 	OpenAIOAuthService: { getValidToken: mocks.openaiToken }
 }));

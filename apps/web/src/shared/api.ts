@@ -80,7 +80,7 @@ export class Api {
 		return this.post('/auth/claude/complete', { code, sessionId });
 	}
 
-	static authStatus(): Promise<{ authenticated: boolean; email?: string }> {
+	static authStatus(): Promise<{ authenticated: boolean; sessionExpired?: boolean; email?: string }> {
 		return this.get('/auth/claude/status');
 	}
 

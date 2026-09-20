@@ -1,5 +1,6 @@
 export interface AuthStatus {
 	authenticated: boolean;
+	sessionExpired?: boolean;
 	email?: string;
 }
 

@@ -160,6 +160,7 @@ export class OAuth {
 			if (!response.ok) {
 				const errorText = await response.text();
 				logger.error('Token refresh failed:', response.status, errorText);
+				this.markExpired();
 
 				return null;
 			}
@@ -185,6 +186,7 @@ export class OAuth {
 			return result;
 		} catch (error) {
 			logger.error('Failed to refresh token:', error);
+			this.markExpired();
 
 			return null;
 		}
@@ -193,7 +195,7 @@ export class OAuth {
 	static async getValidToken(): Promise<TokenInfo | null> {
 		const row = ProviderSettings.get('claude');
 
-		if (!row) {
+		if (!row?.accessToken) {
 			return null;
 		}
 
@@ -208,17 +210,59 @@ export class OAuth {
 			return result;
 		}
 
-		return this.refreshToken(row.refreshToken!);
+		if (!row.refreshToken) {
+			this.markExpired();
+
+			return null;
+		}
+
+		return this.refreshToken(row.refreshToken);
 	}
 
 	// No-op — token state is DB-backed, no in-memory cache to clear
 	static clearCachedToken(): void {}
+
+	static markExpired(): void {
+		ProviderSettings.markExpired('claude');
+		logger.warn('Claude OAuth session marked as expired');
+	}
 
 	static getAuthStatus(): AuthStatus {
 		const row = ProviderSettings.get('claude');
 
 		if (!row) {
 			return { authenticated: false };
+		}
+
+		if (!row.accessToken) {
+			return { authenticated: false, sessionExpired: true, email: row.email ?? undefined };
+		}
+
+		return { authenticated: true, email: row.email ?? undefined };
+	}
+
+	static async checkAuthStatus(): Promise<AuthStatus> {
+		const row = ProviderSettings.get('claude');
+
+		if (!row) {
+			return { authenticated: false };
+		}
+
+		if (!row.accessToken) {
+			return { authenticated: false, sessionExpired: true, email: row.email ?? undefined };
+		}
+
+		if (this.isTokenExpired(row.expiresAt!)) {
+			if (!row.refreshToken) {
+				this.markExpired();
+
+				return { authenticated: false, sessionExpired: true, email: row.email ?? undefined };
+			}
+
+			const refreshed = await this.refreshToken(row.refreshToken);
+			if (!refreshed) {
+				return { authenticated: false, sessionExpired: true, email: row.email ?? undefined };
+			}
 		}
 
 		return { authenticated: true, email: row.email ?? undefined };
