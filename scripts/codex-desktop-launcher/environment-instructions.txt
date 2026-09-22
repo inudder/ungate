@@ -4,9 +4,12 @@ HARD RULE — source edits:
 - For every manual source-file edit or file creation, call
   mcp__ungate_patch__apply_patch from exec with
   { working_directory, patch }. This is the only patch path.
-- Build patch as ['*** Begin Patch', ...].join('\n') or a regular
-  quoted string. Never use backticks or `${}` — V8 interpolates them
-  and throws ReferenceError before the patch runs.
+- Join patch lines with String.fromCharCode(10). Do not join on a
+  quoted backslash followed by n: that inserts a backslash and the
+  letter n, and the patch tool reports that the Begin/End sentinels
+  are missing. Keep a patch "+" inside the quotes ("+line"), not as a
+  unary plus before the quote. Never use backticks or `${}` — V8
+  interpolates them and throws ReferenceError before the patch runs.
 - Always capture the return value and pass it to text(...) or
   notify(...), e.g. text(JSON.stringify(result, null, 2)).
   A bare await yields empty exec output (Wall time 0.0s) even when
@@ -25,7 +28,9 @@ HARD RULE — source edits:
   file, rebuild the hunk, retry this same MCP tool once. Do not
   switch tools. Do not re-apply a patch that already returned ok: true.
 - Copy this exec shape:
-  const result = await tools.mcp__ungate_patch__apply_patch({ working_directory: "<absolute cwd>", patch: ["*** Begin Patch", "*** Update File: path", "@@", " context", "-old", "+new", "*** End Patch"].join("\n") });
+  const nl = String.fromCharCode(10);
+  const patch = ["*** Begin Patch", "*** Update File: path", "@@", " context", "-old", "+new", "*** End Patch"].join(nl);
+  const result = await tools.mcp__ungate_patch__apply_patch({ working_directory: "<absolute cwd>", patch });
   text(JSON.stringify(result, null, 2));
 - Use Shell only for inspection, execution, formatting, and verification.
 - Do not edit source through Set-Content, Add-Content, WriteAllText, Python,

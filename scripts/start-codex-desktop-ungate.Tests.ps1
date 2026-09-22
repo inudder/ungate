@@ -1413,7 +1413,9 @@ Describe 'Ungate environment source-edit instructions' {
         $identity | Should -Match 'proposed_plan'
         $identity | Should -Match 'HARD RULE — Plan Mode'
         $identity | Should -Match 'text\(JSON\.stringify'
-        $identity | Should -Match "join\('\\n'\)"
+        $identity | Should -Match 'String\.fromCharCode\(10\)'
+        $identity | Should -Match '\.join\(nl\)'
+        $identity | Should -Match 'unary plus'
         $identity | Should -Match 'hunk_not_found'
         $identity | Should -Match 'Wall time 0\.0'
         $identity | Should -Match 'ok: true'

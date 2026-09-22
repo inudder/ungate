@@ -7,7 +7,7 @@
       "UpstreamModel": "claude-opus-4-8",
       "Aliases": null,
       "TransportDescription": "the local Ungate Responses proxy",
-      "IdentitySha256": "51ba41ae5e4ad5e15950b37e10f992f524239ffa11bf5fc71c8b75cbc0c7abba",
+      "IdentitySha256": "afef5742c81867831f096e415dc0de50f5b8f778cc02fccf6779e41b7022050b",
       "DefaultReasoningLevel": "high",
       "Priority": 0,
       "InputModalities": [
@@ -37,7 +37,7 @@
       "UpstreamModel": "claude-fable-5",
       "Aliases": null,
       "TransportDescription": "the local Ungate Responses proxy",
-      "IdentitySha256": "51ba41ae5e4ad5e15950b37e10f992f524239ffa11bf5fc71c8b75cbc0c7abba",
+      "IdentitySha256": "afef5742c81867831f096e415dc0de50f5b8f778cc02fccf6779e41b7022050b",
       "DefaultReasoningLevel": "high",
       "Priority": 1,
       "InputModalities": [
@@ -67,7 +67,7 @@
       "UpstreamModel": null,
       "Aliases": null,
       "TransportDescription": "the local Ungate Responses proxy",
-      "IdentitySha256": "36a6ed2fc0daaab36db7757a803b1c57a6214f25d3731873b6b24db0b26639d8",
+      "IdentitySha256": "906ab3e6383af3ea44f6dee7e44c1ec469ee6f6da82c576f7938eebd87639d14",
       "DefaultReasoningLevel": "xhigh",
       "Priority": 2,
       "InputModalities": [
@@ -97,7 +97,7 @@
       "UpstreamModel": "grok-4.7",
       "Aliases": null,
       "TransportDescription": "the local CLIProxyAPI compatibility bridge",
-      "IdentitySha256": "ce371c1e54c4cddd3c1764f398cfc2f734919864cfec4ed8cb6cdd741cc992fe",
+      "IdentitySha256": "c4eb1dfce6ee0ff808dade0fbbfd49fe985804f290637d7b99db63f2e1a6547a",
       "DefaultReasoningLevel": "high",
       "Priority": 3,
       "InputModalities": [
@@ -127,7 +127,7 @@
       "UpstreamModel": "apikey-fun/kimi-k3",
       "Aliases": null,
       "TransportDescription": "the local OmniRoute proxy",
-      "IdentitySha256": "3ca31bfce3a6b3f5ed368520c2ac66813be1e59a6708cf962d380c519a5835fb",
+      "IdentitySha256": "1757ecdb06cfd8df2ef750a64c04424c8c12bd8ed228cbf0c8c556a2705db0ca",
       "DefaultReasoningLevel": "high",
       "Priority": 4,
       "InputModalities": [
@@ -157,7 +157,7 @@
       "UpstreamModel": "apikey-fun/grok-4.5",
       "Aliases": null,
       "TransportDescription": "the local OmniRoute proxy",
-      "IdentitySha256": "bfffd46f5072ae12880957ac9c7caab3cbd0c796b0a8099f3b936cadfb7f05dd",
+      "IdentitySha256": "f3e3b91b1ea5c77cd4f3f5669c0ef50eec0789c86b49790636f75e9b61975504",
       "DefaultReasoningLevel": "high",
       "Priority": 5,
       "InputModalities": [
@@ -187,7 +187,7 @@
       "UpstreamModel": "apikey-fun/claude-opus-5",
       "Aliases": null,
       "TransportDescription": "the local OmniRoute proxy",
-      "IdentitySha256": "51ba41ae5e4ad5e15950b37e10f992f524239ffa11bf5fc71c8b75cbc0c7abba",
+      "IdentitySha256": "afef5742c81867831f096e415dc0de50f5b8f778cc02fccf6779e41b7022050b",
       "DefaultReasoningLevel": "high",
       "Priority": 6,
       "InputModalities": [
@@ -217,7 +217,7 @@
       "UpstreamModel": "mimo-v2.5-pro",
       "Aliases": null,
       "TransportDescription": "the local OmniRoute proxy",
-      "IdentitySha256": "b409f4363062944cca287afa26cf71a12d0b97d35d62e56a4cffb06e0d886c70",
+      "IdentitySha256": "1e2b44b47105a5ddfe5efdfcc3f80eaa37a7152ca5e153dd24f043a3b5a50133",
       "DefaultReasoningLevel": "high",
       "Priority": 7,
       "InputModalities": [
@@ -261,7 +261,7 @@
         "ds/deepseek-v4-pro"
       ],
       "TransportDescription": "the local OmniRoute proxy",
-      "IdentitySha256": "6af7e909cf4494ac6255af1ba86813cb5076ac2e751468de9155edb3cad75d0a",
+      "IdentitySha256": "2adde64f2dffaf6ac503ab27de00807500c19db739c52c97abda1b5b19fb275a",
       "DefaultReasoningLevel": "high",
       "Priority": 8,
       "InputModalities": [
@@ -312,7 +312,7 @@
         "ds/deepseek-v4-flash"
       ],
       "TransportDescription": "the local OmniRoute proxy",
-      "IdentitySha256": "e287af8663bb24fb97d4b268bfe146c4157d4937584f74bd953d874b0dce1fe1",
+      "IdentitySha256": "b50b33de44c29e7f302749c02fd83e425fb0b9cfa21452cbabbededb07eefbda",
       "DefaultReasoningLevel": "high",
       "Priority": 9,
       "InputModalities": [
@@ -356,7 +356,7 @@
     "Slug": "codex-fallback",
     "DisplayName": "Codex Provider Fallback (OmniRoute)",
     "Description": "Opt-in provider fallback through OmniRoute: Claude, Grok, MiniMax, then Gemini.",
-    "IdentitySha256": "f2c261d2754469d2573c49ac1023099f08ebc451aa902f90badad7330569dd35",
+    "IdentitySha256": "eb65e61d9e1a67d9faf587465f9a43b2aa21616c3ae603f53139753ccc73189e",
     "DefaultReasoningLevel": "high",
     "Priority": 0,
     "InputModalities": [
