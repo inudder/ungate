@@ -587,6 +587,253 @@ function Write-UngateCustomModelDefinitions {
     return $absoluteRegistryPath
 }
 
+function ConvertTo-ContextWindowTokens {
+    param([Parameter(Mandatory = $true)][string]$Value)
+    $ErrorActionPreference = 'Stop'
+
+    $trimmed = $Value.Trim()
+    if ($trimmed -match '^(?<num>\d+(?:\.\d+)?)\s*[mM]$') {
+        return [int]([double]$Matches.num * 1000000)
+    }
+    if ($trimmed -match '^(?<num>\d+(?:\.\d+)?)\s*[kK]$') {
+        return [int]([double]$Matches.num * 1000)
+    }
+    $intVal = 0
+    if ([int]::TryParse($trimmed, [ref]$intVal) -and $intVal -gt 0) {
+        return $intVal
+    }
+    throw "Invalid context window '$Value'. Use an integer (e.g. 500000) or compact format (e.g. 500k, 1M)."
+}
+
+function Read-UngateModelOverrides {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$OverridesPath
+    )
+    $ErrorActionPreference = 'Stop'
+
+    if (-not (Test-Path -LiteralPath $OverridesPath)) {
+        return [ordered]@{}
+    }
+    if (-not (Test-Path -LiteralPath $OverridesPath -PathType Leaf)) {
+        throw "Model overrides target is not a file: $OverridesPath"
+    }
+
+    try {
+        $data = Get-Content -LiteralPath $OverridesPath -Raw -Encoding utf8 |
+            ConvertFrom-Json -Depth 20 -ErrorAction Stop
+    }
+    catch {
+        throw "Failed to parse model overrides at $OverridesPath : $($_.Exception.Message)"
+    }
+
+    if ('Version' -notin $data.PSObject.Properties.Name -or [int]$data.Version -ne 1) {
+        throw "Model overrides at $OverridesPath have an unsupported or missing version."
+    }
+    if ('Overrides' -notin $data.PSObject.Properties.Name) {
+        throw "Model overrides at $OverridesPath are missing the overrides property."
+    }
+
+    $overrides = [ordered]@{}
+    foreach ($prop in $data.Overrides.PSObject.Properties) {
+        $overrides[$prop.Name] = $prop.Value
+    }
+    return $overrides
+}
+
+function Write-UngateModelOverrides {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$OverridesPath,
+        [Parameter(Mandatory = $true)]
+        [System.Collections.IDictionary]$Overrides
+    )
+    $ErrorActionPreference = 'Stop'
+
+    $json = [ordered]@{
+        version = 1
+        overrides = $Overrides
+    } | ConvertTo-Json -Depth 20
+
+    $absolutePath = [System.IO.Path]::GetFullPath($OverridesPath)
+    if ((Test-Path -LiteralPath $absolutePath) -and -not (Test-Path -LiteralPath $absolutePath -PathType Leaf)) {
+        throw "Model overrides target is not a file: $absolutePath"
+    }
+
+    $directory = Split-Path -Parent $absolutePath
+    New-Item -ItemType Directory -Path $directory -Force | Out-Null
+    $transactionId = [guid]::NewGuid().ToString('N')
+    $temporaryPath = Join-Path $directory ".ungate-model-overrides.$transactionId.tmp"
+    $backupPath = Join-Path $directory ".ungate-model-overrides.$transactionId.bak"
+    $writeCompleted = $false
+
+    try {
+        [System.IO.File]::WriteAllText(
+            $temporaryPath,
+            $json + "`r`n",
+            [System.Text.UTF8Encoding]::new($false)
+        )
+        if (Test-Path -LiteralPath $absolutePath -PathType Leaf) {
+            [System.IO.File]::Replace(
+                $temporaryPath,
+                $absolutePath,
+                $backupPath,
+                $true
+            )
+        }
+        else {
+            [System.IO.File]::Move($temporaryPath, $absolutePath)
+        }
+        $writeCompleted = $true
+    }
+    finally {
+        if (Test-Path -LiteralPath $temporaryPath -PathType Leaf) {
+            Remove-Item -LiteralPath $temporaryPath -Force
+        }
+        if ($writeCompleted -and (Test-Path -LiteralPath $backupPath -PathType Leaf)) {
+            Remove-Item -LiteralPath $backupPath -Force
+        }
+    }
+
+    return $absolutePath
+}
+
+function Set-UngateModelOverride {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$OverridesPath,
+        [Parameter(Mandatory = $true)]
+        [string]$Slug,
+        [Parameter(Mandatory = $true)]
+        [hashtable]$Override
+    )
+    $ErrorActionPreference = 'Stop'
+
+    $current = Read-UngateModelOverrides -OverridesPath $OverridesPath
+    $updated = [ordered]@{}
+    foreach ($key in $current.Keys) {
+        $updated[$key] = $current[$key]
+    }
+    $updated[$Slug] = $Override
+    return Write-UngateModelOverrides -OverridesPath $OverridesPath -Overrides $updated
+}
+
+function Remove-UngateModelOverride {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$OverridesPath,
+        [Parameter(Mandatory = $true)]
+        [string]$Slug
+    )
+    $ErrorActionPreference = 'Stop'
+
+    $current = Read-UngateModelOverrides -OverridesPath $OverridesPath
+    $updated = [ordered]@{}
+    foreach ($key in $current.Keys) {
+        if ($key -ne $Slug) {
+            $updated[$key] = $current[$key]
+        }
+    }
+    if ($updated.Count -eq 0) {
+        if (Test-Path -LiteralPath $OverridesPath -PathType Leaf) {
+            Remove-Item -LiteralPath $OverridesPath -Force
+        }
+        return $OverridesPath
+    }
+    return Write-UngateModelOverrides -OverridesPath $OverridesPath -Overrides $updated
+}
+
+function Apply-UngateModelOverrides {
+    param(
+        [Parameter(Mandatory)][psobject]$Context,
+        [Parameter(Mandatory = $true)][object[]]$Definitions,
+        [Parameter(Mandatory = $true)][System.Collections.IDictionary]$Overrides
+    )
+    $ErrorActionPreference = 'Stop'
+
+    if (-not $Overrides -or $Overrides.Count -eq 0) {
+        return @($Definitions)
+    }
+
+    $result = [System.Collections.Generic.List[object]]::new()
+    foreach ($def in $Definitions) {
+        $matchKey = $null
+        if ($Overrides.Contains($def.Slug)) {
+            $matchKey = $def.Slug
+        }
+        elseif ($def.PSObject.Properties['UpstreamModel'] -and $def.UpstreamModel -and $Overrides.Contains([string]$def.UpstreamModel)) {
+            $matchKey = [string]$def.UpstreamModel
+        }
+
+        if (-not $matchKey) {
+            [void]$result.Add($def)
+            continue
+        }
+
+        $ov = $Overrides[$matchKey]
+        $newUpstreamModel = if ($ov.PSObject.Properties['upstreamModel'] -and $ov.upstreamModel) {
+            [string]$ov.upstreamModel
+        } else {
+            $def.UpstreamModel
+        }
+
+        $newDisplayName = if ($ov.PSObject.Properties['displayName'] -and $ov.displayName) {
+            [string]$ov.displayName
+        } else {
+            if ($def.DisplayName -match '(?i)grok\s*[\d.]+') {
+                $ver = if ($newUpstreamModel -match '[\d.]+') { $Matches[0] } else { '' }
+                if ($ver) {
+                    $def.DisplayName -replace '(?i)grok\s*[\d.]+', "Grok $ver"
+                } else {
+                    $def.DisplayName
+                }
+            } else {
+                $def.DisplayName
+            }
+        }
+
+        $newContextWindow = if ($ov.PSObject.Properties['contextWindow'] -and $ov.contextWindow) {
+            [int]$ov.contextWindow
+        } elseif ($def.PSObject.Properties['ContextWindow'] -and $null -ne $def.ContextWindow) {
+            [int]$def.ContextWindow
+        } else {
+            $null
+        }
+
+        $newAliases = [System.Collections.Generic.List[string]]::new()
+        if ($def.PSObject.Properties['Aliases'] -and $def.Aliases) {
+            foreach ($a in $def.Aliases) { [void]$newAliases.Add([string]$a) }
+        }
+        if ($newUpstreamModel -and $newUpstreamModel -notin $newAliases -and $newUpstreamModel -ne $def.Slug) {
+            [void]$newAliases.Add($newUpstreamModel)
+        }
+
+        $identity = Get-UngateModelIdentity -Context $Context `
+            -DisplayName $newDisplayName `
+            -UpstreamModel $newUpstreamModel `
+            -ProviderDisplayName $def.ProviderDisplayName `
+            -TransportDescription $def.TransportDescription
+
+        $props = [ordered]@{}
+        foreach ($p in $def.PSObject.Properties) {
+            $props[$p.Name] = $p.Value
+        }
+        $props['DisplayName'] = $newDisplayName
+        $props['UpstreamModel'] = $newUpstreamModel
+        $props['Identity'] = $identity
+        $props['Aliases'] = if ($newAliases.Count -gt 0) { @($newAliases) } else { $null }
+        $props['IsOverridden'] = $true
+        $props['DefaultUpstreamModel'] = $def.UpstreamModel
+        if ($null -ne $newContextWindow) {
+            $props['ContextWindow'] = $newContextWindow
+            $props['MaxContextWindow'] = $newContextWindow
+        }
+        [void]$result.Add([pscustomobject]$props)
+    }
+
+    return @($result)
+}
+
 function Get-UngateModelDefinitions {
     param(
         [Parameter(Mandatory)][psobject]$Context,
@@ -594,16 +841,28 @@ function Get-UngateModelDefinitions {
         [Parameter(Mandatory = $true)]
         [object[]]$BuiltInDefinitions,
         [Parameter(Mandatory = $true)]
-        [string]$RegistryPath
+        [string]$RegistryPath,
+        [Parameter()][string]$OverridesPath
     )
     $ErrorActionPreference = 'Stop'
+
+    if (-not $OverridesPath -and $Context.PSObject.Properties['CustomModelOverridesPath']) {
+        $OverridesPath = $Context.CustomModelOverridesPath
+    }
 
     $customDefinitions = @(
         Read-UngateCustomModelDefinitions -Context $Context `
             -RegistryPath $RegistryPath `
             -BuiltInDefinitions $BuiltInDefinitions
     )
-    return @($BuiltInDefinitions) + $customDefinitions
+    $all = @($BuiltInDefinitions) + $customDefinitions
+    if ($OverridesPath) {
+        $overrides = Read-UngateModelOverrides -OverridesPath $OverridesPath
+        if ($overrides -and $overrides.Count -gt 0) {
+            return @(Apply-UngateModelOverrides -Context $Context -Definitions $all -Overrides $overrides)
+        }
+    }
+    return $all
 }
 
 function Get-UngateModelContextWindow {
@@ -673,5 +932,11 @@ Export-ModuleMember -Function @(
     'Write-UngateCustomModelDefinitions',
     'Get-UngateModelDefinitions',
     'Get-UngateModelContextWindow',
-    'New-UngateModelSet'
+    'New-UngateModelSet',
+    'ConvertTo-ContextWindowTokens',
+    'Read-UngateModelOverrides',
+    'Write-UngateModelOverrides',
+    'Set-UngateModelOverride',
+    'Remove-UngateModelOverride',
+    'Apply-UngateModelOverrides'
 )

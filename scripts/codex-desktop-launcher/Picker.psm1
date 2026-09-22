@@ -478,6 +478,189 @@ function Invoke-AddUngateModelMode {
     return $candidate.Slug
 }
 
+function Invoke-UngateModelVersionConfiguration {
+    param(
+        [Parameter(Mandatory)][psobject]$Context,
+
+        [Parameter(Mandatory = $true)]
+        [object[]]$Definitions,
+        [Parameter(Mandatory = $true)]
+        [string]$OverridesPath,
+        [string]$TargetModelSlug,
+        [string]$NewUpstreamModel
+    )
+    $ErrorActionPreference = 'Stop'
+
+    if ($TargetModelSlug -and $NewUpstreamModel) {
+        $targetDef = $Definitions | Where-Object {
+            $_.Slug -eq $TargetModelSlug -or
+            ($_.PSObject.Properties['UpstreamModel'] -and $_.UpstreamModel -eq $TargetModelSlug) -or
+            ($_.PSObject.Properties['Aliases'] -and $_.Aliases -and $TargetModelSlug -in $_.Aliases)
+        } | Select-Object -First 1
+
+        if (-not $targetDef) {
+            throw "Target model '$TargetModelSlug' not found in known models."
+        }
+
+        if ($NewUpstreamModel.Trim().Equals('reset', [System.StringComparison]::OrdinalIgnoreCase) -or
+            $NewUpstreamModel.Trim().Equals('default', [System.StringComparison]::OrdinalIgnoreCase)) {
+            $saved = Remove-UngateModelOverride -OverridesPath $OverridesPath -Slug $targetDef.Slug
+            Write-Host "[ungate] Model '$($targetDef.DisplayName)' reset to default upstream: $saved" -ForegroundColor Green
+            return $true
+        }
+
+        $newUpstream = $NewUpstreamModel.Trim()
+        $override = [ordered]@{
+            upstreamModel = $newUpstream
+        }
+        $saved = Set-UngateModelOverride -OverridesPath $OverridesPath -Slug $targetDef.Slug -Override $override
+        Write-Host "[ungate] Model '$($targetDef.DisplayName)' upstream set to '$newUpstream': $saved" -ForegroundColor Green
+        return $true
+    }
+
+    Write-Host ''
+    Write-Host 'Change model version / upstream slug:' -ForegroundColor Cyan
+    Write-Host 'The upstream model ID is sent directly to the provider (e.g. CLIProxyAPI).' -ForegroundColor DarkGray
+    Write-Host ''
+
+    for ($i = 0; $i -lt $Definitions.Count; $i++) {
+        $def = $Definitions[$i]
+        $upstreamDisplay = if ($def.PSObject.Properties['UpstreamModel'] -and $def.UpstreamModel) {
+            $def.UpstreamModel
+        } else {
+            '(auto)'
+        }
+        $overrideTag = if ($def.PSObject.Properties['IsOverridden'] -and $def.IsOverridden) {
+            " [OVERRIDDEN, default: $($def.DefaultUpstreamModel)]"
+        } else {
+            ''
+        }
+        $contextLabel = (Get-UngateModelContextWindow -Definition $def).Label
+        Write-Host ("  {0,2}) {1}  [{2}] (upstream: {3}){4}" -f ($i + 1), $def.DisplayName, $contextLabel, $upstreamDisplay, $overrideTag)
+    }
+    Write-Host '   B) Back to main menu' -ForegroundColor DarkGray
+    Write-Host ''
+
+    $choice = Read-Host "Select a model [1-$($Definitions.Count) or B] (default: B)"
+    if ([string]::IsNullOrWhiteSpace($choice) -or $choice.Trim().Equals('b', [System.StringComparison]::OrdinalIgnoreCase)) {
+        return $false
+    }
+
+    $idx = 0
+    if (-not [int]::TryParse($choice.Trim(), [ref]$idx) -or $idx -lt 1 -or $idx -gt $Definitions.Count) {
+        Write-Host 'Invalid model selection.' -ForegroundColor Yellow
+        return $false
+    }
+
+    $selectedDef = $Definitions[$idx - 1]
+    $currentUpstream = if ($selectedDef.PSObject.Properties['UpstreamModel'] -and $selectedDef.UpstreamModel) {
+        $selectedDef.UpstreamModel
+    } else {
+        $selectedDef.Slug
+    }
+
+    Write-Host ''
+    Write-Host "Selected model: $($selectedDef.DisplayName) [$($selectedDef.Slug)]" -ForegroundColor Cyan
+    Write-Host "Provider:       $($selectedDef.ProviderDisplayName) ($($selectedDef.ProxyBaseUrl))" -ForegroundColor DarkGray
+
+    if ($selectedDef.ProviderName -eq $Context.CliProxyProviderName -or $selectedDef.ProviderDisplayName -eq 'CLIProxyAPI') {
+        $filter = if ($selectedDef.Slug -match '(?i)grok') { 'grok' } else { '' }
+        try {
+            $proxyUrl = $selectedDef.ProxyBaseUrl
+            $disc = Invoke-RestMethod -Uri "$proxyUrl/v1/models" -TimeoutSec 2 -ErrorAction Stop
+            $foundModels = @($disc.data | ForEach-Object { [string]$_.id } | Where-Object { if ($filter) { $_ -like "*$filter*" } else { $true } })
+            if ($foundModels.Count -gt 0) {
+                Write-Host 'Discovered in CLIProxyAPI (/v1/models):' -ForegroundColor Green
+                foreach ($m in $foundModels) {
+                    Write-Host "  - $m" -ForegroundColor DarkGreen
+                }
+            }
+        }
+        catch {
+            try {
+                $disc = Invoke-RestMethod -Uri "http://127.0.0.1:8317/v1/models" -TimeoutSec 2 -ErrorAction Stop
+                $foundModels = @($disc.data | ForEach-Object { [string]$_.id } | Where-Object { if ($filter) { $_ -like "*$filter*" } else { $true } })
+                if ($foundModels.Count -gt 0) {
+                    Write-Host 'Discovered in CLIProxyAPI (/v1/models):' -ForegroundColor Green
+                    foreach ($m in $foundModels) {
+                        Write-Host "  - $m" -ForegroundColor DarkGreen
+                    }
+                }
+            }
+            catch {}
+        }
+    }
+
+    Write-Host ''
+    $resetHint = if ($selectedDef.PSObject.Properties['IsOverridden'] -and $selectedDef.IsOverridden) {
+        " (or type 'reset' to revert to '$($selectedDef.DefaultUpstreamModel)')"
+    } else {
+        ''
+    }
+    $newUpstreamInput = Read-Host "New upstream model ID$resetHint [current: $currentUpstream]"
+
+    if ([string]::IsNullOrWhiteSpace($newUpstreamInput)) {
+        Write-Host '[ungate] Model version unchanged.' -ForegroundColor Yellow
+        return $false
+    }
+
+    if ($newUpstreamInput.Trim().Equals('reset', [System.StringComparison]::OrdinalIgnoreCase) -or
+        $newUpstreamInput.Trim().Equals('default', [System.StringComparison]::OrdinalIgnoreCase)) {
+        $saved = Remove-UngateModelOverride -OverridesPath $OverridesPath -Slug $selectedDef.Slug
+        Write-Host "[ungate] Model '$($selectedDef.DisplayName)' reset to default: $saved" -ForegroundColor Green
+        return $true
+    }
+
+    $newUpstream = $newUpstreamInput.Trim()
+    if ($newUpstream -match '\s|[\"'']') {
+        throw "Upstream model ID '$newUpstream' cannot contain whitespace or quotes."
+    }
+
+    $suggestedName = $selectedDef.DisplayName
+    if ($selectedDef.DisplayName -match '(?i)grok\s*[\d.]+') {
+        $newVer = if ($newUpstream -match '[\d.]+') { $Matches[0] } else { '' }
+        if ($newVer) {
+            $suggestedName = $selectedDef.DisplayName -replace '(?i)grok\s*[\d.]+', "Grok $newVer"
+        }
+    }
+    $newDisplayNameInput = Read-Host "Display label [default: $suggestedName]"
+    $newDisplayName = if ([string]::IsNullOrWhiteSpace($newDisplayNameInput)) { $suggestedName } else { $newDisplayNameInput.Trim() }
+
+    $currentCtx = (Get-UngateModelContextWindow -Definition $selectedDef).Label
+    $newCtxInput = Read-Host "Context window (e.g. 500k, 1M, 200k) [default: $currentCtx]"
+    $newContextWindow = $null
+    if (-not [string]::IsNullOrWhiteSpace($newCtxInput)) {
+        $newContextWindow = ConvertTo-ContextWindowTokens -Value $newCtxInput
+    }
+
+    Write-Host ''
+    Write-Host 'New model override configuration:' -ForegroundColor Cyan
+    Write-Host "  Model target:   $($selectedDef.DisplayName) [$($selectedDef.Slug)]"
+    Write-Host "  Upstream ID:    $newUpstream"
+    Write-Host "  Display label:  $newDisplayName"
+    if ($null -ne $newContextWindow) {
+        Write-Host "  Context window: $newCtxInput ($newContextWindow tokens)"
+    }
+    Write-Host ''
+
+    if (-not (Read-UngateYesNo -Prompt 'Save this override?' -Default $true)) {
+        Write-Host '[ungate] Cancelled.' -ForegroundColor Yellow
+        return $false
+    }
+
+    $overrideRecord = [ordered]@{
+        upstreamModel = $newUpstream
+        displayName = $newDisplayName
+    }
+    if ($null -ne $newContextWindow) {
+        $overrideRecord['contextWindow'] = $newContextWindow
+    }
+
+    $saved = Set-UngateModelOverride -OverridesPath $OverridesPath -Slug $selectedDef.Slug -Override $overrideRecord
+    Write-Host "[ungate] Model override saved: $saved" -ForegroundColor Green
+    return $true
+}
+
 function Select-UngateDesktopModel {
     param(
         [Parameter(Mandatory)][psobject]$Context,
@@ -493,6 +676,7 @@ function Select-UngateDesktopModel {
         [Parameter(Mandatory = $true)]
         [int]$PickerCapacity,
         [string]$LogSettingsPath,
+        [string]$OverridesPath,
         [switch]$IncludeProviderFallback,
         [string]$ProviderFallbackModel = 'codex-fallback'
     )
@@ -501,6 +685,10 @@ function Select-UngateDesktopModel {
     if ([string]::IsNullOrWhiteSpace($LogSettingsPath)) {
         $parentDir = Split-Path $PickerSettingsPath -Parent
         $LogSettingsPath = Join-Path $parentDir 'ungate-log-settings.json'
+    }
+
+    if ([string]::IsNullOrWhiteSpace($OverridesPath) -and $Context.PSObject.Properties['CustomModelOverridesPath']) {
+        $OverridesPath = $Context.CustomModelOverridesPath
     }
 
     while ($true) {
@@ -529,14 +717,17 @@ function Select-UngateDesktopModel {
         $addModelIndex = $configurePickerIndex + $(if ($IncludeProviderFallback) { 2 } else { 1 })
         Write-Host ("  {0}) Add a new model" -f $addModelIndex) -ForegroundColor DarkCyan
 
+        $changeVersionIndex = $addModelIndex + 1
+        Write-Host ("  {0}) Change model version (upstream slug)" -f $changeVersionIndex) -ForegroundColor DarkCyan
+
         $currentLogLevel = (Read-UngateLogSettings -SettingsPath $LogSettingsPath).LogLevel
-        $loggingMenuIndex = $addModelIndex + 1
+        $loggingMenuIndex = $changeVersionIndex + 1
         Write-Host ("  {0}) Configure live logging [Current: {1}]" -f $loggingMenuIndex, $currentLogLevel) -ForegroundColor DarkCyan
         Write-Host '  [TT] Тестирование совместимости инструментов (чекбоксы)' -ForegroundColor Yellow
         Write-Host ''
 
         $fallbackHint = if ($IncludeProviderFallback) { ' or F' } else { '' }
-        $choicePrompt = "Mode [1-$loggingMenuIndex$fallbackHint or L or TT] (default: 1)"
+        $choicePrompt = "Mode [1-$loggingMenuIndex$fallbackHint or V or L or TT] (default: 1)"
         $choice = Read-Host $choicePrompt
         if ([string]::IsNullOrWhiteSpace($choice)) {
             return $pickerDefinitions[0].Slug
@@ -545,6 +736,22 @@ function Select-UngateDesktopModel {
         if ($choice.Trim() -match '^(tt|tools|compat|testtools)$') {
             $null = Invoke-CodexToolCompatibility -Context $Context -Definitions $Definitions
             $null = Read-Host 'Нажмите Enter для возврата в меню'
+            continue
+        }
+
+        if ($choice.Trim() -match '^(v|ver|version)$') {
+            $changed = Invoke-UngateModelVersionConfiguration `
+                -Context $Context `
+                -Definitions $Definitions `
+                -OverridesPath $OverridesPath
+            if ($changed) {
+                $Definitions = @(
+                    Get-UngateModelDefinitions -Context $Context `
+                        -BuiltInDefinitions $BuiltInDefinitions `
+                        -RegistryPath $RegistryPath `
+                        -OverridesPath $OverridesPath
+                )
+            }
             continue
         }
 
@@ -589,12 +796,29 @@ function Select-UngateDesktopModel {
                     $Definitions = @(
                         Get-UngateModelDefinitions -Context $Context `
                             -BuiltInDefinitions $BuiltInDefinitions `
-                            -RegistryPath $RegistryPath
+                            -RegistryPath $RegistryPath `
+                            -OverridesPath $OverridesPath
                     )
                     $null = Invoke-UngatePickerConfiguration `
                         -Definitions $Definitions `
                         -SettingsPath $PickerSettingsPath `
                         -Capacity $PickerCapacity
+                }
+                continue
+            }
+
+            if ($selectedNumber -eq $changeVersionIndex) {
+                $changed = Invoke-UngateModelVersionConfiguration `
+                    -Context $Context `
+                    -Definitions $Definitions `
+                    -OverridesPath $OverridesPath
+                if ($changed) {
+                    $Definitions = @(
+                        Get-UngateModelDefinitions -Context $Context `
+                            -BuiltInDefinitions $BuiltInDefinitions `
+                            -RegistryPath $RegistryPath `
+                            -OverridesPath $OverridesPath
+                    )
                 }
                 continue
             }
@@ -605,12 +829,13 @@ function Select-UngateDesktopModel {
             }
         }
 
-        Write-Host "Enter a number from 1 to $loggingMenuIndex$fallbackHint or L." -ForegroundColor Yellow
+        Write-Host "Enter a number from 1 to $loggingMenuIndex$fallbackHint or V or L." -ForegroundColor Yellow
     }
 }
 
 Export-ModuleMember -Function @(
     'Invoke-AddUngateModelMode',
+    'Invoke-UngateModelVersionConfiguration',
     'Read-UngatePickerModelSelection',
     'Write-UngatePickerModelSelection',
     'Get-UngatePickerModelDefinitions',

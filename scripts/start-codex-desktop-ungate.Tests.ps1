@@ -693,6 +693,138 @@ env_key = "OMNIROUTE_API_KEY"
     }
 }
 
+Describe 'Launcher model version overrides' {
+    BeforeEach {
+        $script:overridesPath = Join-Path $TestDrive 'ungate-model-overrides.json'
+        $script:testDefs = @(
+            [pscustomobject][ordered]@{
+                Slug = 'grok-4.7'
+                DisplayName = 'Grok 4.7 (CLIProxyAPI)'
+                Description = 'Grok 4.7 through CLIProxyAPI.'
+                UpstreamModel = 'grok-4.7'
+                Aliases = @('grok-4', 'grok')
+                TransportDescription = 'the local CLIProxyAPI bridge'
+                ProviderDisplayName = 'CLIProxyAPI'
+                ContextWindow = 500000
+                MaxContextWindow = 500000
+                Priority = 2
+            }
+            [pscustomobject][ordered]@{
+                Slug = 'ungate-opus-4-8'
+                DisplayName = 'Claude Opus 4.8 (Ungate)'
+                Description = 'Claude Opus 4.8 via Ungate.'
+                UpstreamModel = 'claude-opus-4-8'
+                Aliases = @('opus')
+                TransportDescription = 'the Ungate Responses proxy'
+                ProviderDisplayName = 'Ungate Proxy'
+                ContextWindow = 200000
+                MaxContextWindow = 200000
+                Priority = 1
+            }
+        )
+    }
+
+    It 'parses human-friendly context window token formats' {
+        ConvertTo-ContextWindowTokens -Value '500k' | Should -Be 500000
+        ConvertTo-ContextWindowTokens -Value '500K' | Should -Be 500000
+        ConvertTo-ContextWindowTokens -Value '1M' | Should -Be 1000000
+        ConvertTo-ContextWindowTokens -Value '1m' | Should -Be 1000000
+        ConvertTo-ContextWindowTokens -Value '200000' | Should -Be 200000
+        ConvertTo-ContextWindowTokens -Value ' 128k ' | Should -Be 128000
+        { ConvertTo-ContextWindowTokens -Value 'invalid' } | Should -Throw '*Invalid context window*'
+        { ConvertTo-ContextWindowTokens -Value '-100' } | Should -Throw '*Invalid context window*'
+    }
+
+    It 'returns an empty hashtable when overrides file does not exist' {
+        $overrides = Read-UngateModelOverrides -OverridesPath (Join-Path $TestDrive 'nonexistent.json')
+        $overrides.Count | Should -Be 0
+    }
+
+    It 'sets, persists, and reads back a model override' {
+        $overrideData = [ordered]@{
+            upstreamModel = 'grok-4.8'
+            displayName = 'Grok 4.8 (CLIProxyAPI)'
+            contextWindow = 1000000
+        }
+        $saved = Set-UngateModelOverride -OverridesPath $script:overridesPath -Slug 'grok-4.7' -Override $overrideData
+        Test-Path -LiteralPath $script:overridesPath | Should -BeTrue
+
+        $read = Read-UngateModelOverrides -OverridesPath $script:overridesPath
+        $read.Contains('grok-4.7') | Should -BeTrue
+        $read['grok-4.7'].upstreamModel | Should -Be 'grok-4.8'
+        $read['grok-4.7'].displayName | Should -Be 'Grok 4.8 (CLIProxyAPI)'
+        $read['grok-4.7'].contextWindow | Should -Be 1000000
+    }
+
+    It 'applies overrides to definitions updating upstream model, label, and context window' {
+        $overrideData = [ordered]@{
+            upstreamModel = 'grok-4.8'
+            displayName = 'Grok 4.8 (CLIProxyAPI)'
+            contextWindow = 1000000
+        }
+        $saved = Set-UngateModelOverride -OverridesPath $script:overridesPath -Slug 'grok-4.7' -Override $overrideData
+        $overrides = Read-UngateModelOverrides -OverridesPath $script:overridesPath
+
+        $applied = @(Apply-UngateModelOverrides -Context $script:Context -Definitions $script:testDefs -Overrides $overrides)
+        $grok = $applied | Where-Object { $_.Slug -eq 'grok-4.7' }
+        $grok.UpstreamModel | Should -Be 'grok-4.8'
+        $grok.DisplayName | Should -Be 'Grok 4.8 (CLIProxyAPI)'
+        $grok.ContextWindow | Should -Be 1000000
+        $grok.MaxContextWindow | Should -Be 1000000
+        $grok.IsOverridden | Should -BeTrue
+        $grok.DefaultUpstreamModel | Should -Be 'grok-4.7'
+        $grok.Aliases -contains 'grok-4.8' | Should -BeTrue
+
+        $window = Get-UngateModelContextWindow -Definition $grok
+        $window.Label | Should -Be '1M'
+    }
+
+    It 'removes an override and deletes the file when no overrides remain' {
+        $overrideData = [ordered]@{ upstreamModel = 'grok-4.8' }
+        $null = Set-UngateModelOverride -OverridesPath $script:overridesPath -Slug 'grok-4.7' -Override $overrideData
+        Test-Path -LiteralPath $script:overridesPath | Should -BeTrue
+
+        $null = Remove-UngateModelOverride -OverridesPath $script:overridesPath -Slug 'grok-4.7'
+        Test-Path -LiteralPath $script:overridesPath | Should -BeFalse
+
+        $read = Read-UngateModelOverrides -OverridesPath $script:overridesPath
+        $read.Count | Should -Be 0
+    }
+
+    It 'configures model version non-interactively and allows resetting' {
+        $mockDefs = @(
+            [pscustomobject][ordered]@{
+                Slug = 'grok-4.7'
+                DisplayName = 'Grok 4.7 (CLIProxyAPI)'
+                UpstreamModel = 'grok-4.7'
+                DefaultUpstreamModel = 'grok-4.7'
+            }
+        )
+        $res = Invoke-UngateModelVersionConfiguration `
+            -Context $script:Context `
+            -Definitions $mockDefs `
+            -OverridesPath $script:overridesPath `
+            -TargetModelSlug 'grok-4.7' `
+            -NewUpstreamModel 'grok-4.8'
+        $res | Should -BeTrue
+
+        $overrides = Read-UngateModelOverrides -OverridesPath $script:overridesPath
+        $overrides['grok-4.7'].upstreamModel | Should -Be 'grok-4.8'
+
+        # Reset via non-interactive call
+        $resReset = Invoke-UngateModelVersionConfiguration `
+            -Context $script:Context `
+            -Definitions $mockDefs `
+            -OverridesPath $script:overridesPath `
+            -TargetModelSlug 'grok-4.7' `
+            -NewUpstreamModel 'reset'
+        $resReset | Should -BeTrue
+
+        $overridesAfter = Read-UngateModelOverrides -OverridesPath $script:overridesPath
+        $overridesAfter.Count | Should -Be 0
+    }
+}
+
 Describe 'Desktop picker model selection' {
     BeforeEach {
         $script:pickerDefinitions = @(

@@ -57,8 +57,12 @@ Never store either secret in this repository or in diagnostic output.
 | 9 | Provider fallback (opt-in) | `codex-fallback` | OmniRoute `20128` | Fallback policy chooses the configured upstream; verify the generated route before debugging a provider |
 
 Mode 8 only opens the Desktop model picker. Mode 10 adds a model definition;
-it supports Ungate, CLIProxyAPI, and OmniRoute transports. DeepSeek V4 Pro
-and DeepSeek V4 Flash can be selected via the Desktop model picker (Mode 8)
+it supports Ungate, CLIProxyAPI, and OmniRoute transports.
+Mode 11 (or shortcut `V`) opens "Change model version (upstream slug)", which
+allows re-pointing any model (e.g. Grok or a future release) to a new upstream slug
+discovered in `/v1/models` without changing code. Overrides are persisted in
+`~/.codex-ungate/ungate-model-overrides.json`.
+DeepSeek V4 Pro and DeepSeek V4 Flash can be selected via the Desktop model picker (Mode 8)
 or via `-Model deepseek-v4-pro` / `-Model deepseek-v4-flash` (alias `deepseek-flash`).
 
 ## Route boundaries

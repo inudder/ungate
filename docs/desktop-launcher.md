@@ -219,3 +219,32 @@ when errors are mixed. No tool blocklist is created or modified.
 
 Run `pnpm --filter @ungate/scripts run tool-compatibility:test` for isolated
 Node tests; `launcher:test` also includes the TT PowerShell scenarios.
+
+## Model version and upstream slug overrides
+
+The launcher allows changing a model's upstream version/slug, display label, and
+context window dynamically without editing the codebase.
+
+### Interactive configuration
+- Choose **Change model version (upstream slug)** in the main menu or press **V**.
+- Select the target model.
+- For CLIProxyAPI models, the launcher queries `/v1/models` on the active bridge/upstream
+  and displays all discovered model IDs.
+- Set the new upstream model ID (e.g. `grok-4.8`), optional display label, and optional context
+  window (e.g. `500k`, `1M`, `200k`).
+- To revert back to built-in defaults, enter `reset` or `default`.
+
+### Non-interactive CLI
+```powershell
+# Open version configuration wizard directly
+pwsh .\scripts\start-codex-desktop-ungate.ps1 -ConfigureModel
+
+# Directly set upstream slug for a specific model
+pwsh .\scripts\start-codex-desktop-ungate.ps1 -Model grok-4.7 -SetUpstreamModel grok-4.8
+
+# Reset back to built-in default
+pwsh .\scripts\start-codex-desktop-ungate.ps1 -Model grok-4.7 -SetUpstreamModel reset
+```
+
+Overrides are persisted across launcher sessions in `$CustomCodexHome/ungate-model-overrides.json`.
+When all overrides are removed, the file is automatically cleaned up.

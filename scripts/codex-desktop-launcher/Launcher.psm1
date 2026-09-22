@@ -68,6 +68,7 @@ function Resolve-CodexDesktopSelection {
             -PickerSettingsPath $Context.PickerModelSelectionPath `
             -PickerCapacity $Context.CodexDesktopPickerCapacity `
             -LogSettingsPath $Context.LogSettingsPath `
+            -OverridesPath $Context.CustomModelOverridesPath `
             -IncludeProviderFallback `
             -ProviderFallbackModel $Context.OmniRouteFallbackModel
 
@@ -78,7 +79,8 @@ function Resolve-CodexDesktopSelection {
             $AllUngateModelDefinitions = @(
                 Get-UngateModelDefinitions -Context $Context `
                     -BuiltInDefinitions $ModelSet.BuiltInDefinitions `
-                    -RegistryPath $Context.CustomModelDefinitionsPath
+                    -RegistryPath $Context.CustomModelDefinitionsPath `
+                    -OverridesPath $Context.CustomModelOverridesPath
             )
         }
         $Selection.Definitions = @(Get-ActiveDesktopModelDefinitions -Context $Context -Definitions $AllUngateModelDefinitions -Selection $Selection)
@@ -177,9 +179,14 @@ function Initialize-CodexDesktopTransport {
             else {
                 # CLIProxyAPI discovery is dynamic, so live Responses inference is authoritative.
                 Write-Host "[ungate] Proxy healthy at $($Selection.SelectedModel.ProxyBaseUrl)." -ForegroundColor Green
+                $modelToProbe = if ($Selection.SelectedModel.PSObject.Properties['UpstreamModel'] -and $Selection.SelectedModel.UpstreamModel) {
+                    $Selection.SelectedModel.UpstreamModel
+                } else {
+                    $Selection.SelectedModel.Slug
+                }
                 Invoke-CliProxyPreflight `
                     -Key $selectedKey `
-                    -Model $Selection.SelectedModel.Slug `
+                    -Model $modelToProbe `
                     -ProxyBaseUrl $Selection.SelectedModel.ProxyBaseUrl
             }
 
@@ -347,6 +354,25 @@ function Invoke-CodexDesktopLauncher {
             throw "-AddModel cannot be combined with: $($conflictingParameters -join ', ')."
         }
         $null = Invoke-AddUngateModelMode -Context $Context -RegistryPath $Context.CustomModelDefinitionsPath -BuiltInDefinitions $modelSet.BuiltInDefinitions
+        return 0
+    }
+
+    if ($Context.Options.ConfigureModel -or $Context.BoundParameterNames.Contains('SetUpstreamModel')) {
+        $conflictingParameters = @(
+            'ApiKey', 'PrepareOnly', 'SkipWorkspaceRestore', 'EnableProviderFallback', 'AddModel', 'TestTools'
+        ) | Where-Object { $Context.BoundParameterNames.Contains($_) }
+        if ($conflictingParameters.Count -gt 0) {
+            throw "-ConfigureModel/-SetUpstreamModel cannot be combined with: $($conflictingParameters -join ', ')."
+        }
+        $defs = @(Get-UngateModelDefinitions -Context $Context -BuiltInDefinitions $modelSet.BuiltInDefinitions -RegistryPath $Context.CustomModelDefinitionsPath -OverridesPath $Context.CustomModelOverridesPath)
+        $targetSlug = if ($Context.BoundParameterNames.Contains('Model')) { $Context.Options.Model } else { $null }
+        $newUpstream = if ($Context.BoundParameterNames.Contains('SetUpstreamModel')) { $Context.Options.SetUpstreamModel } else { $null }
+        $null = Invoke-UngateModelVersionConfiguration `
+            -Context $Context `
+            -Definitions $defs `
+            -OverridesPath $Context.CustomModelOverridesPath `
+            -TargetModelSlug $targetSlug `
+            -NewUpstreamModel $newUpstream
         return 0
     }
 

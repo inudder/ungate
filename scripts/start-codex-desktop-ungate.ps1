@@ -38,6 +38,15 @@
     inside CustomCodexHome. This mode does not prepare configuration or launch
     Codex Beta.
 
+.PARAMETER ConfigureModel
+    Start an interactive wizard to configure a model's upstream version/slug,
+    display label, or context window. Overrides are persisted across launcher runs.
+
+.PARAMETER SetUpstreamModel
+    Directly set the upstream model ID for the model selected with -Model
+    (example: -Model grok-4.7 -SetUpstreamModel grok-4.8). Pass 'reset' or
+    'default' to revert back to the built-in upstream model.
+
 .PARAMETER TestTools
     Test the cached Codex Beta tool schemas without launching or stopping Desktop.
     With -Model, test one registry model noninteractively; otherwise select models.
@@ -62,6 +71,12 @@
     pwsh J:\Dev\ungate-local\scripts\start-codex-desktop-ungate.ps1 -AddModel
 
 .EXAMPLE
+    pwsh J:\Dev\ungate-local\scripts\start-codex-desktop-ungate.ps1 -ConfigureModel
+
+.EXAMPLE
+    pwsh J:\Dev\ungate-local\scripts\start-codex-desktop-ungate.ps1 -Model grok-4.7 -SetUpstreamModel grok-4.8
+
+.EXAMPLE
     pwsh J:\Dev\ungate-local\scripts\start-codex-desktop-ungate.ps1 -EnableProviderFallback
 #>
 [CmdletBinding()]
@@ -71,6 +86,8 @@ param(
     [string]$CustomCodexHome = (Join-Path $HOME '.codex-ungate'),
     [ValidateSet('Full', 'Standard', 'Compact', 'Minimal', 'Off', 'Errors', '')][string]$LogLevel,
     [switch]$AddModel,
+    [switch]$ConfigureModel,
+    [string]$SetUpstreamModel,
     [switch]$TestTools,
     [switch]$PrepareOnly,
     [switch]$SkipWorkspaceRestore,

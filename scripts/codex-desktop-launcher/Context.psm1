@@ -93,6 +93,8 @@ function New-CodexDesktopLaunchContext {
         SkipWorkspaceRestore = $false
         EnableProviderFallback = $false
         NoLogWatch = $false
+        ConfigureModel = $false
+        SetUpstreamModel = ''
     }
     foreach ($name in @($options.Keys)) {
         if ($name -in $LaunchParameters.Keys) { $options[$name] = $LaunchParameters[$name] }
@@ -106,6 +108,7 @@ function New-CodexDesktopLaunchContext {
     $DefaultModelCachePath = Join-Path $DefaultCodexHome 'models_cache.json'
     $CustomModelCatalogPath = Join-Path $CustomCodexHome 'ungate-models.json'
     $CustomModelDefinitionsPath = Join-Path $CustomCodexHome 'ungate-model-definitions.json'
+    $CustomModelOverridesPath = Join-Path $CustomCodexHome 'ungate-model-overrides.json'
     $PickerModelSelectionPath = Join-Path $CustomCodexHome 'ungate-picker-models.json'
     $LogSettingsPath = Join-Path $CustomCodexHome 'ungate-log-settings.json'
     $CustomGlobalStatePath = Join-Path $CustomCodexHome '.codex-global-state.json'
@@ -157,6 +160,7 @@ function New-CodexDesktopLaunchContext {
         DefaultModelCachePath = $DefaultModelCachePath
         CustomModelCatalogPath = $CustomModelCatalogPath
         CustomModelDefinitionsPath = $CustomModelDefinitionsPath
+        CustomModelOverridesPath = $CustomModelOverridesPath
         PickerModelSelectionPath = $PickerModelSelectionPath
         LogSettingsPath = $LogSettingsPath
         CustomGlobalStatePath = $CustomGlobalStatePath
