@@ -202,7 +202,7 @@ function Test-CliProxyResponsesInference {
             Where-Object { $_.type -eq 'output_text' } |
             ForEach-Object { [string]$_.text }
     ) -join ''
-    if ($outputText.Trim() -ne 'OK') {
+    if ($outputText.Trim().TrimEnd('.') -ne 'OK') {
         throw "CLIProxyAPI /v1/responses returned unexpected preflight output for model '$Model'."
     }
 

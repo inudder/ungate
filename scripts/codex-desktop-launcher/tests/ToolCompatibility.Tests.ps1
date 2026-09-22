@@ -19,9 +19,9 @@ Describe 'Standalone tool compatibility orchestration' {
     }
     It 'runs standalone for one model and preserves its result' {
         Mock -ModuleName Launcher Invoke-CodexToolCompatibility { return 2 }
-        $context = New-ToolTestContext @{ TestTools = $true; Model = 'grok-4.6' }
+        $context = New-ToolTestContext @{ TestTools = $true; Model = 'grok-4.7' }
         Invoke-CodexDesktopLauncher -Context $context | Should -Be 2
-        Should -Invoke -ModuleName Launcher Invoke-CodexToolCompatibility -Times 1 -ParameterFilter { $Model -eq 'grok-4.6' -and $Definitions.Count -gt 0 }
+        Should -Invoke -ModuleName Launcher Invoke-CodexToolCompatibility -Times 1 -ParameterFilter { $Model -eq 'grok-4.7' -and $Definitions.Count -gt 0 }
         Test-Path -LiteralPath $context.CustomCodexHome | Should -BeFalse
     }
     It 'does not select the normal default model when Model is omitted' {

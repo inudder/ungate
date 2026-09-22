@@ -164,7 +164,7 @@ start a new task if an older task contains duplicate calls/results.
 
 ```powershell
 pwsh -NoProfile -File J:\Dev\ungate-local\scripts\start-codex-desktop-ungate.ps1 -TestTools
-pwsh -NoProfile -File J:\Dev\ungate-local\scripts\start-codex-desktop-ungate.ps1 -TestTools -Model grok-4.6
+pwsh -NoProfile -File J:\Dev\ungate-local\scripts\start-codex-desktop-ungate.ps1 -TestTools -Model grok-4.7
 ```
 
 `-TestTools -Model <registry-id-or-alias>` is noninteractive. Unknown or

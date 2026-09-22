@@ -115,19 +115,19 @@ if ($before -cne $after) { throw 'Import changed environment' }
     It 'keeps route boundaries and shell mappings for Ungate, Grok and Mimo' {
         $context = New-TestContext
         $models = (New-UngateModelSet -Context $context).BuiltInDefinitions
-        $definitions = @($models | Where-Object Slug -In @('miniMax-M3', 'grok-4.6', 'mimo-v2.5-pro'))
+        $definitions = @($models | Where-Object Slug -In @('miniMax-M3', 'grok-4.7', 'mimo-v2.5-pro'))
         $selection = [pscustomobject]@{ Definitions = @(Set-CodexModelShellSlugs -Context $context -Definitions $definitions); EnableProviderFallback = $false }
         $routes = @(Get-CodexModelShellRoutes -Selection $selection)
         @($routes.clientModel) | Should -Be @('gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna')
         @($routes.upstreamBaseUrl) | Should -Be @('http://127.0.0.1:47821', 'http://127.0.0.1:8318', 'http://127.0.0.1:20128')
-        @($routes.upstreamModel) | Should -Be @('miniMax-M3', 'grok-4.6', 'mimo-v2.5-pro')
+        @($routes.upstreamModel) | Should -Be @('miniMax-M3', 'grok-4.7', 'mimo-v2.5-pro')
         $routes[0].responsesAdapter | Should -BeNullOrEmpty
         $routes[1].responsesAdapter | Should -BeNullOrEmpty
         $routes[2].responsesAdapter | Should -Be 'mimo-textual-tools'
     }
 
     It 'preserves managed provider TOML and unrelated tables' {
-        $context = New-TestContext @{ Model = 'grok-4.6' }
+        $context = New-TestContext @{ Model = 'grok-4.7' }
         $selection = Get-TestSelection $context
         $content = "model = 'old'`r`n[other]`r`nkeep = true`r`n[model_providers.omniroute]`r`nname = 'old'`r`n"
         $expected = "model = 'old'`r`n[other]`r`nkeep = true`r`n[model_providers.ungate_model_shell_router]`nname = `"Ungate Codex Model Router`"`nbase_url = `"http://127.0.0.1:8319/v1`"`nenv_key = `"UNGATE_API_KEY`"`nwire_api = `"responses`"`r`n"
@@ -135,8 +135,8 @@ if ($before -cne $after) { throw 'Import changed environment' }
     }
 
     It 'distinguishes omitted Model from explicitly passing the default' {
-        Mock -ModuleName Launcher Select-UngateDesktopModel { 'grok-4.6' }
-        (Get-TestSelection (New-TestContext)).SelectedModel.Slug | Should -Be 'grok-4.6'
+        Mock -ModuleName Launcher Select-UngateDesktopModel { 'grok-4.7' }
+        (Get-TestSelection (New-TestContext)).SelectedModel.Slug | Should -Be 'grok-4.7'
         (Get-TestSelection (New-TestContext @{Model='ungate-opus-4-8'})).SelectedModel.Slug | Should -Be 'ungate-opus-4-8'
         Should -Invoke -ModuleName Launcher Select-UngateDesktopModel -Times 1 -Exactly
     }
@@ -151,7 +151,7 @@ if ($before -cne $after) { throw 'Import changed environment' }
         Mock -ModuleName Launcher Select-UngateDesktopModel { 'codex-fallback' }
         $context = New-TestContext
         $first = Get-TestSelection $context
-        $second = Get-TestSelection (New-TestContext @{Model='grok-4.6'})
+        $second = Get-TestSelection (New-TestContext @{Model='grok-4.7'})
         $first.EnableProviderFallback | Should -BeTrue
         $first.LaunchModel | Should -Be 'codex-fallback'
         $second.EnableProviderFallback | Should -BeFalse
@@ -193,19 +193,19 @@ Describe 'Orchestration without production side effects' {
     }
 
     It 'closes Desktop before transport preparation and launches after profile preparation' {
-        $context = New-TestContext @{Model='grok-4.6';NoLogWatch=$true}
+        $context = New-TestContext @{Model='grok-4.7';NoLogWatch=$true}
         Invoke-CodexDesktopLauncher -Context $context | Should -Be 0
         @($script:events) | Should -Be @('stop', "transport:$($context.CustomCodexHome)", "profile:$($context.CustomCodexHome)", "launch:$($context.CustomCodexHome)")
     }
 
     It 'keeps profile failure terminating and does not launch' {
         Mock -ModuleName Launcher Initialize-CodexDesktopProfile { throw 'profile rejected' }
-        { Invoke-CodexDesktopLauncher -Context (New-TestContext @{Model='grok-4.6'}) } | Should -Throw '*profile rejected*'
+        { Invoke-CodexDesktopLauncher -Context (New-TestContext @{Model='grok-4.7'}) } | Should -Throw '*profile rejected*'
         Should -Invoke -ModuleName Launcher Start-CodexDesktopSession -Times 0
     }
 
     It 'runs two complete preparations with independent contexts in one process' {
-        $one = New-TestContext @{PrepareOnly=$true;Model='grok-4.6'} 'one'
+        $one = New-TestContext @{PrepareOnly=$true;Model='grok-4.7'} 'one'
         $two = New-TestContext @{PrepareOnly=$true;EnableProviderFallback=$true} 'two'
         Invoke-CodexDesktopLauncher -Context $one | Should -Be 0
         Invoke-CodexDesktopLauncher -Context $two | Should -Be 0
@@ -255,7 +255,7 @@ Describe 'Complete preparation on disposable profiles' {
     }
 
     It 'writes and validates the complete <Mode> profile without live services' -ForEach @(
-        @{Mode='router';Options=@{PrepareOnly=$true;Model='grok-4.6'};ExpectedProvider='ungate_model_shell_router';ExpectedCount=7;ExpectedModel='gpt-5.5'},
+        @{Mode='router';Options=@{PrepareOnly=$true;Model='grok-4.7'};ExpectedProvider='ungate_model_shell_router';ExpectedCount=7;ExpectedModel='gpt-5.5'},
         @{Mode='fallback';Options=@{PrepareOnly=$true;EnableProviderFallback=$true};ExpectedProvider='omniroute';ExpectedCount=11;ExpectedModel='codex-fallback'}
     ) {
         $context = New-TestContext $Options $Mode
@@ -282,7 +282,7 @@ Describe 'Complete preparation on disposable profiles' {
 
 Describe 'Transport preparation policies' {
     BeforeEach {
-        $script:context = New-TestContext @{Model='grok-4.6'}
+        $script:context = New-TestContext @{Model='grok-4.7'}
         $script:selection = Get-TestSelection $script:context
         Mock -ModuleName Launcher Resolve-ModelApiKey { 'test-key' }
         Mock -ModuleName Launcher Ensure-CliProxyBridge {}
@@ -340,7 +340,7 @@ Describe 'Desktop OmniRoute preflight remains distinct' {
 Describe 'Runtime process ownership guards' {
     BeforeEach {
         $script:context = New-TestContext
-        $script:selection = Get-TestSelection (New-TestContext @{Model='grok-4.6'})
+        $script:selection = Get-TestSelection (New-TestContext @{Model='grok-4.7'})
         Mock -ModuleName ProxyRuntime Invoke-RestMethod { @{data=@()} }
         Mock -ModuleName ProxyRuntime Test-LocalTcpListener { $true }
         Mock -ModuleName ProxyRuntime Stop-Process { throw 'Must not stop any process' }
@@ -377,7 +377,7 @@ Describe 'Runtime process ownership guards' {
 Describe 'Transport startup failures' {
     BeforeEach {
         $script:context = New-TestContext
-        $script:selection = Get-TestSelection (New-TestContext @{Model='grok-4.6'})
+        $script:selection = Get-TestSelection (New-TestContext @{Model='grok-4.7'})
         $script:process = [pscustomobject]@{ Id=987; HasExited=$true; ExitCode=23 }
         $script:process | Add-Member -MemberType ScriptMethod -Name Refresh -Value {}
         Mock -ModuleName ProxyRuntime Test-LocalTcpListener { $false }
@@ -482,7 +482,7 @@ Describe 'Session logging precedence' {
     }
 
     It 'honors NoLogWatch before explicit logging and does not rewrite settings' {
-        $context = New-TestContext @{Model='grok-4.6';NoLogWatch=$true;LogLevel='Full'}
+        $context = New-TestContext @{Model='grok-4.7';NoLogWatch=$true;LogLevel='Full'}
         $selection = Get-TestSelection $context
         & (Get-Module Launcher) { param($c,$s) Start-CodexDesktopSession -Context $c -Selection $s -codexBeta ([pscustomobject]@{ExecutablePath='test.exe'}) -providerKeys @{} } $context $selection
         Should -Invoke -ModuleName Launcher Watch-CodexActivity -Times 0
@@ -490,7 +490,7 @@ Describe 'Session logging precedence' {
     }
 
     It 'uses the explicit log level instead of saved settings' {
-        $context = New-TestContext @{Model='grok-4.6';LogLevel='Full'}
+        $context = New-TestContext @{Model='grok-4.7';LogLevel='Full'}
         $selection = Get-TestSelection $context
         & (Get-Module Launcher) { param($c,$s) Start-CodexDesktopSession -Context $c -Selection $s -codexBeta ([pscustomobject]@{ExecutablePath='test.exe'}) -providerKeys @{} } $context $selection
         Should -Invoke -ModuleName Launcher Watch-CodexActivity -Times 1 -Exactly -ParameterFilter { $LogLevel -eq 'Full' }
@@ -498,14 +498,14 @@ Describe 'Session logging precedence' {
     }
 
     It 'uses saved settings when explicit LogLevel is empty' {
-        $context = New-TestContext @{Model='grok-4.6';LogLevel=''}
+        $context = New-TestContext @{Model='grok-4.7';LogLevel=''}
         $selection = Get-TestSelection $context
         & (Get-Module Launcher) { param($c,$s) Start-CodexDesktopSession -Context $c -Selection $s -codexBeta ([pscustomobject]@{ExecutablePath='test.exe'}) -providerKeys @{} } $context $selection
         Should -Invoke -ModuleName Launcher Watch-CodexActivity -Times 1 -Exactly -ParameterFilter { $LogLevel -eq 'Compact' }
     }
 
     It 'does not watch when logging is Off' {
-        $context = New-TestContext @{Model='grok-4.6';LogLevel='Off'}
+        $context = New-TestContext @{Model='grok-4.7';LogLevel='Off'}
         $selection = Get-TestSelection $context
         & (Get-Module Launcher) { param($c,$s) Start-CodexDesktopSession -Context $c -Selection $s -codexBeta ([pscustomobject]@{ExecutablePath='test.exe'}) -providerKeys @{} } $context $selection
         Should -Invoke -ModuleName Launcher Watch-CodexActivity -Times 0
@@ -515,7 +515,7 @@ Describe 'Session logging precedence' {
 Describe 'Environment restoration on failure' {
     It 'restores CODEX_HOME and provider keys after config validation throws' {
         Import-Module (Join-Path $script:moduleRoot 'Catalog.psm1') -DisableNameChecking
-        $context = New-TestContext @{Model='grok-4.6'}
+        $context = New-TestContext @{Model='grok-4.7'}
         $selection = Get-TestSelection $context
         $context.DefaultModelCachePath = Join-Path $TestDrive 'model-template.json'
         $context.CustomModelCatalogPath = Join-Path $TestDrive 'model-catalog.json'

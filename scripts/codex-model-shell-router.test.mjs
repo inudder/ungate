@@ -45,7 +45,7 @@ test('only DeepSeek Responses routes reorder historical tool results', async () 
 		response.end(sse('response.completed', { response: { status: 'completed' } }));
 	});
 	const upstreamPort = await listen(upstream);
-	const models = ['deepseek/deepseek-v4-pro', 'deepseek/deepseek-v4-flash', 'grok-4.6'];
+	const models = ['deepseek/deepseek-v4-pro', 'deepseek/deepseek-v4-flash', 'grok-4.7'];
 	const router = createShellRouterServer({
 		routes: models.map((model) => ({
 			clientModel: model,
@@ -173,7 +173,7 @@ test('preserves streaming upstream responses and rejects unmapped models', async
 		routes: [
 			{
 				clientModel: 'gpt-5.6-terra',
-				upstreamModel: 'grok-4.6',
+				upstreamModel: 'grok-4.7',
 				upstreamBaseUrl: `http://127.0.0.1:${upstreamPort}`,
 				apiKey: 'target-key'
 			}

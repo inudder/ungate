@@ -9,12 +9,12 @@ and `ProxyRuntime.psm1` for transport startup and preflight. See
 model/provider matrix and external-directory map are maintained in
 `J:\Dev\ungate-local\docs\model-routing.md`.
 
-Bridge versus adapter, why Grok 4.6 has a hop, and where each model's tool
+Bridge versus adapter, why Grok 4.7 has a hop, and where each model's tool
 compatibility lives: `docs/model-routing.md#bridges-vs-adapters`.
 
 When investigating a model, follow its actual route before changing code:
 
-- Mode 3, Grok 4.6 (CLIProxyAPI): model-shell router `8319` -> local
+- Mode 3, Grok 4.7 (CLIProxyAPI): model-shell router `8319` -> local
   namespace bridge `8318` -> CLIProxyAPI upstream `8317`; inspect
   `J:\Sandbox\CLIProxyAPI` first, then
   `scripts\cliproxy-namespace-bridge.mjs` and
@@ -76,7 +76,7 @@ Inspect logs in this order:
    `C:\Users\kalvinclein\AppData\Local\Packages\OpenAI.CodexBeta_2p2nqsd0c76g0\LocalCache\Local\Codex\Logs\YYYY\MM\DD\codex-desktop-*.log`
 3. Local model-shell router lifecycle and request timings:
    `C:\Users\kalvinclein\.codex-ungate\logs\codex-model-shell-router.out.log`
-4. Grok 4.6 / CLIProxy bridge (mode 3 only):
+4. Grok 4.7 / CLIProxy bridge (mode 3 only):
    `C:\Users\kalvinclein\.codex-ungate\logs\cliproxy-namespace-bridge.out.log`
 5. For Mimo and other OmniRoute routes, also inspect OmniRoute request/response
    records (upstream status, timing, token counts, finish reason, disconnects):
@@ -158,7 +158,7 @@ by the API process.
 ## CLIProxy namespace bridge
 
 `scripts/cliproxy-namespace-bridge.mjs` is a local compatibility proxy for
-CLIProxyAPI models, currently Grok 4.6. The Desktop launcher starts or reuses
+CLIProxyAPI models, currently Grok 4.7. The Desktop launcher starts or reuses
 it on port `8318`; it forwards to CLIProxyAPI on port `8317`.
 
 Why this hop exists, how it differs from the Mimo adapter, and which models

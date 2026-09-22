@@ -91,13 +91,13 @@
       "SupportedReasoningLevels": null
     },
     {
-      "Slug": "grok-4.6",
-      "DisplayName": "Grok 4.6 (CLIProxyAPI)",
-      "Description": "Grok 4.6 through the local CLIProxyAPI compatibility bridge on port 8318.",
-      "UpstreamModel": "grok-4.6",
+      "Slug": "grok-4.7",
+      "DisplayName": "Grok 4.7 (CLIProxyAPI)",
+      "Description": "Grok 4.7 through the local CLIProxyAPI compatibility bridge on port 8318.",
+      "UpstreamModel": "grok-4.7",
       "Aliases": null,
       "TransportDescription": "the local CLIProxyAPI compatibility bridge",
-      "IdentitySha256": "bfebd14e754815246b53ee04e236dc4132adae318218da907c1e3501e2e9bdf3",
+      "IdentitySha256": "ce371c1e54c4cddd3c1764f398cfc2f734919864cfec4ed8cb6cdd741cc992fe",
       "DefaultReasoningLevel": "high",
       "Priority": 3,
       "InputModalities": [

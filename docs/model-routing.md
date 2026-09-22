@@ -47,7 +47,7 @@ Never store either secret in this repository or in diagnostic output.
 | --- | --- | --- | --- | --- |
 | 1 | Claude Fable 5 (Ungate) | `claude-fable-5` | Ungate proxy `47821` | None in model-shell router; compatibility belongs to `apps\api` |
 | 2 | MiniMax M3 (Ungate) | Launcher leaves id unset; API normalizes it | Ungate proxy `47821` | MiniMax inline Responses parser in `apps\api`; do not use Mimo adapter; 1M context window (official MiniMax Codex `model_context_window`) |
-| 3 | Grok 4.6 (CLIProxyAPI) | `grok-4.6` | Router `8319` -> bridge `8318` -> CLIProxyAPI `8317` | CLIProxy namespace bridge only; no Mimo adapter; 500k context window (conservative until xAI publishes the 4.6 model card) |
+| 3 | Grok 4.7 (CLIProxyAPI) | `grok-4.7` | Router `8319` -> bridge `8318` -> CLIProxyAPI `8317` | CLIProxy namespace bridge only; no Mimo adapter; 500k context window |
 | 4 | Kimi K3 (OmniRoute) | `apikey-fun/kimi-k3` | OmniRoute `20128` | No route-specific stream adapter |
 | 5 | Grok 4.5 (apikey.fun) | `apikey-fun/grok-4.5` | OmniRoute `20128` | No route-specific stream adapter |
 | 6 | Claude Opus 5 (apikey.fun) | `apikey-fun/claude-opus-5` | OmniRoute `20128` | No route-specific stream adapter |
@@ -105,9 +105,9 @@ There is currently one adapter: `scripts/mimo-responses-stream-adapter.mjs`
 `20128`; the adapter converts Chat Completions or textual/native tool calls
 into Codex Responses SSE.
 
-### Why Grok 4.6 needs a bridge
+### Why Grok 4.7 needs a bridge
 
-Grok 4.6 is the only launcher model that terminates on CLIProxyAPI (xAI CLI
+Grok 4.7 is the only launcher model that terminates on CLIProxyAPI (xAI CLI
 chat proxy), not Ungate API and not OmniRoute.
 
 Codex Desktop Responses sends MCP tools as `type: "namespace"` (nested
@@ -164,7 +164,7 @@ not rebuild or restart `ungate-api` for bridge-only changes.
 
 ## Where to look first
 
-### Grok 4.6 (CLIProxyAPI), mode 3
+### Grok 4.7 (CLIProxyAPI), mode 3
 
 1. `J:\Sandbox\CLIProxyAPI` for upstream configuration, provider auth, model
    availability, and upstream logs.
@@ -180,7 +180,7 @@ not rebuild or restart `ungate-api` for bridge-only changes.
 
 CLIProxyAPI builds `/v1/models` from credentials that are currently eligible,
 so a temporarily expired, disabled, or quota-limited xAI credential can remove
-`grok-4.6` from discovery. The launcher treats discovery as advisory and uses
+`grok-4.7` from discovery. The launcher treats discovery as advisory and uses
 the authenticated text and tool-call `/v1/responses` probes as the authoritative
 preflight. An `auth_unavailable` response still fails preflight and requires xAI
 reauthentication in CLIProxyAPI.

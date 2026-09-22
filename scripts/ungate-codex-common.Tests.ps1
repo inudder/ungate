@@ -246,13 +246,13 @@ Describe 'Invoke-CliProxyPreflight' {
         {
             Invoke-CliProxyPreflight `
                 -Key 'test-key' `
-                -Model 'grok-4.6' `
+                -Model 'grok-4.7' `
                 -ProxyBaseUrl 'http://127.0.0.1:8318'
         } | Should -Not -Throw
 
         Should -Invoke Test-CliProxyResponsesInference -Times 1 -Exactly -ParameterFilter {
             $Key -eq 'test-key' -and
-            $Model -eq 'grok-4.6' -and
+            $Model -eq 'grok-4.7' -and
             $ProxyOpenAiBaseUrl -eq 'http://127.0.0.1:8318/v1'
         }
         Should -Invoke Write-Host -ParameterFilter {
@@ -266,13 +266,13 @@ Describe 'Invoke-CliProxyPreflight' {
         {
             Invoke-CliProxyPreflight `
                 -Key 'test-key' `
-                -Model 'grok-4.6' `
+                -Model 'grok-4.7' `
                 -ProxyBaseUrl 'http://127.0.0.1:8318'
         } | Should -Not -Throw
 
         Should -Invoke Test-CliProxyResponsesInference -Times 1 -Exactly
         Should -Invoke Write-Host -ParameterFilter {
-            $Object -like "*Could not validate model 'grok-4.6'*" -and
+            $Object -like "*Could not validate model 'grok-4.7'*" -and
             $ForegroundColor -eq 'Yellow'
         }
     }
@@ -280,18 +280,18 @@ Describe 'Invoke-CliProxyPreflight' {
     It 'reports a catalog match before running live inference' {
         Mock Invoke-RestMethod {
             [pscustomobject]@{
-                data = @([pscustomobject]@{ id = 'grok-4.6' })
+                data = @([pscustomobject]@{ id = 'grok-4.7' })
             }
         }
 
         Invoke-CliProxyPreflight `
             -Key 'test-key' `
-            -Model 'grok-4.6' `
+            -Model 'grok-4.7' `
             -ProxyBaseUrl 'http://127.0.0.1:8318'
 
         Should -Invoke Test-CliProxyResponsesInference -Times 1 -Exactly
         Should -Invoke Write-Host -ParameterFilter {
-            $Object -eq "[ungate] Model 'grok-4.6' available." -and
+            $Object -eq "[ungate] Model 'grok-4.7' available." -and
             $ForegroundColor -eq 'Green'
         }
     }

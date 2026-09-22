@@ -64,12 +64,12 @@ function New-UngateModelSet {
         }
         [pscustomobject][ordered]@{
             # Upstream id accepted by CLIProxyAPI; its dynamic catalog can omit usable models.
-            Slug = 'grok-4.6'
-            DisplayName = 'Grok 4.6 (CLIProxyAPI)'
-            Description = 'Grok 4.6 through the local CLIProxyAPI compatibility bridge on port 8318.'
+            Slug = 'grok-4.7'
+            DisplayName = 'Grok 4.7 (CLIProxyAPI)'
+            Description = 'Grok 4.7 through the local CLIProxyAPI compatibility bridge on port 8318.'
             ContextWindow = 500000
             MaxContextWindow = 500000
-            UpstreamModel = 'grok-4.6'
+            UpstreamModel = 'grok-4.7'
             TransportDescription = 'the local CLIProxyAPI compatibility bridge'
             DefaultReasoningLevel = 'high'
             Priority = 3

@@ -162,7 +162,7 @@ Describe 'Optional OmniRoute provider fallback' {
             '-NoProfile',
             '-File', $script:launcherPath,
             '-EnableProviderFallback',
-            '-Model', 'grok-4.6',
+            '-Model', 'grok-4.7',
             '-CustomCodexHome', $customHome
         )
 
@@ -235,8 +235,8 @@ Describe 'Custom launcher model registry' {
                 Priority = 0
             }
             [pscustomobject][ordered]@{
-                Slug = 'grok-4.6'
-                DisplayName = 'Grok 4.6 (CLIProxyAPI)'
+                Slug = 'grok-4.7'
+                DisplayName = 'Grok 4.7 (CLIProxyAPI)'
                 Priority = 1
             }
         )
@@ -252,7 +252,7 @@ Describe 'Custom launcher model registry' {
         )
 
         $definitions | Should -HaveCount 2
-        @($definitions.Slug) | Should -Be @('ungate-opus-4-8', 'grok-4.6')
+        @($definitions.Slug) | Should -Be @('ungate-opus-4-8', 'grok-4.7')
     }
 
     It 'round-trips a versioned registry without losing persisted fields' {
@@ -311,7 +311,7 @@ Describe 'Custom launcher model registry' {
         $definitions | Should -HaveCount 4
         @($definitions.Slug) | Should -Be @(
             'ungate-opus-4-8',
-            'grok-4.6',
+            'grok-4.7',
             'ungate-opus-5',
             'custom-text-model'
         )
@@ -532,13 +532,13 @@ env_key = "OMNIROUTE_API_KEY"
     It 'allocates stable official shell IDs for provider models' {
         $definitions = @(
             [pscustomobject]@{ Slug = 'ungate-opus-4-8' },
-            [pscustomobject]@{ Slug = 'grok-4.6' },
+            [pscustomobject]@{ Slug = 'grok-4.7' },
             [pscustomobject]@{ Slug = 'miniMax-M3' }
         )
 
         $mapped = @(Set-CodexModelShellSlugs -Context $script:Context -Definitions $definitions)
 
-        @($mapped.Slug) | Should -Be @('ungate-opus-4-8', 'grok-4.6', 'miniMax-M3')
+        @($mapped.Slug) | Should -Be @('ungate-opus-4-8', 'grok-4.7', 'miniMax-M3')
         @($mapped.ShellSlug) | Should -Be @('gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna')
     }
 
@@ -667,8 +667,8 @@ env_key = "OMNIROUTE_API_KEY"
                 MaxContextWindow = 1000000
             }
             [pscustomobject]@{
-                Slug = 'grok-4.6'
-                DisplayName = 'Grok 4.6 (CLIProxyAPI)'
+                Slug = 'grok-4.7'
+                DisplayName = 'Grok 4.7 (CLIProxyAPI)'
                 ContextWindow = 500000
                 MaxContextWindow = 500000
             }
@@ -688,7 +688,7 @@ env_key = "OMNIROUTE_API_KEY"
         $selected | Should -BeExactly 'miniMax-M3'
         $menu = $script:hostLines -join "`n"
         $menu | Should -Match 'MiniMax M3 \(Ungate\) \(default\)  \[1M\]'
-        $menu | Should -Match 'Grok 4.6 \(CLIProxyAPI\)  \[500k\]'
+        $menu | Should -Match 'Grok 4.7 \(CLIProxyAPI\)  \[500k\]'
         $menu | Should -Match 'Claude Fable 5 \(Ungate\)  \[200k\]'
     }
 }
@@ -897,7 +897,7 @@ Describe 'Codex launcher history profile' {
             [pscustomobject]@{ Slug = 'ungate-opus-4-8'; Provider = 'ungate_proxy' }
             [pscustomobject]@{ Slug = 'ungate-fable-5'; Provider = 'ungate_proxy' }
             [pscustomobject]@{ Slug = 'miniMax-M3'; Provider = 'ungate_proxy' }
-            [pscustomobject]@{ Slug = 'grok-4.6'; Provider = 'cliproxyapi' }
+            [pscustomobject]@{ Slug = 'grok-4.7'; Provider = 'cliproxyapi' }
         )
 
         $profiles = @(
@@ -924,7 +924,7 @@ Describe 'Codex launcher history profile' {
         $profile = Get-CodexHistoryProfileInfo `
             -HomePath $separateHome `
             -CanonicalHomePath $canonicalHome `
-            -ModelSlug 'grok-4.6' `
+            -ModelSlug 'grok-4.7' `
             -ProviderName 'cliproxyapi'
 
         $profile.IsCanonical | Should -BeFalse
@@ -1261,12 +1261,12 @@ url = "https://mcp.context7.com/mcp"
 }
 
 Describe 'Ungate environment source-edit instructions' {
-    It 'tells Grok 4.6 to use MCP apply_patch and never wrap patches in exec template literals' {
+    It 'tells Grok 4.7 to use MCP apply_patch and never wrap patches in exec template literals' {
         $script:Context.UngateEnvironmentInstruction | Should -Not -BeNullOrEmpty
 
         $identity = Get-UngateModelIdentity -Context $script:Context `
-            -DisplayName 'Grok 4.6 (CLIProxyAPI)' `
-            -UpstreamModel 'grok-4.6' `
+            -DisplayName 'Grok 4.7 (CLIProxyAPI)' `
+            -UpstreamModel 'grok-4.7' `
             -ProviderDisplayName 'CLIProxyAPI' `
             -TransportDescription 'the local CLIProxyAPI compatibility bridge'
 

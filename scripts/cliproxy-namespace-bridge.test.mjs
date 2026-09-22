@@ -291,7 +291,7 @@ test('injects native wait when chat stop has no tool call after an unresolved yi
 		{
 			yieldCellId: '11',
 			waitToolAvailable: true,
-			model: 'grok-4.6',
+			model: 'grok-4.7',
 			logger: {
 				log(message) {
 					logs.push(message);
@@ -381,7 +381,7 @@ test('injects native wait on Chat SSE stop after an unresolved yield', async () 
 			}),
 			'data: [DONE]\n\n'
 		],
-		{ yieldCellId: '11', waitToolAvailable: true, model: 'grok-4.6', logger: { log() {}, error() {} } }
+		{ yieldCellId: '11', waitToolAvailable: true, model: 'grok-4.7', logger: { log() {}, error() {} } }
 	);
 	const events = eventData(output);
 	assert.equal(
@@ -415,7 +415,7 @@ test('injects native wait on native Responses completed after reasoning-only yie
 			sse('response.output_item.done', { response_id: 'resp_yield', output_index: 0, item: reasoning }),
 			sse('response.completed', { response: { id: 'resp_yield', output: [reasoning] } })
 		],
-		{ yieldCellId: '11', waitToolAvailable: true, model: 'grok-4.6', logger: { log() {}, error() {} } }
+		{ yieldCellId: '11', waitToolAvailable: true, model: 'grok-4.7', logger: { log() {}, error() {} } }
 	);
 	const events = eventData(output);
 	const types = events.map((event) => event.type);
