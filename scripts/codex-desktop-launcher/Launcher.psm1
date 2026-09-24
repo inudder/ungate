@@ -160,6 +160,11 @@ function Initialize-CodexDesktopTransport {
     }
 
     $selectedKey = $providerKeys[$Selection.SelectedModel.ProviderName]
+    $modelToProbe = if ($Selection.SelectedModel.PSObject.Properties['UpstreamModel'] -and $Selection.SelectedModel.UpstreamModel) {
+        $Selection.SelectedModel.UpstreamModel
+    } else {
+        $Selection.SelectedModel.Slug
+    }
     $preflightAttempts = if ($Selection.EnableProviderFallback) { 1 } else { 2 }
     $preflightFailure = $null
     for ($attempt = 1; $attempt -le $preflightAttempts; $attempt++) {
@@ -167,23 +172,18 @@ function Initialize-CodexDesktopTransport {
             if ($Selection.EnableProviderFallback -or $Selection.SelectedModel.ProviderName -eq $Context.OmniRouteProviderName) {
                 Invoke-DesktopOmniRoutePreflight `
                     -Key $selectedKey `
-                    -Model $Selection.SelectedModel.Slug `
+                    -Model $modelToProbe `
                     -ProxyBaseUrl $Selection.SelectedModel.ProxyBaseUrl
             }
             elseif ($Selection.SelectedModel.RequiresUngate) {
                 Invoke-UngatePreflight `
                     -Key $selectedKey `
-                    -Model $Selection.SelectedModel.Slug `
+                    -Model $modelToProbe `
                     -ProxyBaseUrl $Selection.SelectedModel.ProxyBaseUrl
             }
             else {
                 # CLIProxyAPI discovery is dynamic, so live Responses inference is authoritative.
                 Write-Host "[ungate] Proxy healthy at $($Selection.SelectedModel.ProxyBaseUrl)." -ForegroundColor Green
-                $modelToProbe = if ($Selection.SelectedModel.PSObject.Properties['UpstreamModel'] -and $Selection.SelectedModel.UpstreamModel) {
-                    $Selection.SelectedModel.UpstreamModel
-                } else {
-                    $Selection.SelectedModel.Slug
-                }
                 Invoke-CliProxyPreflight `
                     -Key $selectedKey `
                     -Model $modelToProbe `
@@ -377,8 +377,13 @@ function Invoke-CodexDesktopLauncher {
     }
 
     $selection = Resolve-CodexDesktopSelection -Context $Context -ModelSet $modelSet
-    Write-Host "[ungate] Selected model: $($selection.SelectedModel.DisplayName) [$($selection.SelectedModel.Slug)]." -ForegroundColor Cyan
-    $historyProfile = Get-CodexHistoryProfileInfo -HomePath $Context.CustomCodexHome -CanonicalHomePath $Context.CanonicalCodexHome -ModelSlug $selection.SelectedModel.Slug -ProviderName $selection.SelectedModel.ProviderName
+    $selectedModelId = if ($selection.SelectedModel.PSObject.Properties['UpstreamModel'] -and $selection.SelectedModel.UpstreamModel) {
+        $selection.SelectedModel.UpstreamModel
+    } else {
+        $selection.SelectedModel.Slug
+    }
+    Write-Host "[ungate] Selected model: $($selection.SelectedModel.DisplayName) [$selectedModelId]." -ForegroundColor Cyan
+    $historyProfile = Get-CodexHistoryProfileInfo -HomePath $Context.CustomCodexHome -CanonicalHomePath $Context.CanonicalCodexHome -ModelSlug $selectedModelId -ProviderName $selection.SelectedModel.ProviderName
     Write-CodexHistoryProfileDiagnostics -Context $Context -Profile $historyProfile
 
     $codexBeta = Get-CodexBetaPackageInfo

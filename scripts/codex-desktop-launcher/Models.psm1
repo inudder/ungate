@@ -820,6 +820,9 @@ function Apply-UngateModelOverrides {
         }
         $props['DisplayName'] = $newDisplayName
         $props['UpstreamModel'] = $newUpstreamModel
+        if ($def.Description -and $newDisplayName -ne $def.DisplayName) {
+            $props['Description'] = $def.Description -replace [regex]::Escape($def.DisplayName), $newDisplayName
+        }
         $props['Identity'] = $identity
         $props['Aliases'] = if ($newAliases.Count -gt 0) { @($newAliases) } else { $null }
         $props['IsOverridden'] = $true

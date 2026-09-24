@@ -321,9 +321,16 @@ function Assert-UngateCodexConfig {
                 -TimeoutSec 5 `
                 -ErrorAction Stop
             $availableModelIds = @($availableModels.data | ForEach-Object { $_.id })
-            $missingModelIds = @($providerModels.Slug | Where-Object {
-                $slug = $_
-                -not ($availableModelIds | Where-Object { $_ -eq $slug -or $_ -like "*/$slug" -or $slug -like "*/$_" })
+            $effectiveModels = @($providerModels | ForEach-Object {
+                if ($_.PSObject.Properties['UpstreamModel'] -and $_.UpstreamModel) {
+                    $_.UpstreamModel
+                } else {
+                    $_.Slug
+                }
+            })
+            $missingModelIds = @($effectiveModels | Where-Object {
+                $m = $_
+                -not ($availableModelIds | Where-Object { $_ -eq $m -or $_ -like "*/$m" -or $m -like "*/$_" })
             })
             if ($missingModelIds.Count -gt 0) {
                 Write-Host `
@@ -332,7 +339,7 @@ function Assert-UngateCodexConfig {
             }
             else {
                 Write-Host `
-                    "[ungate] $($provider.DisplayName) models available: $($providerModels.Slug -join ', ')." `
+                    "[ungate] $($provider.DisplayName) models available: $($effectiveModels -join ', ')." `
                     -ForegroundColor Green
             }
         }

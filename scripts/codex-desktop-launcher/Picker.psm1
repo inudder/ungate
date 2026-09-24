@@ -560,7 +560,7 @@ function Invoke-UngateModelVersionConfiguration {
     }
 
     Write-Host ''
-    Write-Host "Selected model: $($selectedDef.DisplayName) [$($selectedDef.Slug)]" -ForegroundColor Cyan
+    Write-Host "Selected model: $($selectedDef.DisplayName) [$currentUpstream]" -ForegroundColor Cyan
     Write-Host "Provider:       $($selectedDef.ProviderDisplayName) ($($selectedDef.ProxyBaseUrl))" -ForegroundColor DarkGray
 
     if ($selectedDef.ProviderName -eq $Context.CliProxyProviderName -or $selectedDef.ProviderDisplayName -eq 'CLIProxyAPI') {
@@ -589,6 +589,29 @@ function Invoke-UngateModelVersionConfiguration {
             }
             catch {}
         }
+    }
+    elseif ($selectedDef.ProviderName -eq $Context.OmniRouteProviderName -or $selectedDef.ProviderDisplayName -eq 'OmniRoute') {
+        $filter = if ($selectedDef.Slug -match '(?i)mimo') { 'mimo' }
+                  elseif ($selectedDef.Slug -match '(?i)deepseek') { 'deepseek' }
+                  elseif ($selectedDef.Slug -match '(?i)kimi') { 'kimi' }
+                  elseif ($selectedDef.Slug -match '(?i)grok') { 'grok' }
+                  elseif ($selectedDef.Slug -match '(?i)opus') { 'opus' }
+                  else { '' }
+        try {
+            $key = $env:OMNIROUTE_CODEX_API_KEY
+            if (-not $key) { $key = $env:OMNIROUTE_API_KEY }
+            $headers = if ($key) { @{ Authorization = "Bearer $key" } } else { @{} }
+            $proxyUrl = $selectedDef.ProxyBaseUrl
+            $disc = Invoke-RestMethod -Uri "$proxyUrl/v1/models" -Headers $headers -TimeoutSec 2 -ErrorAction Stop
+            $foundModels = @($disc.data | ForEach-Object { [string]$_.id } | Where-Object { if ($filter) { $_ -like "*$filter*" } else { $true } })
+            if ($foundModels.Count -gt 0) {
+                Write-Host 'Discovered in OmniRoute (/v1/models):' -ForegroundColor Green
+                foreach ($m in $foundModels) {
+                    Write-Host "  - $m" -ForegroundColor DarkGreen
+                }
+            }
+        }
+        catch {}
     }
 
     Write-Host ''
