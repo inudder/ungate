@@ -2,6 +2,74 @@ BeforeAll {
     . (Join-Path $PSScriptRoot 'ungate-codex-common.ps1')
 }
 
+Describe 'Resolve-UngateApiKey' {
+    BeforeEach {
+        $script:previousUngateEnvironment = @{}
+        foreach ($name in @('UNGATE_API_KEY', 'UNGATE_DB_PATH', 'UNGATE_BS3_PATH')) {
+            $script:previousUngateEnvironment[$name] = [Environment]::GetEnvironmentVariable($name)
+            Remove-Item -LiteralPath "Env:\$name" -ErrorAction SilentlyContinue
+        }
+        $script:testUngateDb = Join-Path $TestDrive "$([guid]::NewGuid()).db"
+        Mock Join-Path { $script:testUngateDb } -ParameterFilter { $ChildPath -eq '.ungate\data.db' }
+    }
+
+    AfterEach {
+        foreach ($name in $script:previousUngateEnvironment.Keys) {
+            if ($null -eq $script:previousUngateEnvironment[$name]) {
+                Remove-Item -LiteralPath "Env:\$name" -ErrorAction SilentlyContinue
+            } else {
+                [Environment]::SetEnvironmentVariable($name, $script:previousUngateEnvironment[$name])
+            }
+        }
+    }
+
+    It 'prefers explicit and environment keys without requiring a database or Node' {
+        Mock Get-Command { throw 'Node lookup should not run' }
+        $env:UNGATE_API_KEY = 'environment-key'
+        Resolve-UngateApiKey -ApiKey 'explicit-key' -RepoRoot $TestDrive | Should -BeExactly 'explicit-key'
+        Resolve-UngateApiKey -RepoRoot $TestDrive | Should -BeExactly 'environment-key'
+    }
+
+    It 'reads a real database without loading an incompatible native addon' {
+        $env:UNGATE_DB_PATH = $script:testUngateDb
+        $fixture = @'
+const { DatabaseSync } = require('node:sqlite');
+const db = new DatabaseSync(process.env.UNGATE_DB_PATH);
+db.exec('CREATE TABLE app_settings (id INTEGER PRIMARY KEY, api_key TEXT)');
+db.prepare('INSERT INTO app_settings VALUES (?, ?)').run(1, 'fixture-key');
+db.close();
+'@
+        $fixture | & node @('--input-type=commonjs', '-')
+        $LASTEXITCODE | Should -Be 0
+        $addonPath = Join-Path $TestDrive 'apps/api/node_modules/better-sqlite3'
+        $null = New-Item -ItemType Directory -Path $addonPath -Force
+        Set-Content -LiteralPath (Join-Path $addonPath 'index.js') -Value 'throw new Error("NODE_MODULE_VERSION mismatch");'
+        $env:UNGATE_DB_PATH = 'previous-db-path'
+        $env:UNGATE_BS3_PATH = 'previous-addon-path'
+        $beforeHash = (Get-FileHash -LiteralPath $script:testUngateDb).Hash
+
+        Resolve-UngateApiKey -RepoRoot $TestDrive | Should -BeExactly 'fixture-key'
+
+        (Get-FileHash -LiteralPath $script:testUngateDb).Hash | Should -BeExactly $beforeHash
+        $env:UNGATE_DB_PATH | Should -BeExactly 'previous-db-path'
+        $env:UNGATE_BS3_PATH | Should -BeExactly 'previous-addon-path'
+    }
+
+    It 'reports database errors and restores absent environment variables' {
+        Set-Content -LiteralPath $script:testUngateDb -Value 'not a SQLite database'
+
+        { Resolve-UngateApiKey -RepoRoot $TestDrive } | Should -Throw '*Could not read api_key*'
+
+        Test-Path Env:\UNGATE_DB_PATH | Should -BeFalse
+        Test-Path Env:\UNGATE_BS3_PATH | Should -BeFalse
+    }
+
+    It 'does not create a missing database' {
+        { Resolve-UngateApiKey -RepoRoot $TestDrive } | Should -Throw '*Ungate DB not found*'
+        Test-Path -LiteralPath $script:testUngateDb | Should -BeFalse
+    }
+}
+
 Describe 'Resolve-OmniRouteApiKey' {
     BeforeEach {
         $script:previousOmniRouteApiKey = $env:OMNIROUTE_API_KEY

@@ -15,21 +15,29 @@ function Resolve-UngateApiKey {
     if (-not (Test-Path -LiteralPath $ungateDb)) {
         throw "Ungate DB not found at $ungateDb. Start the ungate-api service or log in via the Ungate dashboard."
     }
-    if (-not (Test-Path -LiteralPath $betterSqlite3Path)) {
-        throw "better-sqlite3 not found at $betterSqlite3Path. Run 'pnpm --filter @ungate/api install' in the repo."
-    }
     if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
         throw 'node not found on PATH.'
     }
 
-    $tmpJs = [System.IO.Path]::GetTempFileName() + '.cjs'
+    $tmpJs = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName() + '.cjs')
     $stderrFile = [System.IO.Path]::GetTempFileName()
     @"
-const Database = require(process.env.UNGATE_BS3_PATH);
-const db = new Database(process.env.UNGATE_DB_PATH, { readonly: true });
-const row = db.prepare('SELECT api_key FROM app_settings WHERE id = 1').get();
-if (row && row.api_key) { process.stdout.write(row.api_key); }
-db.close();
+// Prefer Node's bundled SQLite: native addons may target the previous Node ABI.
+let DatabaseSync;
+try {
+    ({ DatabaseSync } = require('node:sqlite'));
+} catch (error) {
+    if (error.code !== 'ERR_UNKNOWN_BUILTIN_MODULE') throw error;
+}
+const db = DatabaseSync
+    ? new DatabaseSync(process.env.UNGATE_DB_PATH, { readOnly: true })
+    : new (require(process.env.UNGATE_BS3_PATH))(process.env.UNGATE_DB_PATH, { readonly: true });
+try {
+    const row = db.prepare('SELECT api_key FROM app_settings WHERE id = 1').get();
+    if (row && row.api_key) { process.stdout.write(row.api_key); }
+} finally {
+    db.close();
+}
 "@ | Set-Content -LiteralPath $tmpJs -Encoding utf8
 
     $previousBs3Path = $env:UNGATE_BS3_PATH
@@ -38,8 +46,8 @@ db.close();
     $env:UNGATE_DB_PATH = ($ungateDb -replace '\\', '/')
 
     try {
-        $key = (& node $tmpJs 2>$stderrFile)
-        if (-not $key) {
+        $key = (& node @($tmpJs) 2>$stderrFile)
+        if ($LASTEXITCODE -ne 0 -or -not $key) {
             $nodeError = Get-Content -LiteralPath $stderrFile -Raw -ErrorAction SilentlyContinue
             throw "Could not read api_key from $ungateDb.`nnode stderr: $nodeError"
         }

@@ -93,6 +93,12 @@ on newer .NET versions).
 
 ## Safe verification
 
+Ungate key lookup in `ungate-codex-common.ps1` prefers built-in `node:sqlite`
+and opens the database read-only. This avoids native `better-sqlite3` ABI
+mismatches after a Node upgrade. Older Node runtimes without `node:sqlite`
+retain the `better-sqlite3` fallback; explicit and environment keys still
+take precedence.
+
 From the repository root:
 
 ```powershell
