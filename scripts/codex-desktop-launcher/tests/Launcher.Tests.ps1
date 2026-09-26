@@ -321,6 +321,20 @@ Describe 'Transport preparation policies' {
 }
 
 Describe 'Desktop OmniRoute preflight remains distinct' {
+    It 'probes the unprefixed Mimo route when discovery only lists its native alias' {
+        Mock -ModuleName ProxyRuntime Invoke-RestMethod {
+            param($Uri)
+            if ($Uri -like '*/api/health/ping') { return @{status='ok'} }
+            return @{data=@(@{id='mimo/mimo-v2.6-pro'})}
+        }
+        Mock -ModuleName ProxyRuntime Invoke-WebRequest { @{StatusCode=200;Content='{"id":"response-test"}'} }
+        Invoke-DesktopOmniRoutePreflight -Key 'test' -Model 'mimo-v2.6-pro' -ProxyBaseUrl 'http://test'
+        Should -Invoke -ModuleName ProxyRuntime Invoke-WebRequest -Times 1 -Exactly -ParameterFilter {
+            $payload = $Body | ConvertFrom-Json
+            $payload.model -eq 'mimo-v2.6-pro'
+        }
+    }
+
     It 'uses a discovered DeepSeek alias and 512 output tokens' -ForEach @('deepseek/deepseek-v4-pro', 'ds/deepseek-v4-pro') {
         $script:alias = $_
         Mock -ModuleName ProxyRuntime Invoke-RestMethod {

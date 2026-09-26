@@ -480,6 +480,10 @@ function Invoke-DesktopOmniRoutePreflight {
     $ids = @($models.data | ForEach-Object { $_.id })
     $effectiveModel = if ($Model -in $ids) {
         $Model
+    } elseif ("mimo/$Model" -in $ids) {
+        # Discovery advertises the native Xiaomi route, while the unprefixed
+        # name uses the working Codex-compatible provider route.
+        $Model
     } elseif ("deepseek/$Model" -in $ids) {
         "deepseek/$Model"
     } elseif ("ds/$Model" -in $ids) {

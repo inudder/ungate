@@ -54,6 +54,56 @@ test('extracts tool markup embedded in assistant commentary', () => {
 	assert.deepEqual(extracted.calls, [{ name: 'apply_patch', input: '*** Begin Patch\n+ok\n*** End Patch' }]);
 });
 
+test('recovers a missing opening parameter tag without accepting other broken markup', () => {
+	const code = 'const result = await tools.shell_command({ command: "Get-Date" });\ntext(result);';
+	const markup = `<tool_call><function=exec>${code}</parameter></function></tool_call>`;
+	const extracted = extractToolCalls(`Checking the script.\n${markup}`);
+	assert.equal(extracted.malformed, false);
+	assert.equal(extracted.visibleText, 'Checking the script.\n');
+	assert.deepEqual(extracted.calls, [{ name: 'exec', input: code }]);
+	for (const body of ['', 'code</parameter></parameter>', 'code']) {
+		const invalid = extractToolCalls(`<tool_call><function=exec>${body}</function></tool_call>`);
+		assert.equal(invalid.malformed, true);
+	}
+});
+
+test('completes a Responses stream containing a tool call with a missing opening parameter tag', async () => {
+	const code = 'text(await tools.shell_command({ command: "Get-Date" }));';
+	const markup = `<tool_call><function=exec>${code}</parameter></function></tool_call>`;
+	const logs = [];
+	const stream = await transform(
+		[
+			sse('response.output_item.added', {
+				output_index: 0,
+				item: { type: 'custom_tool_call', id: 'call_missing_open', name: 'exec', input: '{}' }
+			}),
+			sse('response.output_item.added', {
+				output_index: 1,
+				item: { type: 'message', id: 'msg_missing_open', role: 'assistant', content: [] }
+			}),
+			sse('response.output_text.delta', { output_index: 1, delta: markup.slice(0, 29) }),
+			sse('response.output_text.delta', { output_index: 1, delta: markup.slice(29) }),
+			sse('response.output_item.done', { output_index: 1, item: { type: 'message', id: 'msg_missing_open' } }),
+			sse('response.output_item.done', {
+				output_index: 0,
+				item: { type: 'custom_tool_call', id: 'call_missing_open', name: 'exec', input: '{}' }
+			}),
+			sse('response.completed', {
+				response: { output: [{ type: 'custom_tool_call', id: 'call_missing_open', name: 'exec', input: '{}' }] }
+			})
+		],
+		logs
+	);
+	const output = events(stream);
+	assert.deepEqual(
+		output.filter((event) => event.type === 'response.custom_tool_call_input.done').map((event) => event.input),
+		[code]
+	);
+	assert.equal(output.at(-1).type, 'response.completed');
+	assert.doesNotMatch(stream, /response.failed|<tool_call>/);
+	assert.match(logs.join('\n'), /converted textual tool call/);
+});
+
 test('converts fragmented textual apply_patch markup and suppresses empty upstream input', async () => {
 	const patch = '*** Begin Patch\n*** Add File: created.txt\n+hello\n*** End Patch';
 	const markup = `<tool_call>\n<function=apply_patch>\n<parameter=${patch}\n</parameter>\n</function>\n</tool_call>`;

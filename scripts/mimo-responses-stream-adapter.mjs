@@ -6,6 +6,7 @@ import { restoreMimoResponsesValue } from './mimo-responses-namespace.mjs';
 const FUNCTION_PATTERN = /<tool_call>\s*<function=([^>\s]+)>\s*([\s\S]*?)<\/function>\s*<\/tool_call>/g;
 const NAMED_PARAMETER_PATTERN = /^\s*<parameter(?:=([^>\r\n]*))?>([\s\S]*?)<\/parameter>\s*$/;
 const RAW_PARAMETER_PATTERN = /^\s*<parameter=([\s\S]*?)<\/parameter>\s*$/;
+const MISSING_OPENING_PARAMETER_PATTERN = /^([\s\S]*?)<\/parameter>\s*$/;
 const POSSIBLE_TOOL_MARKUP = /<\/?(?:tool_call|function|parameter)(?:\s|=|>)/i;
 
 function parseSseFrame(raw) {
@@ -83,7 +84,13 @@ function extractToolCalls(text) {
 	let lastIndex = 0;
 	while ((match = FUNCTION_PATTERN.exec(text)) !== null) {
 		visibleText += text.slice(lastIndex, match.index);
-		const parameter = NAMED_PARAMETER_PATTERN.exec(match[2]) ?? RAW_PARAMETER_PATTERN.exec(match[2]);
+		let parameter = NAMED_PARAMETER_PATTERN.exec(match[2]) ?? RAW_PARAMETER_PATTERN.exec(match[2]);
+		if (!parameter) {
+			const missingOpening = MISSING_OPENING_PARAMETER_PATTERN.exec(match[2]);
+			if (missingOpening?.[1].trim() && !POSSIBLE_TOOL_MARKUP.test(missingOpening[1])) {
+				parameter = [missingOpening[0], undefined, missingOpening[1]];
+			}
+		}
 		if (!parameter) {
 			return { calls: [], malformed: true, reason: 'tool-call parameter markup is invalid' };
 		}
