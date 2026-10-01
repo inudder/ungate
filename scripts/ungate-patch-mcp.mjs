@@ -17,6 +17,16 @@ const PATCH_BEGIN = '*** Begin Patch';
 const PATCH_END = '*** End Patch';
 const END_OF_FILE = '*** End of File';
 const DEVICE_PATH_PATTERN = /^\\\\[.?]\\/u;
+const EXEC_PATCH_AUTHORING = [
+	'When building a patch in exec, every array item must be a JavaScript string. Put patch markers inside the quotes: "+];", "@@", "-old", "+new". Never write +"...": unary + converts the string to a number before apply_patch sees it.',
+	'Before joining, validate the array: if (patchLines.some((line) => typeof line !== "string")) throw new Error("Patch lines must all be strings");',
+	'Join with patchLines.join("\\n"), call this same apply_patch tool, and pass its result to text(...).'
+].join('\n');
+const NUMERIC_COERCION_REMEDIATION = [
+	'The patch contains a bare NaN line. A likely cause is unary + outside a JavaScript string in the exec array, such as +"];" instead of "+];".',
+	'The original line content was lost before validation. Rebuild all affected array entries as strings and retry this same apply_patch tool. Splitting the patch does not fix the coercion.',
+	EXEC_PATCH_AUTHORING
+].join('\n');
 const ADD_FILE_REMEDIATION = [
 	'For Add File, copy this exact grammar and replace only the path and content:',
 	'*** Begin Patch',
@@ -60,6 +70,10 @@ function fail(code, message, details) {
 }
 
 function remediationFor(patchError) {
+	if (patchError.code === 'invalid_patch' && patchError.details.reason === 'javascript_numeric_coercion') {
+		return NUMERIC_COERCION_REMEDIATION;
+	}
+
 	const remediationByCode = {
 		no_change_hunk: "Add at least one '-' or '+' line to every Update File hunk, or remove the unchanged operation.",
 		hunk_not_found: CONTEXT_MISMATCH_REMEDIATION,
@@ -186,6 +200,22 @@ function unwrapPatchEnvelope(patch) {
 	return normalized;
 }
 
+function failInvalidBodyLine(line, lineNumber, sourcePath, operation) {
+	if (line === 'NaN') {
+		fail(
+			'invalid_patch',
+			`Invalid ${operation} line for '${sourcePath}' at patch line ${lineNumber}: found bare NaN, likely from JavaScript unary + outside a string.`,
+			{ line: lineNumber, reason: 'javascript_numeric_coercion' }
+		);
+	}
+
+	const message =
+		operation === 'Add File'
+			? `Every Add File content line for '${sourcePath}' must start with +.`
+			: `Invalid update line for '${sourcePath}': every line must start with space, +, or -.`;
+	fail('invalid_patch', message, { line: lineNumber });
+}
+
 function parseUpdateBody(lines, startIndex, sourcePath) {
 	let index = startIndex;
 	let movePath = null;
@@ -244,9 +274,7 @@ function parseUpdateBody(lines, startIndex, sourcePath) {
 			continue;
 		}
 		if (![' ', '+', '-'].includes(line[0])) {
-			fail('invalid_patch', `Invalid update line for '${sourcePath}': every line must start with space, +, or -.`, {
-				line: index + 1
-			});
+			failInvalidBodyLine(line, index + 1, sourcePath, 'Update File');
 		}
 		if (!currentChunk) {
 			currentChunk = { anchor: null, endOfFile: false, lines: [] };
@@ -323,9 +351,7 @@ export function parsePatch(patch, { maxPatchBytes = DEFAULT_MAX_PATCH_BYTES } = 
 					continue;
 				}
 				if (!line.startsWith('+')) {
-					fail('invalid_patch', `Every Add File content line for '${targetPath}' must start with +.`, {
-						line: index + 1
-					});
+					failInvalidBodyLine(line, index + 1, targetPath, 'Add File');
 				}
 				contentLines.push(line.slice(1));
 				index += 1;
@@ -889,6 +915,9 @@ function errorResult(error) {
 			message: patchError.message
 		}
 	};
+	if (Number.isSafeInteger(patchError.details.line) && patchError.details.line > 0) {
+		payload.error.line = patchError.details.line;
+	}
 	const remediation = remediationFor(patchError);
 	if (remediation) {
 		payload.error.remediation = remediation;
@@ -919,6 +948,7 @@ export function createPatchMcpServer(options) {
 				'Use only plain-text Add File, Update File, Delete File, and Move to headers; do not wrap headers in Markdown emphasis.',
 				ADD_FILE_REMEDIATION,
 				UPDATE_FILE_REMEDIATION,
+				EXEC_PATCH_AUTHORING,
 				'Every Update File hunk must contain at least one - or + line; context-only hunks are invalid.'
 			].join('\n'),
 			inputSchema: {
@@ -931,6 +961,7 @@ export function createPatchMcpServer(options) {
 							'Exact native patch text. First line: *** Begin Patch. Last line: *** End Patch. Headers are plain text with no Markdown emphasis.',
 							ADD_FILE_REMEDIATION,
 							UPDATE_FILE_REMEDIATION,
+							EXEC_PATCH_AUTHORING,
 							'Every Update File hunk must include at least one - or + line; context-only hunks are invalid.'
 						].join('\n')
 					),

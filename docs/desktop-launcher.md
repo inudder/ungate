@@ -33,6 +33,10 @@ mutable per-launch module or global state and no dependency cycle.
 to build model identities. The context factory reads it explicitly. Builtin
 definitions are newly constructed on each call to `New-UngateModelSet`.
 
+The `ungate_patch` MCP source editor has its own [patch authoring and
+diagnostic contract](patch-mcp.md), including JavaScript numeric coercion
+when patch markers are placed outside string literals.
+
 ## Internal interfaces
 
 - `New-CodexDesktopLaunchContext -CustomCodexHome ... -LaunchParameters ...

@@ -478,6 +478,7 @@ test('returns safe remediation for patch authoring errors', async (t) => {
 content without the required marker
 *** End Patch`,
 			code: 'invalid_patch',
+			line: 3,
 			remediation:
 				'For Add File, copy this exact grammar and replace only the path and content:\n' +
 				'*** Begin Patch\n' +
@@ -496,6 +497,7 @@ invalid line without marker
 +replacement
 *** End Patch`,
 			code: 'invalid_patch',
+			line: 5,
 			remediation:
 				'For Update File, copy this exact grammar and replace only the path and lines:\n' +
 				'*** Begin Patch\n' +
@@ -522,11 +524,95 @@ invalid line without marker
 		assert.deepEqual(payload.error, {
 			code: testCase.code,
 			message: payload.error.message,
+			...(testCase.line ? { line: testCase.line } : {}),
 			remediation: testCase.remediation
 		});
 		assert.equal('details' in payload.error, false);
 		assert.equal(payload.error.message.includes(testCase.patch), false);
 	}
+});
+
+test('diagnoses unary plus in exec arrays without applying any part of the patch', async (t) => {
+	const root = await temporaryDirectory(t);
+	const { client, server } = await createInMemoryPatchClient(unrestrictedOptions());
+	t.after(async () => {
+		await Promise.allSettled([client.close(), server.close()]);
+	});
+	await writeFile(join(root, 'source.txt'), 'old\n');
+
+	const cases = [
+		{
+			patch: [
+				'*** Begin Patch',
+				'*** Add File: earlier.txt',
+				'+private-earlier-content',
+				'*** Add File: users.ts',
+				'+const users = [',
+				+'];',
+				'*** End Patch'
+			].join('\n'),
+			line: 6,
+			operation: 'Add File'
+		},
+		{
+			patch: [
+				'*** Begin Patch',
+				'*** Add File: earlier.txt',
+				'+private-earlier-content',
+				'*** Update File: source.txt',
+				+'@@',
+				+'-old',
+				+'+private-new-content',
+				'*** End Patch'
+			].join('\n'),
+			line: 5,
+			operation: 'Update File'
+		}
+	];
+
+	for (const testCase of cases) {
+		const result = await client.callTool({
+			name: 'apply_patch',
+			arguments: { working_directory: root, patch: testCase.patch }
+		});
+		const payload = JSON.parse(result.content[0].text);
+
+		assert.equal(result.isError, true);
+		assert.equal(payload.ok, false);
+		assert.equal(payload.error.code, 'invalid_patch');
+		assert.equal(payload.error.line, testCase.line);
+		assert.ok(payload.error.message.includes(testCase.operation));
+		assert.match(payload.error.message, /bare NaN/);
+		assert.match(payload.error.remediation, /unary \+ outside a JavaScript string/);
+		assert.match(payload.error.remediation, /original line content was lost/);
+		assert.match(payload.error.remediation, /Splitting the patch does not fix/);
+		assert.match(payload.error.remediation, /typeof line !== "string"/);
+		assert.equal('details' in payload.error, false);
+		assert.doesNotMatch(result.content[0].text, /private-earlier-content|private-new-content/);
+		assert.equal(await readFile(join(root, 'source.txt'), 'utf8'), 'old\n');
+		await assert.rejects(readFile(join(root, 'earlier.txt')), { code: 'ENOENT' });
+		await assert.rejects(readFile(join(root, 'users.ts')), { code: 'ENOENT' });
+	}
+});
+
+test('accepts NaN as literal file content when patch markers are present', async (t) => {
+	const root = await temporaryDirectory(t);
+	await applyPatchTransaction(
+		{
+			workingDirectory: root,
+			patch: ['*** Begin Patch', '*** Add File: values.txt', '+NaN', '+NaN', '*** End Patch'].join('\n')
+		},
+		unrestrictedOptions()
+	);
+	await applyPatchTransaction(
+		{
+			workingDirectory: root,
+			patch: ['*** Begin Patch', '*** Update File: values.txt', '@@', ' NaN', '-NaN', '+Number.NaN', '*** End Patch'].join('\n')
+		},
+		unrestrictedOptions()
+	);
+
+	assert.equal(await readFile(join(root, 'values.txt'), 'utf8'), 'NaN\nNumber.NaN\n');
 });
 
 test('documents exact Add File and Update File grammar', async (t) => {
@@ -552,6 +638,9 @@ test('documents exact Add File and Update File grammar', async (t) => {
 	assert.match(tool.description, /exec template literal/iu);
 	assert.match(tool.description, /\$\{\}/u);
 	assert.match(tool.description, /text\(/u);
+	assert.match(tool.description, /Put patch markers inside the quotes/);
+	assert.match(tool.description, /Never write \+"\.\.\."/);
+	assert.match(tool.description, /typeof line !== "string"/);
 	assert.match(tool.description, /Required source-edit tool/iu);
 	assert.doesNotMatch(tool.description, /when the native Codex apply_patch tool is unavailable/iu);
 	assert.match(
@@ -560,6 +649,7 @@ test('documents exact Add File and Update File grammar', async (t) => {
 	);
 	assert.match(tool.inputSchema.properties.patch.description, /\*\*\* Add File: relative\/path\n\+content/iu);
 	assert.match(tool.inputSchema.properties.patch.description, /\*\*\* Update File: relative\/path\n@@\n unchanged context/iu);
+	assert.match(tool.inputSchema.properties.patch.description, /typeof line !== "string"/);
 	assert.doesNotMatch(tool.description, /\*\*\* Begin Patch \*\*\*/u);
 });
 
