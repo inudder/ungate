@@ -4,6 +4,71 @@ import test from 'node:test';
 
 import { createShellRouterServer, orderDeepSeekToolHistory } from './codex-model-shell-router.mjs';
 
+test('preserves early HTTP errors and converts late admission errors to terminal SSE', async () => {
+	for (const scenario of [
+		{ status: 503, delay: 0, stream: true, code: 'server_error' },
+		{ status: 503, delay: 60, stream: true, code: 'server_error' },
+		{ status: 429, delay: 60, stream: true, code: 'rate_limit_exceeded' },
+		{ status: 200, delay: 60, stream: true, code: 'upstream_protocol_error' },
+		{ status: 503, delay: 60, stream: false, code: 'server_error' }
+	]) {
+		const logs = [];
+		const upstream = http.createServer((_request, response) => {
+			setTimeout(() => {
+				response.writeHead(scenario.status, {
+					'content-type': 'application/json',
+					'retry-after': '7',
+					'x-request-id': 'upstream-123'
+				});
+				response.end(JSON.stringify({ error: { code: 'chat_admission_busy', message: 'Busy' } }));
+			}, scenario.delay);
+		});
+		const upstreamPort = await listen(upstream);
+		const router = createShellRouterServer({
+			logger: (line) => logs.push(line),
+			sseKeepAliveMs: 20,
+			routes: [
+				{
+					clientModel: 'mimo-shell',
+					upstreamModel: 'mimo-v2.6-pro',
+					upstreamBaseUrl: `http://127.0.0.1:${upstreamPort}`,
+					apiKey: 'secret-test-key',
+					responsesAdapter: 'mimo-textual-tools'
+				}
+			]
+		});
+		const routerPort = await listen(router);
+		try {
+			const response = await fetch(`http://127.0.0.1:${routerPort}/v1/responses`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json', 'x-request-id': 'request-123' },
+				body: JSON.stringify({ model: 'mimo-shell', stream: scenario.stream, input: 'private-prompt' })
+			});
+			const body = await response.text();
+			if (scenario.stream && scenario.delay) {
+				assert.equal(response.status, 200);
+				assert.match(response.headers.get('content-type'), /text\/event-stream/);
+				const frames = body.trim().split('\n\n');
+				assert.ok(frames.every((frame) => frame.startsWith(':') || frame.startsWith('event: error\ndata: ')));
+				assert.equal(JSON.parse(frames.at(-1).split('data: ')[1]).code, scenario.code);
+			} else {
+				assert.equal(response.status, scenario.status);
+				assert.equal(response.headers.get('retry-after'), '7');
+				assert.equal(JSON.parse(body).error.code, 'chat_admission_busy');
+				assert.doesNotMatch(body, /keep-alive|event: error/);
+			}
+			assert.match(logs[0], /"request_id":"request-123"/);
+			assert.match(logs[0], /"upstream_request_id":"upstream-123"/);
+			assert.match(logs[0], /"model":"mimo-v2.6-pro"/);
+			assert.match(logs[0], /"timestamp":".*Z"/);
+			assert.doesNotMatch(logs.join('\n'), /secret-test-key|private-prompt/);
+		} finally {
+			await close(router);
+			await close(upstream);
+		}
+	}
+});
+
 test('DeepSeek history pairs parallel calls across commentary without losing content', () => {
 	const call = { type: 'custom_tool_call', call_id: 'old-exec', name: 'exec', input: 'print(1)' };
 	const otherCall = { type: 'function_call', call_id: 'old-function', name: 'read', arguments: '{}' };

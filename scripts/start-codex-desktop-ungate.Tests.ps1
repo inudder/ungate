@@ -1534,7 +1534,7 @@ Describe 'Format-CodexSessionEvent' {
         $callJson = '{"type":"response_item","payload":{"type":"custom_tool_call","name":"exec","input":"{\"command\":\"dir\"}"}}'
         $normalOutJson = '{"type":"response_item","payload":{"type":"custom_tool_call_output","output":[{"text":"File1.txt"}]}}'
         $abortJson = '{"type":"event_msg","payload":{"type":"turn_aborted"}}'
-        $errorOutJson = '{"type":"response_item","payload":{"type":"custom_tool_call_output","output":[{"text":"Error: file not found"}]}}'
+        $errorOutJson = '{"type":"response_item","payload":{"type":"custom_tool_call_output","is_error":true,"output":[{"text":"Error: file not found"}]}}'
 
         Format-CodexSessionEvent -Line $userJson -LogLevel 'Errors'
         Format-CodexSessionEvent -Line $agentJson -LogLevel 'Errors'

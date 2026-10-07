@@ -3,8 +3,7 @@
 param(
     [Parameter(Mandatory)][string]$PipeName,
     [Parameter(Mandatory)][string]$ExecutablePath,
-    [Parameter(Mandatory)][string]$WorkingDirectory,
-    [string[]]$Arguments = $null
+    [Parameter(Mandatory)][string]$WorkingDirectory
 )
 
 $ErrorActionPreference = 'Stop'
@@ -27,11 +26,13 @@ try {
             throw 'The package launcher did not receive its environment payload.'
         }
 
+        # Payload: {"Environment":{...},"Arguments":[...]}; arguments arrive here to avoid command-line quoting.
+        $payloadValues = $payload | ConvertFrom-Json -AsHashtable
         $launchEnvironment = @{}
-        $environmentValues = $payload | ConvertFrom-Json -AsHashtable
-        foreach ($entry in $environmentValues.GetEnumerator()) {
+        foreach ($entry in $payloadValues['Environment'].GetEnumerator()) {
             $launchEnvironment[[string]$entry.Key] = [string]$entry.Value
         }
+        $arguments = @($payloadValues['Arguments'] | Where-Object { $_ } | ForEach-Object { [string]$_ })
 
         $startParams = @{
             FilePath = $ExecutablePath
@@ -40,8 +41,8 @@ try {
             PassThru = $true
             ErrorAction = 'Stop'
         }
-        if ($Arguments -and $Arguments.Count -gt 0) {
-            $startParams['ArgumentList'] = $Arguments
+        if ($arguments.Count -gt 0) {
+            $startParams['ArgumentList'] = $arguments
         }
 
         $process = Start-Process @startParams

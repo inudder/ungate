@@ -65,6 +65,56 @@ discovered in `/v1/models` without changing code. Overrides are persisted in
 DeepSeek V4 Pro and DeepSeek V4 Flash can be selected via the Desktop model picker (Mode 8)
 or via `-Model deepseek-v4-pro` / `-Model deepseek-v4-flash` (alias `deepseek-flash`).
 
+## Mimo four-chat profile (OmniRoute 3.8.50)
+
+The local override for registry ID `mimo-v2.5-pro` currently selects
+`mimo-v2.6-pro` (display name Mimo v2.6 Pro). Follow the generated route and
+`ungate-model-overrides.json`, rather than inferring the physical model from
+the registry ID. This machine maps that selection through shell `gpt-5.4`.
+
+The gateway-wide profile in `%APPDATA%\OmniRoute\server.env` sets
+`OMNIROUTE_CHAT_MAX_HEAVY_IN_FLIGHT=4`,
+`OMNIROUTE_CHAT_ADMISSION_HEALTHY_HEADROOM=0`,
+`OMNIROUTE_CHAT_ADMISSION_QUEUE_MS=120000`, and
+`OMNIROUTE_CHAT_ADMISSION_MAX_QUEUED_BYTES=16777216`.
+These are shared capacity limits for Codex, generator and WordPress requests,
+not four slots per client. Provider limits and upstream readiness watchdogs
+still apply. On upgrades, verify these environment variables against the
+installed admission implementation and repeat the stream/queue checks.
+
+Live testing also exposed a separate local 15-second Bottleneck execution
+deadline (`RATE_LIMIT_EXECUTION_TIMEOUT`). The supported `/api/resilience`
+PATCH now persists `requestQueue.maxWaitMs=300000` and applies it immediately.
+Despite its legacy name, this value bounds execution after dispatch, not
+admission queue wait. The other resilience settings retain their values.
+Readiness remains 300000 ms, with a 600000 ms maximum.
+
+Only streaming Mimo Responses requests receive preliminary SSE heartbeats.
+Before headers are committed, upstream HTTP failures retain their status and
+`Retry-After`. Afterward, late 503/429 responses terminate with an SSE `error`
+event (`server_error`/`rate_limit_exceeded`); an unexpected late JSON success
+becomes `upstream_protocol_error`. Router diagnostics include UTC time,
+client/physical model, upstream origin, request IDs, status and error category.
+They exclude credentials and request contents.
+Terminal upstream SSE errors retain their original category, instead of also
+being reported as a tool parsing failure when the stream closes.
+
+The Mimo adapter unwraps unambiguous custom `exec` JSON envelopes containing
+only `input`, `inputs` or `exec`, up to four levels, for textual and structured
+custom calls. It preserves JavaScript strings and rejects ambiguous input.
+It cannot repair arbitrary generated JavaScript syntax. The live logger uses
+structured failures and tool-result headers, keeps independent byte cursors
+and partial lines per session, and labels results with the session ID.
+
+Before a runtime refresh, wait for zero active/heavy/headroom/waiting/queued
+work in both `chatAdmission` and `adaptiveAdmission`; `dedup=0` is insufficient.
+The health endpoint caches snapshots for one second; allow a bounded drain
+check after the final stream, rather than assuming the first sample is current.
+Use launcher transport preparation to reload the router without terminating
+Desktop chats. Backups and the live rollout record are documented in
+`J:\Tools\omniroute\omniroute-context.md`. Recovery requires an explicit
+instruction; preserve a failed effective state and repair forward.
+
 ## Route boundaries
 
 - The Mimo stream adapter is enabled only for the Mimo `/v1/responses`

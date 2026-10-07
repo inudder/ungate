@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import http from 'node:http';
 import https from 'node:https';
 import { pipeline } from 'node:stream';
@@ -76,6 +77,15 @@ function sendError(response, statusCode, code, message) {
 		'content-length': Buffer.byteLength(body)
 	});
 	response.end(body);
+}
+
+function sendStreamError(response, code, message) {
+	if (response.destroyed || response.writableEnded) return;
+	response.end(`event: error\ndata: ${JSON.stringify({ type: 'error', sequence_number: 0, code, message, param: null })}\n\n`);
+}
+
+function diagnosticId(value) {
+	return typeof value === 'string' && /^[a-zA-Z0-9_.:-]{1,160}$/u.test(value) ? value : undefined;
 }
 
 function startSseKeepAlive(response, intervalMs) {
@@ -223,12 +233,42 @@ function proxyRequest({
 	body,
 	responsesAdapter,
 	model,
+	clientModel,
+	streaming,
+	logger,
 	sseKeepAliveMs,
 	namespaceMapping
 }) {
 	const transport = targetUrl.protocol === 'https:' ? https : http;
 	const startedAt = Date.now();
-	const keepAlive = responsesAdapter === MIMO_RESPONSES_ADAPTER ? startSseKeepAlive(response, sseKeepAliveMs) : null;
+	const keepAlive = streaming && responsesAdapter === MIMO_RESPONSES_ADAPTER ? startSseKeepAlive(response, sseKeepAliveMs) : null;
+	const requestId = diagnosticId(request.headers['x-request-id']) ?? randomUUID();
+	headers['x-request-id'] = requestId;
+	let upstreamStatus = 502;
+	let upstreamRequestId;
+	let errorCategory = null;
+	let logged = false;
+	const logResult = (disconnected = false) => {
+		if (logged) return;
+		logged = true;
+		const status = disconnected ? 499 : upstreamStatus;
+		logger(
+			`[${SERVICE_NAME}] ${request.method} ${targetUrl.pathname} -> ${status} (${Date.now() - startedAt}ms) ${JSON.stringify({
+				timestamp: new Date().toISOString(),
+				client_model: clientModel,
+				model,
+				upstream: targetUrl.origin,
+				request_id: requestId,
+				upstream_request_id: upstreamRequestId,
+				status,
+				error_category: disconnected ? 'client_disconnected' : errorCategory
+			})}`
+		);
+	};
+	response.once('finish', () => logResult());
+	response.once('close', () => {
+		if (!response.writableEnded) logResult(true);
+	});
 	let downstreamDisconnected = false;
 
 	request.setTimeout(600000);
@@ -243,17 +283,55 @@ function proxyRequest({
 			headers
 		},
 		(upstreamResponse) => {
-			response.on('finish', () => {
-				console.log(
-					`[${SERVICE_NAME}] ${request.method} ${targetUrl.pathname} -> ${upstreamResponse.statusCode} (${Date.now() - startedAt}ms)`
-				);
-			});
+			upstreamStatus = upstreamResponse.statusCode ?? 502;
+			upstreamRequestId = diagnosticId(upstreamResponse.headers['x-request-id']);
+			if (upstreamStatus >= 400) errorCategory = `upstream_http_${upstreamStatus}`;
 			const contentType = String(upstreamResponse.headers['content-type'] ?? '').toLowerCase();
 			const adapterEnabled =
 				[MIMO_RESPONSES_ADAPTER, DEEPSEEK_RESPONSES_ADAPTER].includes(responsesAdapter) &&
 				(upstreamResponse.statusCode ?? 500) >= 200 &&
 				(upstreamResponse.statusCode ?? 500) < 300 &&
 				contentType.includes('text/event-stream');
+			if (!adapterEnabled) keepAlive?.stop();
+			// A heartbeat may have committed SSE headers before upstream admission finished.
+			// A late HTTP/JSON response must never be appended as bare JSON to that stream.
+			if (response.headersSent && !adapterEnabled && keepAlive) {
+				if (upstreamStatus < 400) {
+					errorCategory = 'upstream_protocol_error';
+					sendStreamError(response, errorCategory, 'The streaming upstream returned an unexpected response format.');
+					upstreamResponse.destroy();
+
+					return;
+				}
+				void readBody(upstreamResponse, 64 * 1024).then(
+					(errorBody) => {
+						let upstreamError;
+						try {
+							upstreamError = JSON.parse(errorBody.toString('utf8')).error;
+						} catch {
+							/* Non-JSON errors use the status below. */
+						}
+						const upstreamCode = diagnosticId(upstreamError?.code);
+						if (upstreamCode) errorCategory = upstreamCode;
+						let code = upstreamCode ?? `upstream_http_${upstreamStatus}`;
+						if (upstreamStatus === 429) code = 'rate_limit_exceeded';
+						else if (upstreamStatus >= 500) code = 'server_error';
+						const message =
+							typeof upstreamError?.message === 'string'
+								? upstreamError.message.slice(0, 2048)
+								: `Upstream returned HTTP ${upstreamStatus}.`;
+						sendStreamError(response, code, message);
+					},
+					() =>
+						sendStreamError(
+							response,
+							'server_error',
+							`Upstream returned HTTP ${upstreamStatus}; its error body could not be read.`
+						)
+				);
+
+				return;
+			}
 			const rewriteJson = namespaceMapping && contentType.includes('application/json');
 			if (rewriteJson) {
 				const chunks = [];
@@ -263,6 +341,7 @@ function proxyRequest({
 					let bodyBuffer = originalBody;
 					try {
 						const parsed = JSON.parse(originalBody.toString('utf8'));
+						if (upstreamStatus >= 400) errorCategory = diagnosticId(parsed.error?.code) ?? errorCategory;
 						const restored =
 							responsesAdapter === DEEPSEEK_RESPONSES_ADAPTER
 								? restoreDeepSeekResponse(parsed, namespaceMapping)
@@ -302,6 +381,9 @@ function proxyRequest({
 						? createMimoResponsesStreamAdapter({
 								model,
 								namespaceMapping,
+								onFailure: (code) => {
+									errorCategory = code;
+								},
 								logger: (message) => console.error(`[${SERVICE_NAME}] ${message}`)
 							})
 						: null;
@@ -354,9 +436,10 @@ function proxyRequest({
 	upstreamRequest.on('error', (error) => {
 		keepAlive?.stop();
 		if (downstreamDisconnected || response.destroyed || response.writableEnded) return;
-		console.error(`[${SERVICE_NAME}] upstream request error: ${error.message}`);
+		errorCategory = diagnosticId(error.code) ?? 'upstream_unavailable';
 		if (!response.destroyed && !response.writableEnded) {
-			sendError(response, 502, 'upstream_unavailable', `Mapped upstream is unavailable: ${error.message}`);
+			if (response.headersSent) sendStreamError(response, 'server_error', 'Mapped upstream is unavailable.');
+			else sendError(response, 502, 'upstream_unavailable', 'Mapped upstream is unavailable.');
 		}
 	});
 
@@ -369,6 +452,7 @@ export function createShellRouterServer(options = {}) {
 	const buildId = options.buildId ?? 'development';
 	const maxBodyBytes = options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
 	const sseKeepAliveMs = parsePositiveInteger(options.sseKeepAliveMs, DEFAULT_SSE_KEEPALIVE_MS);
+	const logger = options.logger ?? ((message) => console.log(message));
 
 	return http.createServer(async (request, response) => {
 		const requestUrl = new URL(request.url ?? '/', 'http://shell-router.local');
@@ -464,6 +548,9 @@ export function createShellRouterServer(options = {}) {
 				headers,
 				body: upstreamBody,
 				model: route.upstreamModel,
+				clientModel: route.clientModel,
+				streaming: requestUrl.pathname === '/v1/responses' && body.stream === true,
+				logger,
 				responsesAdapter: route.responsesAdapter && requestUrl.pathname === '/v1/responses' ? route.responsesAdapter : null,
 				sseKeepAliveMs,
 				namespaceMapping

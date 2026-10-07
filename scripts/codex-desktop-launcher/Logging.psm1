@@ -108,6 +108,117 @@ function Invoke-UngateLoggingMenu {
     }
 }
 
+function Test-CodexToolFailure {
+    param([AllowNull()][object]$Result, [int]$Depth = 0)
+    if ($null -eq $Result -or $Depth -gt 8) { return $false }
+    if ($Result -is [array]) {
+        foreach ($item in $Result) {
+            if (Test-CodexToolFailure -Result $item -Depth ($Depth + 1)) { return $true }
+        }
+        return $false
+    }
+    if ($Result -is [string]) {
+        $value = $Result.Trim()
+        if ($value -match '^Script failed(?:\r?\n|$)|^Script error:') { return $true }
+        # A shell result's header is authoritative; its stdout may be source code.
+        if ($value -match '^Exit code:\s*(-?\d+)\b') { return [int]$Matches[1] -ne 0 }
+        if ($value -match '(?s)^Script completed\r?\nWall time[^\r\n]*\r?\nOutput:\r?\n(.*)$') {
+            return Test-CodexToolFailure -Result $Matches[1] -Depth ($Depth + 1)
+        }
+        if ($value -match '^---RESULT \d+---') {
+            foreach ($part in ($value -split '(?m)^---RESULT \d+---\s*$')) {
+                if (Test-CodexToolFailure -Result $part -Depth ($Depth + 1)) { return $true }
+            }
+            return $false
+        }
+        if ($value -match '^Error executing [\w.]+:') { return $true }
+        if ($value.StartsWith('{') -or $value.StartsWith('[')) {
+            try {
+                $parsed = ConvertFrom-Json -InputObject $value -ErrorAction Stop
+                return Test-CodexToolFailure -Result $parsed -Depth ($Depth + 1)
+            } catch { }
+        }
+        return $false
+    }
+    foreach ($flag in @('is_error', 'isError')) {
+        $property = $Result.PSObject.Properties[$flag]
+        if ($null -ne $property -and $property.Value -eq $true) { return $true }
+    }
+    foreach ($field in @('exit_code', 'exitCode')) {
+        $property = $Result.PSObject.Properties[$field]
+        if ($null -ne $property -and $null -ne $property.Value -and [string]$property.Value -match '^-?\d+$') {
+            return [long]$property.Value -ne 0
+        }
+    }
+    $status = $Result.PSObject.Properties['status']
+    if ($null -ne $status -and $status.Value -in @('rejected', 'failed', 'error')) { return $true }
+    foreach ($field in @('output', 'value', 'result', 'content', 'text')) {
+        $property = $Result.PSObject.Properties[$field]
+        if ($null -ne $property -and (Test-CodexToolFailure -Result $property.Value -Depth ($Depth + 1))) { return $true }
+    }
+    return $false
+}
+
+function Test-CodexRouterFailure {
+    param([Parameter(Mandatory)][string]$Line)
+    if ($Line -match '->\s*[45]\d\d\b') { return $true }
+    $jsonOffset = $Line.IndexOf(' {')
+    if ($jsonOffset -ge 0) {
+        try {
+            $details = ConvertFrom-Json -InputObject $Line.Substring($jsonOffset + 1) -ErrorAction Stop
+            if ($details.status -ge 400 -or $details.error_category) { return $true }
+        } catch { }
+    }
+    if ($Line -match '^\[codex-model-shell-router\] \[mimo-responses-adapter\] ') {
+        return $Line -notmatch '\] (converted textual tool call|normalized exec input) '
+    }
+    return $Line -match '^\[codex-model-shell-router\] (upstream request error:|pipeline error:)'
+}
+
+function New-CodexSessionCursor {
+    param([Parameter(Mandatory)][System.IO.FileInfo]$File, [switch]$FromEnd)
+    $sessionId = if ($File.BaseName.Length -ge 36) { $File.BaseName.Substring($File.BaseName.Length - 36) } else { $File.BaseName }
+    return [pscustomobject]@{
+        Position = if ($FromEnd) { $File.Length } else { 0L }
+        CreationTimeUtc = $File.CreationTimeUtc
+        Pending = [byte[]]@()
+        SessionId = $sessionId
+        Active = $false
+    }
+}
+
+function Read-CodexSessionAppend {
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][psobject]$Cursor)
+    $file = Get-Item -LiteralPath $Path -ErrorAction Stop
+    if ($file.Length -lt $Cursor.Position -or $file.CreationTimeUtc -ne $Cursor.CreationTimeUtc) {
+        $Cursor.Position = 0L
+        $Cursor.Pending = [byte[]]@()
+        $Cursor.CreationTimeUtc = $file.CreationTimeUtc
+    }
+    $stream = [System.IO.FileStream]::new($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read,
+        ([System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete))
+    $buffer = [System.IO.MemoryStream]::new()
+    try {
+        $stream.Seek($Cursor.Position, [System.IO.SeekOrigin]::Begin) | Out-Null
+        $buffer.Write($Cursor.Pending, 0, $Cursor.Pending.Length)
+        $stream.CopyTo($buffer)
+        $Cursor.Position = $stream.Position
+        $bytes = $buffer.ToArray()
+        $start = 0
+        for ($index = 0; $index -lt $bytes.Length; $index++) {
+            if ($bytes[$index] -eq 10) {
+                [System.Text.Encoding]::UTF8.GetString($bytes, $start, $index - $start).TrimEnd("`r")
+                $start = $index + 1
+            }
+        }
+        $Cursor.Pending = [byte[]]@()
+        if ($start -lt $bytes.Length) { $Cursor.Pending = [byte[]]$bytes[$start..($bytes.Length - 1)] }
+    } finally {
+        $buffer.Dispose()
+        $stream.Dispose()
+    }
+}
+
 function Format-CodexSessionEvent {
     param(
         [Parameter(Mandatory = $false)]
@@ -116,7 +227,8 @@ function Format-CodexSessionEvent {
         [string]$Line,
         [Parameter(Mandatory = $false)]
         [ValidateSet('Full', 'Standard', 'Compact', 'Minimal', 'Off', 'Errors')]
-        [string]$LogLevel = 'Standard'
+        [string]$LogLevel = 'Standard',
+        [string]$SessionId
     )
     $ErrorActionPreference = 'Stop'
 
@@ -207,9 +319,7 @@ function Format-CodexSessionEvent {
             }
             $outText = ($outLines -join "`n").Trim()
 
-            $isToolError = ($p.is_error -eq $true) -or
-                ($null -ne $p.exit_code -and $p.exit_code -ne 0) -or
-                ($outText -match '(?i)\b(error|exception|fatal|traceback|command not found)\b')
+            $isToolError = Test-CodexToolFailure -Result $p
 
             if ($LogLevel -eq 'Errors' -and -not $isToolError) {
                 return
@@ -228,10 +338,10 @@ function Format-CodexSessionEvent {
                     $outText
                 }
                 if ($isToolError) {
-                    Write-Host '<-- [TOOL ERROR]' -ForegroundColor Red
+                    Write-Host "<-- [TOOL ERROR] [session: $SessionId]" -ForegroundColor Red
                     Write-Host $preview -ForegroundColor DarkYellow
                 } else {
-                    Write-Host '<-- [TOOL OUTPUT]' -ForegroundColor Blue
+                    Write-Host "<-- [TOOL OUTPUT] [session: $SessionId]" -ForegroundColor Blue
                     Write-Host $preview -ForegroundColor Gray
                 }
             }
@@ -250,14 +360,14 @@ function Format-CodexSessionEvent {
 
         # 6. Turn Aborted
         if ($pType -eq 'turn_aborted') {
-            Write-Host "`n[TURN ABORTED]" -ForegroundColor Red
+            Write-Host "`n[TURN ABORTED] [session: $SessionId]" -ForegroundColor Red
             return
         }
 
         # 7. Explicit Error Events
         if ($pType -match '(?i)error|fail|exception' -or $objType -match '(?i)error|fail' -or $p.error) {
             $errText = if ($p.message) { $p.message } elseif ($p.error) { $p.error } else { $Line }
-            Write-Host "`n[ERROR: $pType] $errText" -ForegroundColor Red
+            Write-Host "`n[ERROR: $pType] [session: $SessionId] $errText" -ForegroundColor Red
             return
         }
     }
@@ -289,8 +399,13 @@ function Watch-CodexActivity {
     $sessionsRoot = Join-Path $CustomCodexHome 'sessions'
     $routerLogPath = Join-Path $CustomCodexHome 'logs\codex-model-shell-router.out.log'
 
-    $sessionFs = $null
-    $sessionSr = $null
+    $sessionStates = @{}
+    $watchStartedUtc = [System.DateTime]::UtcNow
+    if (Test-Path -LiteralPath $sessionsRoot) {
+        foreach ($file in (Get-ChildItem -LiteralPath $sessionsRoot -Recurse -File -Filter '*.jsonl')) {
+            $sessionStates[$file.FullName] = New-CodexSessionCursor -File $file -FromEnd
+        }
+    }
     $currentSessionPath = $null
 
     $routerFs = $null
@@ -348,7 +463,7 @@ function Watch-CodexActivity {
                         $rLine = $routerSr.ReadLine()
                         if (-not [string]::IsNullOrWhiteSpace($rLine)) {
                             if ($LogLevel -eq 'Errors') {
-                                if ($rLine -match '->\s*([45]\d\d)|error|fail|exception|timeout|refused|fallback|retry') {
+                                if (Test-CodexRouterFailure -Line $rLine) {
                                     Write-Host "[router error] $rLine" -ForegroundColor Red
                                 }
                             } else {
@@ -373,49 +488,35 @@ function Watch-CodexActivity {
             }
 
             # 2. Check for active session or switch to newer
-            if ($null -eq $sessionSr -or $lastSessionCheck.ElapsedMilliseconds -gt 1500) {
+            if ($null -eq $currentSessionPath -or $lastSessionCheck.ElapsedMilliseconds -gt 1500) {
                 $lastSessionCheck.Restart()
                 if (Test-Path -LiteralPath $sessionsRoot) {
-                    $newest = Get-ChildItem -LiteralPath $sessionsRoot -Recurse -File -Filter '*.jsonl' -ErrorAction SilentlyContinue |
-                        Sort-Object LastWriteTime -Descending | Select-Object -First 1
+                    $sessionFiles = @(Get-ChildItem -LiteralPath $sessionsRoot -Recurse -File -Filter '*.jsonl' -ErrorAction SilentlyContinue)
+                    $newest = $sessionFiles | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+                    foreach ($file in $sessionFiles) {
+                        if (-not $sessionStates.ContainsKey($file.FullName)) {
+                            $sessionStates[$file.FullName] = New-CodexSessionCursor -File $file
+                        }
+                        if ($file.LastWriteTimeUtc -ge $watchStartedUtc) { $sessionStates[$file.FullName].Active = $true }
+                    }
 
                     if ($newest -and $newest.FullName -ne $currentSessionPath) {
-                        if ($sessionSr) {
-                            $sessionSr.Dispose()
-                            $sessionFs.Dispose()
-                            $sessionSr = $null
-                            $sessionFs = $null
-                        }
-
                         $isFirstAttach = ($null -eq $currentSessionPath)
                         $currentSessionPath = $newest.FullName
-                        try {
-                            $sessionFs = [System.IO.FileStream]::new(
-                                $currentSessionPath,
-                                [System.IO.FileMode]::Open,
-                                [System.IO.FileAccess]::Read,
-                                [System.IO.FileShare]::ReadWrite
-                            )
-                            if ($isFirstAttach) {
-                                $sessionFs.Seek(0, [System.IO.SeekOrigin]::End) | Out-Null
-                                Write-Host "[ungate] Attached to active session: $($newest.Name)" -ForegroundColor DarkGray
-                            }
-                            else {
-                                Write-Host "`n[ungate] Switched to new session: $($newest.Name)" -ForegroundColor Cyan
-                            }
-                            $sessionSr = [System.IO.StreamReader]::new($sessionFs, [System.Text.Encoding]::UTF8)
-                        }
-                        catch { }
+                        $sessionStates[$currentSessionPath].Active = $true
+                        if ($isFirstAttach) { Write-Host "[ungate] Attached to active session: $($newest.Name)" -ForegroundColor DarkGray }
+                        else { Write-Host "`n[ungate] Switched to new session: $($newest.Name)" -ForegroundColor Cyan }
                     }
                 }
             }
 
             # 3. Read session lines
-            if ($sessionSr) {
-                while (-not $sessionSr.EndOfStream) {
-                    $sLine = $sessionSr.ReadLine()
+            foreach ($sessionPath in @($sessionStates.Keys)) {
+                $cursor = $sessionStates[$sessionPath]
+                if (-not $cursor.Active -or -not (Test-Path -LiteralPath $sessionPath -PathType Leaf)) { continue }
+                foreach ($sLine in @(Read-CodexSessionAppend -Path $sessionPath -Cursor $cursor)) {
                     if (-not [string]::IsNullOrWhiteSpace($sLine)) {
-                        Format-CodexSessionEvent -Line $sLine -LogLevel $LogLevel
+                        Format-CodexSessionEvent -Line $sLine -LogLevel $LogLevel -SessionId $cursor.SessionId
                     }
                 }
             }
@@ -443,8 +544,6 @@ function Watch-CodexActivity {
         Write-Warning "[ungate] Log stream stopped: $_"
     }
     finally {
-        if ($sessionSr) { $sessionSr.Dispose() }
-        if ($sessionFs) { $sessionFs.Dispose() }
         if ($routerSr) { $routerSr.Dispose() }
         if ($routerFs) { $routerFs.Dispose() }
     }

@@ -19,7 +19,7 @@ When investigating a model, follow its actual route before changing code:
   `J:\Sandbox\CLIProxyAPI` first, then
   `scripts\cliproxy-namespace-bridge.mjs` and
   `scripts\codex-model-shell-router.mjs`.
-- Mode 7, Mimo v2.5 Pro (OmniRoute): model-shell router `8319` -> OmniRoute
+- Mode 7, Mimo (registry `mimo-v2.5-pro`, local override v2.6 Pro): model-shell router `8319` -> OmniRoute
   `20128`; inspect `%APPDATA%\omniroute` call logs, then
   `scripts\mimo-responses-stream-adapter.mjs` and the router.
 - Modes 4-6, Kimi K3, Grok 4.5, and Claude Opus 5 (apikey.fun): model-shell
@@ -104,6 +104,14 @@ Interpretation rules:
   SSE lifecycle reaching Codex. For Mimo, also check the adapter diagnostic;
   it logs the model, tool name and input byte count, never patch contents or
   API keys.
+- OmniRoute `RATE_LIMIT_EXECUTION_TIMEOUT` is the local Bottleneck execution
+  deadline, separate from admission queueing and stream readiness. This machine
+  sets `resilienceSettings.requestQueue.maxWaitMs=300000` through `/api/resilience`;
+  the legacy field name does not describe a queue-wait timeout.
+- The four-chat admission profile and Mimo input normalization are documented
+  in `docs/model-routing.md`. Before runtime refresh, require zero active and
+  queued work in both admission snapshots. Health payloads have a 1-second TTL;
+  recheck after completion rather than treating a cached counter as a leak.
 
 PowerShell commands for the newest records:
 

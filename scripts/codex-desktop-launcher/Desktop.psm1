@@ -224,6 +224,18 @@ function Start-CodexBetaDesktop {
     }
 }
 
+function Get-CodexPackageJobFailureReason {
+    param(
+        [Parameter(Mandatory)][System.Management.Automation.Job]$Job
+    )
+
+    $jobReason = $Job.ChildJobs[0].JobStateInfo.Reason
+    if ($jobReason) {
+        return $jobReason.Message
+    }
+    return "job state is $($Job.State)"
+}
+
 # The package fallback owns its pipe and job; the direct launcher owns fallback selection.
 function Start-CodexBetaPackageDesktop {
     param(
@@ -254,8 +266,7 @@ function Start-CodexBetaPackageDesktop {
             $Context.CodexPackageLaunchHelperPath,
             $pipeName,
             [string]$PackageInfo.ExecutablePath,
-            $WorkingDirectory,
-            $DesktopArguments
+            $WorkingDirectory
         ) -ScriptBlock {
             param(
                 $PackageFamilyName,
@@ -264,24 +275,19 @@ function Start-CodexBetaPackageDesktop {
                 $HelperPath,
                 $PipeName,
                 $ExecutablePath,
-                $WorkingDirectory,
-                $ExtraArguments
+                $WorkingDirectory
             )
+            $ErrorActionPreference = 'Stop'
 
-            $argumentsList = [System.Collections.Generic.List[string]]::new()
-            $argumentsList.AddRange(@(
+            # Desktop arguments travel over the pipe: quoting them into -Args mangles values such as --js-flags="...".
+            $arguments = @(
                 '-NoProfile',
                 '-WindowStyle', 'Hidden',
                 '-File', "`"$HelperPath`"",
                 '-PipeName', "`"$PipeName`"",
                 '-ExecutablePath', "`"$ExecutablePath`"",
                 '-WorkingDirectory', "`"$WorkingDirectory`""
-            ))
-            if ($ExtraArguments -and $ExtraArguments.Count -gt 0) {
-                $joinedArgs = ($ExtraArguments | ForEach-Object { "`"$_`"" }) -join ','
-                $argumentsList.Add("-Arguments @($joinedArgs)")
-            }
-            $arguments = $argumentsList -join ' '
+            ) -join ' '
             Invoke-CommandInDesktopPackage `
                 -PackageFamilyName $PackageFamilyName `
                 -AppId $ApplicationId `
@@ -292,8 +298,14 @@ function Start-CodexBetaPackageDesktop {
         }
 
         $connectTask = $pipe.WaitForConnectionAsync()
-        if (-not $connectTask.Wait([TimeSpan]::FromSeconds(20))) {
-            throw 'Timed out waiting for the Codex Beta package launch helper.'
+        $connectDeadline = [DateTime]::UtcNow.AddSeconds(20)
+        while (-not $connectTask.Wait(250)) {
+            if ($job.State -eq 'Failed') {
+                throw "The Codex Beta package command failed: $(Get-CodexPackageJobFailureReason -Job $job)"
+            }
+            if ([DateTime]::UtcNow -ge $connectDeadline) {
+                throw 'Timed out waiting for the Codex Beta package launch helper.'
+            }
         }
         $connectTask.GetAwaiter().GetResult()
 
@@ -302,7 +314,11 @@ function Start-CodexBetaPackageDesktop {
         $writer = [System.IO.StreamWriter]::new($pipe, $encoding, 1024, $true)
         $writer.AutoFlush = $true
         try {
-            $writer.WriteLine(($LaunchEnvironment | ConvertTo-Json -Compress))
+            $payload = @{
+                Environment = $LaunchEnvironment
+                Arguments = @($DesktopArguments | Where-Object { $_ })
+            }
+            $writer.WriteLine(($payload | ConvertTo-Json -Compress -Depth 4))
             $responseTask = $reader.ReadLineAsync()
             if (-not $responseTask.Wait([TimeSpan]::FromSeconds(20))) {
                 throw 'Timed out while Codex Beta was starting inside its package.'
@@ -319,9 +335,7 @@ function Start-CodexBetaPackageDesktop {
         }
         $completedJob = Wait-Job -Job $job -Timeout 20
         if (-not $completedJob -or $job.State -ne 'Completed') {
-            $jobReason = $job.ChildJobs[0].JobStateInfo.Reason
-            $reason = if ($jobReason) { $jobReason.Message } else { "job state is $($job.State)" }
-            throw "The Codex Beta package command failed: $reason"
+            throw "The Codex Beta package command failed: $(Get-CodexPackageJobFailureReason -Job $job)"
         }
 
         Write-Host `

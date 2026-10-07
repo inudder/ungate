@@ -33,6 +33,143 @@ function events(stream) {
 		);
 }
 
+test('unwraps exec JSON at up to four levels without changing JavaScript strings', () => {
+	const code = 'const s = "quote\\\" and \\n";\ntext(`PowerShell ` + "`n");';
+	for (const name of ['exec', 'functions.exec', 'functions__exec']) {
+		let input = code;
+		for (const key of ['exec', 'inputs', 'input', 'exec']) {
+			input = JSON.stringify({ [key]: input });
+			const result = extractToolCalls(
+				`<tool_call><function=${name}><parameter=input>${input}</parameter></function></tool_call>`
+			);
+			assert.equal(result.malformed, false);
+			assert.equal(result.calls[0].input, code);
+		}
+		const excessive = extractToolCalls(
+			`<tool_call><function=${name}><parameter=input>${JSON.stringify({ input })}</parameter></function></tool_call>`
+		);
+		assert.equal(excessive.malformed, true);
+	}
+	for (const input of ['{"exec":"text(1)","input":"text(2)"}', '{"inputs":42}', '{"other":"text(1)"}']) {
+		assert.equal(
+			extractToolCalls(`<tool_call><function=exec><parameter=input>${input}</parameter></function></tool_call>`).malformed,
+			true
+		);
+	}
+	assert.equal(
+		extractToolCalls(`<tool_call><function=exec><parameter=input>${code}</parameter></function></tool_call>`).calls[0].input,
+		code
+	);
+});
+
+test('normalizes structured and completion-only custom exec with one valid lifecycle', async () => {
+	const code = 'text("line\\n");\ntext(`quoted`);';
+	const input = JSON.stringify({ inputs: JSON.stringify({ exec: code }) });
+	const item = { type: 'custom_tool_call', id: 'wrapped', call_id: 'call-wrapped', name: 'exec', input };
+	for (const chunks of [
+		[sse('response.output_item.added', { output_index: 0, item }), sse('response.completed', { response: { output: [item] } })],
+		[sse('response.completed', { response: { output: [item] } })],
+		[
+			sse('response.output_item.added', { output_index: 0, item: { ...item, input: '{}' } }),
+			sse('response.custom_tool_call_input.delta', { output_index: 0, delta: input.slice(0, 9) }),
+			sse('response.custom_tool_call_input.delta', { output_index: 0, delta: input.slice(9) }),
+			sse('response.output_item.done', { output_index: 0, item: { ...item, input: '{}' } }),
+			sse('response.completed', { response: { output: [{ ...item, input: '{}' }] } })
+		]
+	]) {
+		const stream = await transform(chunks);
+		const output = events(stream);
+		assert.equal(output.filter((event) => event.type === 'response.output_item.added').length, 1);
+		assert.deepEqual(
+			output.filter((event) => event.type === 'response.custom_tool_call_input.done').map((event) => event.input),
+			[code]
+		);
+		assert.equal(output.at(-1).response.output[0].input, code);
+		assert.equal(output.at(-1).response.output[0].call_id, item.call_id);
+	}
+});
+
+test('rejects ambiguous and conflicting structured exec without logging its contents', async () => {
+	for (const input of [JSON.stringify({ exec: 'private-code', input: 'other' }), JSON.stringify({ exec: { inputs: 1 } })]) {
+		const logs = [];
+		const item = { type: 'custom_tool_call', id: 'bad', name: 'exec', input };
+		const stream = await transform([sse('response.completed', { response: { output: [item] } })], logs);
+		const output = events(stream);
+		assert.equal(output.at(-1).type, 'response.failed');
+		assert.doesNotMatch(logs.join('\n'), /private-code/);
+	}
+	const stream = await transform([
+		sse('response.output_item.added', {
+			output_index: 0,
+			item: { type: 'custom_tool_call', id: 'bad', name: 'exec', input: '' }
+		}),
+		sse('response.custom_tool_call_input.delta', { output_index: 0, delta: 'text(1)' }),
+		sse('response.custom_tool_call_input.done', { output_index: 0, input: 'text(2)' }),
+		sse('response.completed', { response: { output: [] } })
+	]);
+	const output = events(stream);
+	assert.equal(output.at(-1).type, 'response.failed');
+});
+
+test('adds JavaScript guidance only to custom exec tools and preserves other definitions', () => {
+	const tools = [
+		{ type: 'custom', name: 'exec', description: 'Original', format: { type: 'text' } },
+		{ type: 'function', name: 'exec', parameters: { type: 'object' } }
+	];
+	const request = { tools };
+	const snapshot = structuredClone(request);
+	const result = flattenMimoResponsesRequest(request);
+	assert.match(result.body.tools[0].description, /raw JavaScript/);
+	assert.deepEqual(result.body.tools[0].format, tools[0].format);
+	assert.deepEqual(result.body.tools[1], tools[1]);
+	assert.deepEqual(request, snapshot);
+});
+
+test('preserves terminal upstream errors without reporting a tool parsing failure', async () => {
+	for (const chunk of [
+		sse('error', { code: 'RATE_LIMIT_EXECUTION_TIMEOUT', message: 'Execution expired' }),
+		sse('response.failed', { response: { error: { code: 'server_error', message: 'Unavailable' } } }),
+		'data: {"error":{"code":"server_error","message":"Unavailable"}}\n\n'
+	]) {
+		const failures = [];
+		const stream = await transform([chunk], [], { onFailure: (code) => failures.push(code) });
+		const output = events(stream);
+		assert.equal(output.length, 1);
+		assert.equal(failures.length, 1);
+		assert.doesNotMatch(stream, /mimo_tool_call_parse_error/);
+	}
+});
+
+test('restores namespaced exec and accepts equivalent wrapped and raw final snapshots', async () => {
+	const code = 'text("quoted\\n");\ntext(`tick`);';
+	const { mapping } = flattenMimoResponsesRequest({
+		tools: [{ type: 'namespace', name: 'functions', tools: [{ type: 'custom', name: 'exec' }] }]
+	});
+	const item = {
+		type: 'custom_tool_call',
+		id: 'namespace-exec',
+		call_id: 'namespace-call',
+		name: 'functions__exec',
+		status: 'in_progress',
+		input: ''
+	};
+	const stream = await transform(
+		[
+			sse('response.output_item.added', { output_index: 0, item }),
+			sse('response.custom_tool_call_input.delta', { output_index: 0, delta: JSON.stringify({ exec: code }) }),
+			sse('response.custom_tool_call_input.done', { output_index: 0, input: code }),
+			sse('response.completed', { response: { output: [{ ...item, input: code }] } })
+		],
+		[],
+		{ namespaceMapping: mapping }
+	);
+	const completed = events(stream).at(-1).response.output[0];
+	assert.equal(completed.name, 'exec');
+	assert.equal(completed.namespace, 'functions');
+	assert.equal(completed.input, code);
+	assert.equal(completed.status, 'completed');
+});
+
 test('extracts raw patch text and JSON-wrapped patch text', () => {
 	const raw = extractToolCalls(
 		'<tool_call><function=apply_patch><parameter=patch_text>\n*** Begin Patch\n+ok\n*** End Patch\n</parameter></function></tool_call>'

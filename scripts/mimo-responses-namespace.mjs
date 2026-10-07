@@ -17,6 +17,14 @@ function directToolName(tool) {
 	return undefined;
 }
 
+function withExecGuidance(tool) {
+	if (tool?.type !== 'custom' || directToolName(tool) !== 'exec') return tool;
+	const guidance =
+		'exec input is raw JavaScript, not a JSON wrapper. Run PowerShell through the shell tool inside JavaScript. Avoid JavaScript template literals containing unescaped PowerShell backticks.';
+
+	return { ...tool, description: [tool.description, guidance].filter(Boolean).join('\n') };
+}
+
 function cloneNamespaceTool(tool, name) {
 	const parameters = tool.parameters ?? tool.input_schema ?? tool.inputSchema;
 	const flattened = { ...tool, type: 'function', name };
@@ -103,7 +111,7 @@ export function flattenMimoResponsesRequest(body) {
 
 	for (const tool of tools) {
 		if (!isObject(tool) || tool.type !== 'namespace') {
-			flattenedTools.push(tool);
+			flattenedTools.push(withExecGuidance(tool));
 			continue;
 		}
 
@@ -126,7 +134,7 @@ export function flattenMimoResponsesRequest(body) {
 			fullToOriginal.set(flatName, original);
 			namespaceToFlat.set(namespaceKey(namespace, innerTool.name), flatName);
 			addBareCandidate(bareCandidates, original);
-			flattenedTools.push(cloneNamespaceTool(innerTool, flatName));
+			flattenedTools.push(cloneNamespaceTool(withExecGuidance(innerTool), flatName));
 		}
 	}
 

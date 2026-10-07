@@ -459,6 +459,45 @@ Describe 'Desktop package launch fallback' {
     }
 }
 
+Describe 'Desktop package launch helper' {
+    It 'launches with the environment and quoted arguments from the pipe payload' {
+        $helperPath = Join-Path (Split-Path -Parent $script:moduleRoot) 'start-codex-beta-package-process.ps1'
+        $outputPath = Join-Path $TestDrive 'helper-output.txt'
+        $pipeName = 'ungate-test-' + [guid]::NewGuid().ToString('N')
+        $pipe = [System.IO.Pipes.NamedPipeServerStream]::new($pipeName, 'InOut', 1, 'Byte', 'Asynchronous')
+        try {
+            $helper = Start-Process -FilePath (Get-Command pwsh).Source -WindowStyle Hidden -PassThru -ArgumentList @(
+                '-NoProfile', '-File', "`"$helperPath`"",
+                '-PipeName', $pipeName,
+                '-ExecutablePath', "`"$env:ComSpec`"",
+                '-WorkingDirectory', "`"$TestDrive`""
+            )
+            $pipe.WaitForConnectionAsync().Wait(15000) | Should -BeTrue
+
+            $encoding = [System.Text.UTF8Encoding]::new($false)
+            $reader = [System.IO.StreamReader]::new($pipe, $encoding, $false, 1024, $true)
+            $writer = [System.IO.StreamWriter]::new($pipe, $encoding, 1024, $true)
+            $writer.AutoFlush = $true
+            $payload = @{
+                Environment = @{UNGATE_HELPER_TEST='from-pipe'}
+                Arguments = @('/d', '/c', 'echo', '%UNGATE_HELPER_TEST%', '--js-flags="--max-old-space-size=8192"', '>', "`"$outputPath`"")
+            }
+            $writer.WriteLine(($payload | ConvertTo-Json -Compress -Depth 4))
+            $reader.ReadLine() | Should -Match '^OK:\d+$'
+            $helper.WaitForExit(15000) | Should -BeTrue
+
+            $deadline = (Get-Date).AddSeconds(10)
+            while (-not ((Test-Path -LiteralPath $outputPath) -and (Get-Item -LiteralPath $outputPath).Length -gt 0) -and (Get-Date) -lt $deadline) {
+                Start-Sleep -Milliseconds 100
+            }
+            (Get-Content -LiteralPath $outputPath -Raw).Trim() | Should -Be 'from-pipe --js-flags="--max-old-space-size=8192"'
+        }
+        finally {
+            $pipe.Dispose()
+        }
+    }
+}
+
 Describe 'Desktop performance configuration' {
     It 'provides anti-throttling flags and V8 heap expansion without experimental zero-copy' {
         $arguments = @(Get-CodexPerformanceArguments)

@@ -50,7 +50,37 @@ function isEmptyToolInput(input) {
 	return input === undefined || input === null || input === '' || input === '{}';
 }
 
+function isExecTool(name) {
+	return name === 'exec' || name === 'functions.exec' || name === 'functions__exec';
+}
+
+function normalizeExecInput(input) {
+	let value = input;
+	for (let depth = 0; depth <= 4; depth++) {
+		let parsed;
+		try {
+			parsed = typeof value === 'string' ? JSON.parse(value) : value;
+		} catch {
+			return value;
+		}
+		if (!parsed || typeof parsed !== 'object') return value;
+		const keys = Object.keys(parsed);
+		if (depth === 4 || keys.length !== 1 || !['input', 'inputs', 'exec'].includes(keys[0])) {
+			throw new Error('exec input contains an ambiguous or excessively nested JSON wrapper');
+		}
+		value = parsed[keys[0]];
+		if (typeof value !== 'string' && (!value || typeof value !== 'object' || Array.isArray(value))) {
+			throw new Error('exec JSON wrapper must contain JavaScript text');
+		}
+	}
+
+	return value;
+}
+
 function unwrapToolInput(name, parameterName, body) {
+	if (isExecTool(name)) {
+		return normalizeExecInput(body.replace(/^\r?\n/u, '').replace(/\r?\n$/u, ''));
+	}
 	let input = body;
 	if (parameterName === 'patch_text' || parameterName === 'patch') {
 		input = body;
@@ -97,9 +127,15 @@ function extractToolCalls(text) {
 		let parameterName;
 		if (parameter.length > 2) parameterName = parameter[1];
 		const parameterBody = parameter[2] ?? parameter[1];
+		let input;
+		try {
+			input = unwrapToolInput(match[1], parameterName?.trim().toLowerCase(), parameterBody);
+		} catch (error) {
+			return { calls: [], malformed: true, reason: error.message };
+		}
 		calls.push({
 			name: match[1],
-			input: unwrapToolInput(match[1], parameterName?.trim().toLowerCase(), parameterBody)
+			input
 		});
 		lastIndex = FUNCTION_PATTERN.lastIndex;
 	}
@@ -140,6 +176,7 @@ class MimoResponsesStreamAdapter extends Transform {
 		this.failed = false;
 		this.model = options.model ?? 'unknown';
 		this.logger = options.logger ?? console;
+		this.onFailure = options.onFailure;
 		this.namespaceMapping = options.namespaceMapping ?? null;
 	}
 
@@ -614,6 +651,7 @@ class MimoResponsesStreamAdapter extends Transform {
 	fail(reason, details = {}) {
 		if (this.failed || this.completed) return;
 		this.failed = true;
+		this.onFailure?.('mimo_tool_call_parse_error');
 		this.logDiagnostic(reason, { model: this.model, ...details });
 		this.emitEvent('response.failed', {
 			type: 'response.failed',
@@ -638,7 +676,11 @@ class MimoResponsesStreamAdapter extends Transform {
 				structured: false,
 				hasInputEvents: false,
 				synthesized: false,
-				passed: false
+				passed: false,
+				normalizeExec: false,
+				inputDelta: '',
+				finalInput: undefined,
+				doneItem: null
 			});
 		}
 
@@ -726,8 +768,8 @@ class MimoResponsesStreamAdapter extends Transform {
 		state.frames = [];
 	}
 
-	synthesizeToolCall(state, call, ordinal) {
-		this.logDiagnostic('converted textual tool call', {
+	synthesizeToolCall(state, call, ordinal, diagnostic = 'converted textual tool call') {
+		this.logDiagnostic(diagnostic, {
 			model: this.model,
 			tool: call.name,
 			input_bytes: Buffer.byteLength(call.input, 'utf8')
@@ -756,7 +798,7 @@ class MimoResponsesStreamAdapter extends Transform {
 			item_id: itemId,
 			input: call.input
 		});
-		const completedItem = { ...item, input: call.input };
+		const completedItem = { ...item, status: 'completed', input: call.input };
 		this.emitEvent('response.output_item.done', {
 			type: 'response.output_item.done',
 			...base,
@@ -806,6 +848,35 @@ class MimoResponsesStreamAdapter extends Transform {
 		for (const state of this.messageItems.values()) this.finalizeMessage(state);
 		if (this.failed) return;
 		for (const state of this.customItems.values()) {
+			if (state.normalizeExec && !state.synthesized && !state.passed && (state.structured || state.hasInputEvents)) {
+				const input = [state.finalInput, state.doneItem?.input, state.inputDelta, state.item?.input].find(
+					(value) => !isEmptyToolInput(value)
+				);
+				if (typeof input !== 'string' || input === '') {
+					this.fail('upstream emitted an incomplete exec input', { output_index: state.index });
+
+					return;
+				}
+				try {
+					const normalizedInput = normalizeExecInput(input);
+					for (const snapshot of [state.finalInput, state.doneItem?.input, state.inputDelta]) {
+						if (!isEmptyToolInput(snapshot) && normalizeExecInput(snapshot) !== normalizedInput) {
+							throw new Error('completed exec input conflicts with earlier fragments');
+						}
+					}
+					this.synthesizeToolCall(
+						state,
+						{ name: state.item.name, input: normalizedInput },
+						Number(state.index),
+						'normalized exec input'
+					);
+				} catch (error) {
+					this.fail(error.message, { output_index: state.index, tool: state.item.name, input_bytes: Buffer.byteLength(input) });
+
+					return;
+				}
+				continue;
+			}
 			if (!state.structured && !state.synthesized && !state.passed) {
 				if (state.hasInputEvents) {
 					state.structured = true;
@@ -861,15 +932,37 @@ class MimoResponsesStreamAdapter extends Transform {
 			return;
 		}
 		const type = String(data.type ?? frame.eventName ?? '');
+		if (type === 'error' || type === 'response.failed' || (!type && data.error)) {
+			this.failed = true;
+			const upstreamCode = data.code ?? data.error?.code ?? data.response?.error?.code;
+			const code =
+				typeof upstreamCode === 'string' && /^[a-zA-Z0-9_.:-]{1,160}$/u.test(upstreamCode)
+					? upstreamCode
+					: 'upstream_stream_error';
+			this.onFailure?.(code);
+			this.logDiagnostic('upstream stream error', { model: this.model, error_code: code });
+			if (type) this.emitFrame(frame);
+			else
+				this.emitEvent('error', {
+					type: 'error',
+					sequence_number: 0,
+					code,
+					message: data.error?.message ?? 'Upstream stream failed.',
+					param: null
+				});
+
+			return;
+		}
 		if (type === 'response.output_item.added') {
 			const item = data.item;
 			if (item?.type === 'custom_tool_call') {
 				const state = this.getCustomState(outputIndex(data, String(item.id ?? 'custom')));
 				state.frames.push(frame);
 				state.item = item;
+				state.normalizeExec = isExecTool(this.restoreToolItem(item).name);
 				if (!isEmptyToolInput(item.input)) {
 					state.structured = true;
-					this.flushCustomState(state);
+					if (!state.normalizeExec) this.flushCustomState(state);
 				}
 
 				return;
@@ -905,6 +998,13 @@ class MimoResponsesStreamAdapter extends Transform {
 		if (custom && type.startsWith('response.custom_tool_call_input.')) {
 			if (custom.synthesized) return;
 			custom.hasInputEvents = true;
+			if (custom.normalizeExec) {
+				if (type.endsWith('.delta') && typeof data.delta === 'string') custom.inputDelta += data.delta;
+				if (type.endsWith('.done') && typeof data.input === 'string') custom.finalInput = data.input;
+				custom.frames.push(frame);
+
+				return;
+			}
 			if (custom.structured || custom.passed) this.emitFrame(frame);
 			else custom.frames.push(frame);
 
@@ -912,12 +1012,27 @@ class MimoResponsesStreamAdapter extends Transform {
 		}
 		if (type === 'response.output_item.done' && custom) {
 			if (custom.synthesized) return;
+			if (custom.normalizeExec) {
+				custom.doneItem = data.item;
+				custom.frames.push(frame);
+
+				return;
+			}
 			if (custom.structured || custom.passed) this.emitFrame(frame);
 			else custom.frames.push(frame);
 
 			return;
 		}
 		if (type === 'response.completed') {
+			for (const [index, item] of (data.response?.output ?? []).entries()) {
+				if (item?.type !== 'custom_tool_call' || !isExecTool(this.restoreToolItem(item).name)) continue;
+				const state =
+					[...this.customItems.values()].find((entry) => entry.item?.id === item.id) ?? this.getCustomState(String(index));
+				state.item ??= item;
+				state.doneItem = item;
+				state.normalizeExec = true;
+				if (!isEmptyToolInput(item.input)) state.structured = true;
+			}
 			this.finalizePending();
 			if (this.failed) return;
 			this.completed = true;
