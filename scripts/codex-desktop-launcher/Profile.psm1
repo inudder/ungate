@@ -3,13 +3,7 @@
 Import-Module (Join-Path $PSScriptRoot 'Desktop.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'Routing.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'Toml.psm1') -DisableNameChecking -ErrorAction Stop
-
-function Disable-CodexMemoriesInConfig {
-    param([Parameter(Mandatory)][string]$Content)
-    $Content = Set-TomlTableValue -Content $Content -TableName 'features' -Key 'memories' -TomlValue 'false'
-    $Content = Set-TomlTableValue -Content $Content -TableName 'memories' -Key 'generate_memories' -TomlValue 'false'
-    return Set-TomlTableValue -Content $Content -TableName 'memories' -Key 'use_memories' -TomlValue 'false'
-}
+Import-Module (Join-Path $PSScriptRoot 'Memories.psm1') -DisableNameChecking -ErrorAction Stop
 
 function Initialize-UngateCodexConfig {
     param(
@@ -21,11 +15,11 @@ function Initialize-UngateCodexConfig {
     if (Test-Path -LiteralPath $Context.CustomConfigPath) {
         Write-Host "[ungate] Using existing custom config: $($Context.CustomConfigPath)" -ForegroundColor DarkGray
         $config = Get-Content -LiteralPath $Context.CustomConfigPath -Raw
-        $updatedConfig = Disable-CodexMemoriesInConfig -Content $config
+        $updatedConfig = Set-UngateMemoryConfig -Content $config -Enabled ([bool]$Selection.MemoryEnabled)
         if ($updatedConfig -cne $config) {
             [System.IO.File]::WriteAllText($Context.CustomConfigPath, $updatedConfig, [System.Text.UTF8Encoding]::new($false))
         }
-        Write-Host '[ungate] Local memories disabled (generation and use).' -ForegroundColor DarkGray
+        Write-Host "[ungate] Local memories enabled: $([bool]$Selection.MemoryEnabled)." -ForegroundColor DarkGray
         return
     }
 
@@ -46,14 +40,14 @@ function Initialize-UngateCodexConfig {
         -Key 'model_reasoning_effort' `
         -TomlValue "`"$($Selection.SelectedModel.DefaultReasoningLevel)`""
     $config = Ensure-ModelProvidersInConfig -Context $Context -Selection $Selection -Content $config
-    $config = Disable-CodexMemoriesInConfig -Content $config
+    $config = Set-UngateMemoryConfig -Content $config -Enabled ([bool]$Selection.MemoryEnabled)
     [System.IO.File]::WriteAllText(
         $Context.CustomConfigPath,
         $config,
         [System.Text.UTF8Encoding]::new($false)
     )
     Write-Host "[ungate] Created custom config: $($Context.CustomConfigPath)" -ForegroundColor Green
-    Write-Host '[ungate] Local memories disabled (generation and use).' -ForegroundColor DarkGray
+    Write-Host "[ungate] Local memories enabled: $([bool]$Selection.MemoryEnabled)." -ForegroundColor DarkGray
 }
 
 function Ensure-SharedDirectory {

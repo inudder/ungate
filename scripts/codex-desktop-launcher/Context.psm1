@@ -94,6 +94,7 @@ function New-CodexDesktopLaunchContext {
         EnableProviderFallback = $false
         NoLogWatch = $false
         ConfigureModel = $false
+        ConfigureMemories = $false
         SetUpstreamModel = ''
     }
     foreach ($name in @($options.Keys)) {
@@ -163,6 +164,9 @@ function New-CodexDesktopLaunchContext {
         CustomModelOverridesPath = $CustomModelOverridesPath
         PickerModelSelectionPath = $PickerModelSelectionPath
         LogSettingsPath = $LogSettingsPath
+        MemorySettingsPath = Join-Path $CustomCodexHome 'ungate-memory-settings.json'
+        MemoryValidationSignature = $null
+        MemoryValidationResult = $null
         CustomGlobalStatePath = $CustomGlobalStatePath
         ProxyBaseUrl = $ProxyBaseUrl
         ProviderName = $ProviderName

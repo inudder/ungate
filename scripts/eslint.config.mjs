@@ -17,6 +17,7 @@ export default [
 		files: [
 			'cliproxy-namespace-bridge*.mjs',
 			'codex-model-shell-router*.mjs',
+			'codex-memory-preflight*.mjs',
 			'codex-tool*.mjs',
 			'deepseek-responses*.mjs',
 			'mimo-responses-namespace*.mjs',

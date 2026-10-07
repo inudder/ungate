@@ -117,6 +117,28 @@ instruction; preserve a failed effective state and repair forward.
 
 ## Route boundaries
 
+### Optional local memory route
+
+Local memories default to Off. The launcher's memory menu (`M`) saves the
+provider, exact upstream model ID and enable preference independently of the
+seven Desktop picker slots. The default is `gemini-3.8-flash-high` in CLIProxyAPI.
+When validation succeeds and memories are enabled, the router adds hidden
+`ungate-memory`: router `8319` -> bridge `8318` -> CLIProxyAPI `8317` for Gemini,
+or the existing direct Ungate/OmniRoute endpoint and model-specific adapter for
+those providers. Both memory model overrides target that alias. Memory requests
+use separately resolved credentials through `UNGATE_MEMORY_API_KEY`, so a main
+model's explicit `-ApiKey` cannot replace them. Keys are never persisted with
+memory preferences.
+
+Provider fallback continues to use `codex-fallback` in OmniRoute. With memories
+enabled, its Responses calls also enter router `8319`, which separates the main
+combo route from the memory route. With memories Off, the existing direct
+fallback transport is retained. A failed memory preflight disables memory for
+the launch without changing the saved choice. See `docs/desktop-launcher.md`
+for the menu, validation stages and failure behavior.
+
+### Main chat routes
+
 - The Mimo stream adapter is enabled only for the Mimo `/v1/responses`
   streaming route when the route has `responsesAdapter = mimo-textual-tools`.
 - The CLIProxy bridge is for CLIProxyAPI models, currently mode 3 Grok. It

@@ -52,10 +52,15 @@ through the launcher. MCP edits made only in `.codex-ungate` are overwritten.
 each launch. Other Beta settings stay independent. A running Codex Beta
 process does not pick up MCP changes until it is restarted via the launcher.
 
-Local memories are disabled by the launcher on every Beta profile preparation:
-`features.memories=false`, `memories.generate_memories=false` and
-`memories.use_memories=false`. Preserve this user preference; do not enable
-memory models as a workaround for background-request failures.
+Local memories default to Off. The launcher memory menu (`M`, or
+`-ConfigureMemories`) saves the explicit preference in
+`ungate-memory-settings.json` inside the selected Beta home. The default model
+is CLIProxyAPI `gemini-3.8-flash-high` for extraction and consolidation, routed
+through hidden alias `ungate-memory`, independently of the Desktop picker.
+Before enabling or launching with memories, require the dedicated Responses
+validation. A failed check disables generation and use for that launch only;
+retain the saved preference and model. Do not enable memories as a workaround
+for background-request failures.
 
 ## Codex Beta and Mimo session logs
 

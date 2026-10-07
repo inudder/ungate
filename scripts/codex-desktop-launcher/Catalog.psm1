@@ -167,6 +167,24 @@ function Write-UngateModelCatalog {
         [void]$catalogModels.Add($modelInfo)
     }
 
+    if ($Selection.MemoryEnabled) {
+        $memoryInfo = $catalogModels[0] | ConvertTo-Json -Depth 100 | ConvertFrom-Json -Depth 100
+        $memoryInfo.slug = 'ungate-memory'
+        $memoryInfo.display_name = 'Local memories'
+        $memoryInfo.description = 'Dedicated extraction and consolidation model.'
+        $memoryInfo.visibility = 'hide'
+        $memoryInfo.base_instructions = Set-ModelIdentity -Instructions $memoryInfo.base_instructions -Identity $Selection.MemoryDefinition.Identity
+        if ($memoryInfo.model_messages) {
+            $memoryInfo.model_messages.instructions_template = Set-ModelIdentity -Instructions $memoryInfo.model_messages.instructions_template -Identity $Selection.MemoryDefinition.Identity
+        }
+        $memoryContext = Get-UngateModelContextWindow -Definition $Selection.MemoryDefinition
+        $memoryInfo.context_window = $memoryContext.ContextWindow
+        $memoryInfo.max_context_window = $memoryContext.MaxContextWindow
+        $memoryInfo.effective_context_window_percent = $memoryContext.EffectiveContextWindowPercent
+        $memoryInfo.default_reasoning_level = $Selection.MemoryDefinition.DefaultReasoningLevel
+        [void]$catalogModels.Add($memoryInfo)
+    }
+
     $catalog = [ordered]@{ models = @($catalogModels) }
     $json = $catalog | ConvertTo-Json -Depth 100
     [System.IO.File]::WriteAllText(
@@ -254,8 +272,12 @@ function Assert-UngateCodexConfig {
     $catalog = Get-Content -LiteralPath $Context.CustomModelCatalogPath -Raw |
         ConvertFrom-Json -Depth 100
     $catalogModels = @($catalog.models)
-    if ($catalogModels.Count -ne $Selection.Definitions.Count) {
+    $expectedCatalogCount = $Selection.Definitions.Count + $(if ($Selection.MemoryEnabled) { 1 } else { 0 })
+    if ($catalogModels.Count -ne $expectedCatalogCount) {
         throw "Custom model catalog failed validation: $($Context.CustomModelCatalogPath)"
+    }
+    if ($Selection.MemoryEnabled -and @($catalogModels | Where-Object { $_.slug -eq 'ungate-memory' -and $_.visibility -eq 'hide' }).Count -ne 1) {
+        throw 'Dedicated memory model is missing from the hidden catalog.'
     }
     foreach ($definition in $Selection.Definitions) {
         $catalogSlug = Get-CodexCatalogModelSlug -Selection $Selection -Definition $definition

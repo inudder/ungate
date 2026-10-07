@@ -362,6 +362,9 @@ function Ensure-CodexModelShellRouter {
         }
         $routerEnvironment[$provider.EnvKey] = $providerKey
     }
+    if ($Selection.MemoryEnabled) {
+        $routerEnvironment['UNGATE_MEMORY_API_KEY'] = $Selection.MemoryApiKey
+    }
 
     $logDirectory = Join-Path $Context.CustomCodexHome 'logs'
     New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null

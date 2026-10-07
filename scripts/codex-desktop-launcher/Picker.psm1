@@ -1,5 +1,6 @@
 #requires -Version 7.4
 # Picker: internal Desktop launcher module. No per-launch module state.
+Import-Module (Join-Path $PSScriptRoot 'Memories.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'Logging.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'Models.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'ToolCompatibility.psm1') -DisableNameChecking -ErrorAction Stop
@@ -746,11 +747,15 @@ function Select-UngateDesktopModel {
         $currentLogLevel = (Read-UngateLogSettings -SettingsPath $LogSettingsPath).LogLevel
         $loggingMenuIndex = $changeVersionIndex + 1
         Write-Host ("  {0}) Configure live logging [Current: {1}]" -f $loggingMenuIndex, $currentLogLevel) -ForegroundColor DarkCyan
+        $memoryMenuIndex = $loggingMenuIndex + 1
+        $memorySettings = Read-UngateMemorySettings -Context $Context
+        $memoryState = if ($memorySettings.Enabled) { 'On' } else { 'Off' }
+        Write-Host ("  {0}) Настройки памяти [Current: {1}; {2} / {3}]" -f $memoryMenuIndex, $memoryState, $memorySettings.Provider, $memorySettings.Model) -ForegroundColor DarkCyan
         Write-Host '  [TT] Тестирование совместимости инструментов (чекбоксы)' -ForegroundColor Yellow
         Write-Host ''
 
         $fallbackHint = if ($IncludeProviderFallback) { ' or F' } else { '' }
-        $choicePrompt = "Mode [1-$loggingMenuIndex$fallbackHint or V or L or TT] (default: 1)"
+        $choicePrompt = "Mode [1-$memoryMenuIndex$fallbackHint or V or L or M or TT] (default: 1)"
         $choice = Read-Host $choicePrompt
         if ([string]::IsNullOrWhiteSpace($choice)) {
             return $pickerDefinitions[0].Slug
@@ -788,11 +793,16 @@ function Select-UngateDesktopModel {
             continue
         }
 
+        if ($choice.Trim().Equals('m', [System.StringComparison]::OrdinalIgnoreCase)) {
+            Invoke-UngateMemoryMenu -Context $Context
+            continue
+        }
+
         $selectedNumber = 0
         if (
             [int]::TryParse($choice, [ref]$selectedNumber) -and
             $selectedNumber -ge 1 -and
-            $selectedNumber -le $loggingMenuIndex
+            $selectedNumber -le $memoryMenuIndex
         ) {
             if ($selectedNumber -le $pickerDefinitions.Count) {
                 return $pickerDefinitions[$selectedNumber - 1].Slug
@@ -850,9 +860,13 @@ function Select-UngateDesktopModel {
                 $null = Invoke-UngateLoggingMenu -SettingsPath $LogSettingsPath
                 continue
             }
+            if ($selectedNumber -eq $memoryMenuIndex) {
+                Invoke-UngateMemoryMenu -Context $Context
+                continue
+            }
         }
 
-        Write-Host "Enter a number from 1 to $loggingMenuIndex$fallbackHint or V or L." -ForegroundColor Yellow
+        Write-Host "Enter a number from 1 to $memoryMenuIndex$fallbackHint or V or L or M or TT." -ForegroundColor Yellow
     }
 }
 

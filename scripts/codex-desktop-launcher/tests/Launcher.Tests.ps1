@@ -1,6 +1,6 @@
 BeforeAll {
     $script:moduleRoot = Split-Path -Parent $PSScriptRoot
-    foreach ($name in @('Context', 'Models', 'Routing', 'ProxyRuntime', 'Desktop', 'Profile', 'Catalog', 'Launcher')) {
+    foreach ($name in @('Context', 'Models', 'Routing', 'ProxyRuntime', 'Desktop', 'Profile', 'Memories', 'Catalog', 'Launcher')) {
         Import-Module (Join-Path $script:moduleRoot "$name.psm1") -DisableNameChecking -ErrorAction Stop
     }
 
@@ -240,7 +240,7 @@ Describe 'Local memories remain disabled' {
         [IO.File]::WriteAllText($context.CustomConfigPath, $config)
         $selection = Get-TestSelection $context
         Initialize-UngateCodexConfig -Context $context -Selection $selection
-        $expected = $config.Replace('memories = true', 'memories = false')
+        $expected = Set-UngateMemoryConfig -Content $config.Replace('memories = true', 'memories = false')
         Get-Content -LiteralPath $context.CustomConfigPath -Raw | Should -BeExactly $expected
         $writeTime = (Get-Item -LiteralPath $context.CustomConfigPath).LastWriteTimeUtc
         Initialize-UngateCodexConfig -Context $context -Selection $selection
@@ -287,13 +287,21 @@ Describe 'Complete preparation on disposable profiles' {
     }
 
     It 'writes and validates the complete <Mode> profile without live services' -ForEach @(
-        @{Mode='router';Options=@{PrepareOnly=$true;Model='grok-4.7'};ExpectedProvider='ungate_model_shell_router';ExpectedCount=7;ExpectedModel='gpt-5.5'},
-        @{Mode='fallback';Options=@{PrepareOnly=$true;EnableProviderFallback=$true};ExpectedProvider='omniroute';ExpectedCount=11;ExpectedModel='codex-fallback'}
+        @{Mode='router';Options=@{PrepareOnly=$true;Model='grok-4.7'};Memory=$false;ExpectedProvider='ungate_model_shell_router';ExpectedCount=7;ExpectedModel='gpt-5.5'},
+        @{Mode='fallback';Options=@{PrepareOnly=$true;EnableProviderFallback=$true};Memory=$false;ExpectedProvider='omniroute';ExpectedCount=11;ExpectedModel='codex-fallback'},
+        @{Mode='memory-router';Options=@{PrepareOnly=$true;Model='grok-4.7'};Memory=$true;ExpectedProvider='ungate_model_shell_router';ExpectedCount=8;ExpectedModel='gpt-5.5'},
+        @{Mode='memory-fallback';Options=@{PrepareOnly=$true;EnableProviderFallback=$true};Memory=$true;ExpectedProvider='ungate_model_shell_router';ExpectedCount=12;ExpectedModel='codex-fallback'}
     ) {
         $context = New-TestContext $Options $Mode
         $context.DefaultCodexHome = $script:sourceHome
         $context.DefaultConfigPath = Join-Path $script:sourceHome 'config.toml'
         $context.DefaultModelCachePath = Join-Path $script:sourceHome 'models_cache.json'
+        if ($Memory) {
+            $memorySettings = New-UngateMemorySettings
+            $memorySettings.Enabled = $true
+            Write-UngateMemorySettings -Context $context -Settings $memorySettings
+            Mock -ModuleName Launcher Invoke-UngateMemoryValidation { [pscustomobject]@{Valid=$true} }
+        }
         $originalConfigHash = (Get-FileHash -LiteralPath $context.DefaultConfigPath).Hash
         Invoke-CodexDesktopLauncher -Context $context | Should -Be 0
         $config = Get-Content -LiteralPath $context.CustomConfigPath -Raw
@@ -301,11 +309,15 @@ Describe 'Complete preparation on disposable profiles' {
         $config | Should -Match ('(?m)^model_provider = "' + $ExpectedProvider + '"')
         $config | Should -Match '\[mcp_servers.fixture\]'
         $config | Should -Match '\[mcp_servers.ungate_patch\]'
-        $config | Should -Match '(?m)^memories = false\r?$'
-        $config | Should -Match '(?m)^generate_memories = false\r?$'
-        $config | Should -Match '(?m)^use_memories = false\r?$'
+        $memoryFlag = if ($Memory) { 'true' } else { 'false' }
+        $config | Should -Match "(?m)^memories = $memoryFlag\r?$"
+        $config | Should -Match "(?m)^generate_memories = $memoryFlag\r?$"
+        $config | Should -Match "(?m)^use_memories = $memoryFlag\r?$"
+        $config | Should -Match 'extract_model = "ungate-memory"'
+        $config | Should -Match 'consolidation_model = "ungate-memory"'
         $catalog = Get-Content -LiteralPath $context.CustomModelCatalogPath -Raw | ConvertFrom-Json -Depth 100
         $catalog.models.Count | Should -Be $ExpectedCount
+        @($catalog.models | Where-Object visibility -EQ 'hide').Count | Should -Be $(if ($Memory) { 1 } else { 0 })
         @($catalog.models | Where-Object { -not $_.base_instructions.EndsWith('Keep body') }).Count | Should -Be 0
         Get-Content -LiteralPath (Join-Path $context.CustomCodexHome 'AGENTS.md') -Raw | Should -BeExactly '# Fixture instructions'
         Get-Content -LiteralPath (Join-Path $context.CustomCodexHome 'auth.json') -Raw | Should -BeExactly '{}'

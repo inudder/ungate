@@ -9,7 +9,9 @@ function Get-ProviderDefinitions {
     $ErrorActionPreference = 'Stop'
 
     $byName = [ordered]@{}
-    foreach ($definition in $Selection.Definitions) {
+    $transportDefinitions = @($Selection.Definitions)
+    if ($Selection.MemoryEnabled) { $transportDefinitions += $Selection.MemoryDefinition }
+    foreach ($definition in $transportDefinitions) {
         if (-not $byName.Contains($definition.ProviderName)) {
             $byName[$definition.ProviderName] = [pscustomobject][ordered]@{
                 Name = $definition.ProviderName
@@ -78,7 +80,7 @@ function Get-CodexConfigProviderDefinitions {
     )
     $ErrorActionPreference = 'Stop'
 
-    if ($Selection.EnableProviderFallback) {
+    if ($Selection.EnableProviderFallback -and -not $Selection.MemoryEnabled) {
         return @(
             [pscustomobject][ordered]@{
                 Name = $Selection.FallbackDefinition.ProviderName
@@ -112,6 +114,17 @@ function Get-CodexModelShellRoutes {
             upstreamBaseUrl = [string]$definition.ProxyBaseUrl
             apiKeyEnv = [string]$definition.EnvKey
             responsesAdapter = if ($definition.PSObject.Properties['ResponsesAdapter']) { [string]$definition.ResponsesAdapter } else { $null }
+        })
+    }
+
+    if ($Selection.MemoryEnabled) {
+        $definition = $Selection.MemoryDefinition
+        [void]$routes.Add([ordered]@{
+            clientModel = 'ungate-memory'
+            upstreamModel = [string]$definition.UpstreamModel
+            upstreamBaseUrl = [string]$definition.ProxyBaseUrl
+            apiKeyEnv = 'UNGATE_MEMORY_API_KEY'
+            responsesAdapter = [string]$definition.ResponsesAdapter
         })
     }
 

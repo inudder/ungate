@@ -97,13 +97,39 @@ on newer .NET versions).
 
 ## Safe verification
 
-Local memories are disabled in the managed Beta profile on every preparation,
-including the first copy from the normal Codex config. `Profile.psm1` sets
-`features.memories=false`, `memories.generate_memories=false` and
-`memories.use_memories=false`. The launcher prints this policy at startup.
-Existing memory files remain generated state; this policy does not delete them.
-The normal Codex config is read-only. A memory toggle changed in Beta's UI is
-reset to off on the next launcher preparation.
+Local memories default to Off, including the first copy of the normal profile.
+Open **Настройки памяти** with `M` (number 13 with seven picker models and
+provider fallback), or run `start-codex-desktop-ungate.ps1 -ConfigureMemories`
+to manage memory settings without stopping or launching Desktop. Choose On/Off,
+change the provider and upstream model, check the current model, or restore
+CLIProxyAPI `gemini-3.8-flash-high` as the default model. The same model handles
+extraction and consolidation. All three configured providers are supported.
+
+`Memories.psm1` stores versioned preferences in `ungate-memory-settings.json`
+under the selected `CustomCodexHome`. It keeps credentials outside that file
+and retains a backup on replacement. Missing preferences mean Off/Gemini;
+unreadable preferences are preserved and produce a warning with memories Off.
+Menu changes take effect on the next launcher start. The launcher applies the
+saved choice to `features.memories`, `memories.generate_memories` and
+`memories.use_memories`; both model overrides use hidden alias `ungate-memory`.
+A toggle changed only in Beta's UI is replaced by the launcher preference on
+the next preparation. The normal profile and existing memory files are retained.
+
+Choosing a model or enabling memories requires successful live Responses
+validation. The check also runs at each launch with memories On; a successful
+unchanged choice is reused within that invocation. Manual Check forces a fresh
+probe. Discovery is advisory; inference must pass JSON Schema extraction,
+namespace/function and custom tool calls, both tool-result continuations, and
+complete Responses SSE. The probe uses synthetic inputs, executes no tool code,
+and passes credentials to `codex-memory-preflight.mjs` over stdin. Temporary
+router/bridge listeners bind exclusive OS-assigned ports and close in `finally`.
+Each request is limited to 120 seconds, with a 10-minute overall bound.
+
+If memory validation fails, Desktop still launches with generation and use Off
+for that run. Saved preferences remain intact for the next attempt. Main-model
+preflight behavior is independent. `-PrepareOnly` returns 2 on a memory check
+failure. Disabled memories cause no memory validation or memory-only credential
+lookup. No provider fallback is substituted for a failed memory model.
 
 Ungate key lookup in `ungate-codex-common.ps1` prefers built-in `node:sqlite`
 and opens the database read-only. This avoids native `better-sqlite3` ABI

@@ -10,6 +10,7 @@ Import-Module (Join-Path $PSScriptRoot 'Profile.psm1') -DisableNameChecking -Err
 Import-Module (Join-Path $PSScriptRoot 'Desktop.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'Logging.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'ToolCompatibility.psm1') -DisableNameChecking -ErrorAction Stop
+Import-Module (Join-Path $PSScriptRoot 'Memories.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'codex-plugin-isolation.psm1') -DisableNameChecking -ErrorAction Stop
 
 function Get-ActiveDesktopModelDefinitions {
@@ -45,6 +46,10 @@ function Resolve-CodexDesktopSelection {
         SelectedModel = $null
         LaunchModel = $null
         LaunchProvider = $null
+        MemoryEnabled = $false
+        MemoryDefinition = $null
+        MemoryApiKey = $null
+        MemoryFailure = $null
     }
     $AllUngateModelDefinitions = @(
         Get-UngateModelDefinitions -Context $Context `
@@ -150,10 +155,48 @@ function Initialize-CodexDesktopTransport {
             -ForegroundColor DarkGray
     }
 
-    if ($providerKeys.ContainsKey($Context.CliProxyProviderName)) {
-        Ensure-CliProxyBridge -Context $Context -Key $providerKeys[$Context.CliProxyProviderName]
+    $memorySettings = Read-UngateMemorySettings -Context $Context
+    if ($memorySettings.Enabled) {
+        $validation = Invoke-UngateMemoryValidation -Context $Context -Settings $memorySettings
+        if ($validation.Valid) {
+            try {
+                $memoryDefinition = Get-UngateMemoryDefinition -Context $Context -Settings $memorySettings
+                $Selection.MemoryApiKey = Resolve-ModelApiKey -Context $Context -Definition $memoryDefinition
+                if (-not $providerKeys.ContainsKey($memoryDefinition.ProviderName)) {
+                    $providerKeys[$memoryDefinition.ProviderName] = $Selection.MemoryApiKey
+                }
+                $Selection.MemoryDefinition = $memoryDefinition
+                $Selection.MemoryEnabled = $true
+                $Selection.LaunchProvider = $Context.CodexModelShellRouterProviderDefinition
+            } catch {
+                $Selection.MemoryFailure = 'memory_credentials_unavailable'
+            }
+        } else { $Selection.MemoryFailure = "$($validation.Stage) / $($validation.Code)" }
+        if ($Selection.MemoryFailure) {
+            Write-Warning 'Launching without memories for this run. Saved memory preferences are unchanged.'
+        }
     }
-    if (-not $Selection.EnableProviderFallback) {
+
+    if ($providerKeys.ContainsKey($Context.CliProxyProviderName)) {
+        try {
+            Ensure-CliProxyBridge -Context $Context -Key $providerKeys[$Context.CliProxyProviderName]
+        } catch {
+            if (@($Selection.Definitions | Where-Object ProviderName -EQ $Context.CliProxyProviderName).Count -gt 0) { throw }
+            $Selection.MemoryEnabled = $false
+            $Selection.MemoryFailure = 'memory_bridge_unavailable'
+            $providerKeys.Remove($Context.CliProxyProviderName)
+            if ($Selection.EnableProviderFallback) {
+                $Selection.LaunchProvider = [pscustomobject]@{
+                    Name = $Selection.SelectedModel.ProviderName
+                    DisplayName = $Selection.SelectedModel.ProviderDisplayName
+                    ProxyBaseUrl = $Selection.SelectedModel.ProxyBaseUrl
+                    EnvKey = $Selection.SelectedModel.EnvKey
+                }
+            }
+            Write-Warning 'Memory bridge unavailable. Launching without memories for this run; saved preferences are unchanged.'
+        }
+    }
+    if (-not $Selection.EnableProviderFallback -or $Selection.MemoryEnabled) {
         Ensure-CodexModelShellRouter -Context $Context -Selection $Selection `
             -Routes (Get-CodexModelShellRoutes -Selection $Selection) `
             -ProviderKeys $providerKeys
@@ -213,6 +256,7 @@ function Initialize-CodexDesktopTransport {
         ProviderKeys = $providerKeys
         SelectedKey = $selectedKey
         PreflightFailure = $preflightFailure
+        MemoryFailure = $Selection.MemoryFailure
     }
 }
 
@@ -290,7 +334,7 @@ function Start-CodexDesktopSession {
         [Parameter(Mandatory)][hashtable]$providerKeys
     )
     $ErrorActionPreference = 'Stop'
-    $launchTransport = if ($Selection.EnableProviderFallback) {
+    $launchTransport = if ($Selection.EnableProviderFallback -and -not $Selection.MemoryEnabled) {
         $Selection.SelectedModel.ProviderName
     } else {
         'the local Codex model-shell router'
@@ -332,6 +376,13 @@ function Invoke-CodexDesktopLauncher {
     param([Parameter(Mandatory)][psobject]$Context)
 
     $ErrorActionPreference = 'Stop'
+    if ($Context.Options.ConfigureMemories) {
+        $conflicts = @('ApiKey', 'Model', 'PrepareOnly', 'SkipWorkspaceRestore', 'EnableProviderFallback', 'AddModel', 'TestTools', 'ConfigureModel', 'SetUpstreamModel') |
+            Where-Object { $Context.BoundParameterNames.Contains($_) }
+        if ($conflicts.Count -gt 0) { throw "-ConfigureMemories cannot be combined with: $($conflicts -join ', ')." }
+        Invoke-UngateMemoryMenu -Context $Context
+        return 0
+    }
     if ($Context.Options.TestTools) {
         $conflicts = @('AddModel', 'PrepareOnly', 'EnableProviderFallback') | Where-Object { $Context.BoundParameterNames.Contains($_) }
         if ($conflicts.Count -gt 0) { throw "-TestTools cannot be combined with: $($conflicts -join ', ')." }
@@ -393,7 +444,7 @@ function Invoke-CodexDesktopLauncher {
     $transport = Initialize-CodexDesktopTransport -Context $Context -Selection $selection
     Initialize-CodexDesktopProfile -Context $Context -Selection $selection -codexBeta $codexBeta -providerKeys $transport.ProviderKeys -selectedKey $transport.SelectedKey
     if ($Context.Options.PrepareOnly) {
-        if ($transport.PreflightFailure) {
+        if ($transport.PreflightFailure -or $transport.MemoryFailure) {
             Write-Host '[ungate] Preparation finished with preflight warning. Desktop launch skipped.' -ForegroundColor Yellow
             return 2
         }

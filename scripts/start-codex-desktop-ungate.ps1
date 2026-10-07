@@ -78,6 +78,12 @@
 
 .EXAMPLE
     pwsh J:\Dev\ungate-local\scripts\start-codex-desktop-ungate.ps1 -EnableProviderFallback
+
+.PARAMETER ConfigureMemories
+    Open memory preferences and model validation without launching or stopping Codex Beta.
+
+.EXAMPLE
+    pwsh J:\Dev\ungate-local\scripts\start-codex-desktop-ungate.ps1 -ConfigureMemories
 #>
 [CmdletBinding()]
 param(
@@ -87,6 +93,7 @@ param(
     [ValidateSet('Full', 'Standard', 'Compact', 'Minimal', 'Off', 'Errors', '')][string]$LogLevel,
     [switch]$AddModel,
     [switch]$ConfigureModel,
+    [switch]$ConfigureMemories,
     [string]$SetUpstreamModel,
     [switch]$TestTools,
     [switch]$PrepareOnly,
