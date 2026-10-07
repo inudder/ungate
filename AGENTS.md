@@ -52,6 +52,11 @@ through the launcher. MCP edits made only in `.codex-ungate` are overwritten.
 each launch. Other Beta settings stay independent. A running Codex Beta
 process does not pick up MCP changes until it is restarted via the launcher.
 
+Local memories are disabled by the launcher on every Beta profile preparation:
+`features.memories=false`, `memories.generate_memories=false` and
+`memories.use_memories=false`. Preserve this user preference; do not enable
+memory models as a workaround for background-request failures.
+
 ## Codex Beta and Mimo session logs
 
 

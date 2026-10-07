@@ -97,6 +97,14 @@ on newer .NET versions).
 
 ## Safe verification
 
+Local memories are disabled in the managed Beta profile on every preparation,
+including the first copy from the normal Codex config. `Profile.psm1` sets
+`features.memories=false`, `memories.generate_memories=false` and
+`memories.use_memories=false`. The launcher prints this policy at startup.
+Existing memory files remain generated state; this policy does not delete them.
+The normal Codex config is read-only. A memory toggle changed in Beta's UI is
+reset to off on the next launcher preparation.
+
 Ungate key lookup in `ungate-codex-common.ps1` prefers built-in `node:sqlite`
 and opens the database read-only. This avoids native `better-sqlite3` ABI
 mismatches after a Node upgrade. Older Node runtimes without `node:sqlite`

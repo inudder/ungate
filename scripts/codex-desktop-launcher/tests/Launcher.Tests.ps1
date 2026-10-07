@@ -216,6 +216,38 @@ Describe 'Orchestration without production side effects' {
     }
 }
 
+Describe 'Local memories remain disabled' {
+    It 'disables inherited memory settings without modifying the normal profile' {
+        $context = New-TestContext @{Model='grok-4.7'}
+        $context.DefaultConfigPath = Join-Path $TestDrive 'normal-config.toml'
+        [IO.File]::WriteAllText($context.DefaultConfigPath, "[features]`nmemories = true`njs_repl = false`n[memories]`ngenerate_memories = true`nuse_memories = true`n")
+        $sourceHash = (Get-FileHash -LiteralPath $context.DefaultConfigPath).Hash
+        Initialize-UngateCodexConfig -Context $context -Selection (Get-TestSelection $context)
+        $config = Get-Content -LiteralPath $context.CustomConfigPath -Raw
+        $config | Should -Match '(?m)^memories = false\r?$'
+        $config | Should -Match '(?m)^generate_memories = false\r?$'
+        $config | Should -Match '(?m)^use_memories = false\r?$'
+        $config | Should -Match '(?m)^js_repl = false\r?$'
+        (Get-FileHash -LiteralPath $context.DefaultConfigPath).Hash | Should -Be $sourceHash
+    }
+
+    It 'disables existing settings and preserves comments and <Name> line endings on repeated preparation' -ForEach @(
+        @{Name='LF';Newline="`n"}, @{Name='CRLF';Newline="`r`n"}
+    ) {
+        $context = New-TestContext @{Model='grok-4.7'} $Name
+        $null = New-Item -ItemType Directory -Path $context.CustomCodexHome
+        $config = @('model = "keep"', '[features]', '  memories = true # preference', 'js_repl = false', '[memories]', 'generate_memories = true', 'use_memories = true', 'extract_model = "keep"', '[mcp_servers.fixture]', 'command = "keep"', '') -join $Newline
+        [IO.File]::WriteAllText($context.CustomConfigPath, $config)
+        $selection = Get-TestSelection $context
+        Initialize-UngateCodexConfig -Context $context -Selection $selection
+        $expected = $config.Replace('memories = true', 'memories = false')
+        Get-Content -LiteralPath $context.CustomConfigPath -Raw | Should -BeExactly $expected
+        $writeTime = (Get-Item -LiteralPath $context.CustomConfigPath).LastWriteTimeUtc
+        Initialize-UngateCodexConfig -Context $context -Selection $selection
+        (Get-Item -LiteralPath $context.CustomConfigPath).LastWriteTimeUtc | Should -Be $writeTime
+    }
+}
+
 Describe 'Complete preparation on disposable profiles' {
     BeforeEach {
         $script:sourceHome = Join-Path $TestDrive 'normal'
@@ -269,6 +301,9 @@ Describe 'Complete preparation on disposable profiles' {
         $config | Should -Match ('(?m)^model_provider = "' + $ExpectedProvider + '"')
         $config | Should -Match '\[mcp_servers.fixture\]'
         $config | Should -Match '\[mcp_servers.ungate_patch\]'
+        $config | Should -Match '(?m)^memories = false\r?$'
+        $config | Should -Match '(?m)^generate_memories = false\r?$'
+        $config | Should -Match '(?m)^use_memories = false\r?$'
         $catalog = Get-Content -LiteralPath $context.CustomModelCatalogPath -Raw | ConvertFrom-Json -Depth 100
         $catalog.models.Count | Should -Be $ExpectedCount
         @($catalog.models | Where-Object { -not $_.base_instructions.EndsWith('Keep body') }).Count | Should -Be 0
