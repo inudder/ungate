@@ -115,6 +115,10 @@ saved choice to `features.memories`, `memories.generate_memories` and
 A toggle changed only in Beta's UI is replaced by the launcher preference on
 the next preparation. The normal profile and existing memory files are retained.
 
+Catalog validation includes the hidden memory entry in both the generated file
+and Codex's raw loaded catalog. With seven picker models and memories On, both
+catalogs must contain eight entries, with exactly one hidden `ungate-memory`.
+
 Choosing a model or enabling memories requires successful live Responses
 validation. The check also runs at each launch with memories On; a successful
 unchanged choice is reused within that invocation. Manual Check forces a fresh

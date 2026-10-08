@@ -268,7 +268,8 @@ Describe 'Complete preparation on disposable profiles' {
         Mock -ModuleName Launcher Get-CodexCliExecutable { 'fixture.exe' }
         Mock -ModuleName Profile Get-CodexCliExecutable { 'fixture.exe' }
         Mock -ModuleName Profile Test-CodexMcpConfiguration { @('fixture', 'ungate_patch') }
-        Mock -ModuleName Catalog Get-CodexCliExecutable { $null }
+        $script:catalogCli = Join-Path $PSScriptRoot 'fixtures/catalog-cli.ps1'
+        Mock -ModuleName Catalog Get-CodexCliExecutable { $script:catalogCli }
         Mock -ModuleName Catalog Invoke-RestMethod { @{data=@()} }
         Mock -ModuleName Launcher Initialize-CodexBetaPluginIsolation {
             [pscustomobject]@{Changed=$false;PluginIds=@();BrowserSha256='fixture';UnsupportedBundledPluginIds=@()}
@@ -324,6 +325,40 @@ Describe 'Complete preparation on disposable profiles' {
         (Get-FileHash -LiteralPath $context.DefaultConfigPath).Hash | Should -Be $originalConfigHash
         Should -Invoke -ModuleName Launcher Stop-CodexBeta -Times 0
         Should -Invoke -ModuleName Launcher Start-CodexBetaDesktop -Times 0
+    }
+
+    It 'rejects a <Problem> memory entry in the catalog loaded by Codex' -ForEach @(
+        @{Problem='visible';ExpectedError='*dedicated memory model as hidden*'},
+        @{Problem='renamed';ExpectedError='*dedicated memory model as hidden*'},
+        @{Problem='missing';ExpectedError='*unexpected model catalog*'},
+        @{Problem='duplicated';ExpectedError='*unexpected model catalog*'}
+    ) {
+        $context = New-TestContext @{PrepareOnly=$true;Model='grok-4.7'} "memory-$Problem"
+        $context.DefaultCodexHome = $script:sourceHome
+        $context.DefaultConfigPath = Join-Path $script:sourceHome 'config.toml'
+        $context.DefaultModelCachePath = Join-Path $script:sourceHome 'models_cache.json'
+        $memorySettings = New-UngateMemorySettings
+        $memorySettings.Enabled = $true
+        Write-UngateMemorySettings -Context $context -Settings $memorySettings
+        Mock -ModuleName Launcher Invoke-UngateMemoryValidation { [pscustomobject]@{Valid=$true} }
+        Invoke-CodexDesktopLauncher -Context $context | Should -Be 0
+
+        $resolvedCatalog = Get-Content -LiteralPath $context.CustomModelCatalogPath -Raw | ConvertFrom-Json -Depth 100
+        $memoryModel = $resolvedCatalog.models | Where-Object slug -EQ 'ungate-memory'
+        switch ($Problem) {
+            'visible' { $memoryModel.visibility = 'list' }
+            'renamed' { $memoryModel.slug = 'unexpected-memory' }
+            'missing' { $resolvedCatalog.models = @($resolvedCatalog.models | Where-Object slug -NE 'ungate-memory') }
+            'duplicated' { $resolvedCatalog.models = @($resolvedCatalog.models) + @($memoryModel) }
+        }
+        [IO.File]::WriteAllText((Join-Path $context.CustomCodexHome 'resolved-models.json'), ($resolvedCatalog | ConvertTo-Json -Depth 100))
+        $selection = Get-TestSelection $context
+        $selection.MemoryEnabled = $true
+        $selection.MemoryDefinition = Get-UngateMemoryDefinition -Context $context -Settings $memorySettings
+        {
+            Assert-UngateCodexConfig -Context $context -Selection $selection -Key 'fixture-key' `
+                -ProviderKeys @{ungate_proxy='fixture-key';cliproxyapi='fixture-key';omniroute='fixture-key'}
+        } | Should -Throw $ExpectedError
     }
 }
 

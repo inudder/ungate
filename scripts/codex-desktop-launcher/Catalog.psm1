@@ -389,8 +389,11 @@ function Assert-UngateCodexConfig {
                 if ($LASTEXITCODE -eq 0) {
                     $resolvedCatalog = ($rawCatalog -join "`n") | ConvertFrom-Json -Depth 100
                     $resolvedModels = @($resolvedCatalog.models)
-                    if ($resolvedModels.Count -ne $Selection.Definitions.Count) {
-                        throw 'Codex loaded an unexpected model catalog.'
+                    if ($resolvedModels.Count -ne $expectedCatalogCount) {
+                        throw "Codex loaded an unexpected model catalog: expected $expectedCatalogCount models, got $($resolvedModels.Count)."
+                    }
+                    if ($Selection.MemoryEnabled -and @($resolvedModels | Where-Object { $_.slug -eq 'ungate-memory' -and $_.visibility -eq 'hide' }).Count -ne 1) {
+                        throw 'Codex did not load the dedicated memory model as hidden.'
                     }
                     foreach ($definition in $Selection.Definitions) {
                         $catalogSlug = Get-CodexCatalogModelSlug -Selection $Selection -Definition $definition
