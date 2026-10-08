@@ -247,11 +247,14 @@ function proxyRequest({
 	let upstreamStatus = 502;
 	let upstreamRequestId;
 	let errorCategory = null;
+	let streamAdapter = null;
 	let logged = false;
 	const logResult = (disconnected = false) => {
 		if (logged) return;
 		logged = true;
-		const status = disconnected ? 499 : upstreamStatus;
+		const responseCompleted = streamAdapter?.completed === true && !streamAdapter.failed && !errorCategory;
+		const disconnectedBeforeCompletion = disconnected && !responseCompleted;
+		const status = disconnectedBeforeCompletion ? 499 : upstreamStatus;
 		logger(
 			`[${SERVICE_NAME}] ${request.method} ${targetUrl.pathname} -> ${status} (${Date.now() - startedAt}ms) ${JSON.stringify({
 				timestamp: new Date().toISOString(),
@@ -261,7 +264,8 @@ function proxyRequest({
 				request_id: requestId,
 				upstream_request_id: upstreamRequestId,
 				status,
-				error_category: disconnected ? 'client_disconnected' : errorCategory
+				response_completed: responseCompleted,
+				error_category: disconnectedBeforeCompletion ? (errorCategory ?? 'client_disconnected') : errorCategory
 			})}`
 		);
 	};
@@ -374,7 +378,7 @@ function proxyRequest({
 			}
 			if (adapterEnabled) keepAlive?.activate();
 			else keepAlive?.stop();
-			const streamAdapter =
+			streamAdapter =
 				adapterEnabled && responsesAdapter === DEEPSEEK_RESPONSES_ADAPTER
 					? createDeepSeekStreamAdapter(namespaceMapping)
 					: adapterEnabled

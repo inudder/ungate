@@ -194,7 +194,12 @@ export async function runMemoryPreflight(config, { timeoutMs = 120000, signal, l
 				]
 			}
 		];
-		const functionInput = [{ role: 'user', content: 'Call memory_probe.remember exactly once with memory Use PowerShell.' }];
+		const functionInput = [
+			{
+				role: 'user',
+				content: 'Call memory_probe.remember exactly once with these exact arguments: {"memory":"Use PowerShell"}'
+			}
+		];
 		const functionResult = await invoke({
 			input: functionInput,
 			tools,

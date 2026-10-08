@@ -105,6 +105,10 @@ custom calls. It preserves JavaScript strings and rejects ambiguous input.
 It cannot repair arbitrary generated JavaScript syntax. The live logger uses
 structured failures and tool-result headers, keeps independent byte cursors
 and partial lines per session, and labels results with the session ID.
+Router diagnostics distinguish Mimo's validated `response.completed` from
+HTTP stream closure. A client closing after that event retains the upstream
+success status with `response_completed=true`; an unfinished response still
+logs `499`, and a known stream failure retains its error category.
 
 Before a runtime refresh, wait for zero active/heavy/headroom/waiting/queued
 work in both `chatAdmission` and `adaptiveAdmission`; `dedup=0` is insufficient.

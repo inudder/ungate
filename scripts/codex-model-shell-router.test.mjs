@@ -4,6 +4,78 @@ import test from 'node:test';
 
 import { createShellRouterServer, orderDeepSeekToolHistory } from './codex-model-shell-router.mjs';
 
+for (const { state, status, category } of [
+	{ state: 'completed', status: 200, category: null },
+	{ state: 'in_progress', status: 499, category: 'client_disconnected' },
+	{ state: 'failed', status: 499, category: 'upstream_stream_error' }
+]) {
+	test(`logs a client closing a Mimo ${state} response accurately`, { timeout: 5000 }, async () => {
+		const logs = [];
+		let resolveDiagnostic;
+		const diagnostic = new Promise((resolve) => {
+			resolveDiagnostic = resolve;
+		});
+		const eventType = state === 'in_progress' ? 'response.created' : `response.${state}`;
+		const upstream = http.createServer((request, response) => {
+			request.resume();
+			request.once('end', () => {
+				response.writeHead(200, { 'content-type': 'text/event-stream' });
+				response.write(
+					sse(eventType, {
+						response: { id: 'r1', status: state, output: [] },
+						...(state === 'failed' ? { error: { code: 'upstream_stream_error', message: 'Fixture failure' } } : {})
+					})
+				);
+			});
+		});
+		const upstreamPort = await listen(upstream);
+		const router = createShellRouterServer({
+			logger: (line) => {
+				logs.push(line);
+				resolveDiagnostic(line);
+			},
+			routes: [
+				{
+					clientModel: 'mimo-shell',
+					upstreamModel: 'mimo-v2.6-pro',
+					upstreamBaseUrl: `http://127.0.0.1:${upstreamPort}`,
+					apiKey: 'fixture',
+					responsesAdapter: 'mimo-textual-tools'
+				}
+			]
+		});
+		const routerPort = await listen(router);
+		try {
+			const response = await fetch(`http://127.0.0.1:${routerPort}/v1/responses`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ model: 'mimo-shell', stream: true }),
+				signal: AbortSignal.timeout(4000)
+			});
+			assert.equal(response.status, 200);
+			const reader = response.body.getReader();
+			let received = '';
+			while (!received.includes(`event: ${eventType}\n`)) {
+				const chunk = await reader.read();
+				assert.equal(chunk.done, false);
+				received += new TextDecoder().decode(chunk.value);
+			}
+			await reader.cancel();
+			const line = await diagnostic;
+			const details = JSON.parse(line.slice(line.indexOf(' {') + 1));
+			assert.equal(details.status, status);
+			assert.equal(details.response_completed, state === 'completed');
+			assert.equal(details.error_category, category);
+			assert.equal(logs.length, 1);
+		} finally {
+			router.closeAllConnections();
+			upstream.closeAllConnections();
+			await close(router);
+			await close(upstream);
+		}
+	});
+}
+
 test('preserves early HTTP errors and converts late admission errors to terminal SSE', async () => {
 	for (const scenario of [
 		{ status: 503, delay: 0, stream: true, code: 'server_error' },

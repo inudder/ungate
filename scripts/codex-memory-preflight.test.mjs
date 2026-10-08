@@ -49,7 +49,10 @@ test('memory probe checks both tool continuations and exact upstream model witho
 			requests.push(body);
 			let output;
 			if (body.text) output = [message('{"memory":"Use PowerShell"}')];
-			else if (body.tool_choice?.type === 'function')
+			else if (body.tool_choice?.type === 'function') {
+				const instruction = body.input[0].content;
+				const argumentsJson =
+					instruction.match(/\{"memory":"[^"]+"\}/)?.[0] ?? JSON.stringify({ memory: instruction.split('with memory ')[1] });
 				output = [
 					{
 						id: 'f1',
@@ -57,10 +60,10 @@ test('memory probe checks both tool continuations and exact upstream model witho
 						namespace: 'memory_probe',
 						name: 'remember',
 						call_id: 'c1',
-						arguments: '{"memory":"Use PowerShell"}'
+						arguments: argumentsJson
 					}
 				];
-			else if (body.tool_choice?.type === 'custom')
+			} else if (body.tool_choice?.type === 'custom')
 				output = [{ id: 'x1', type: 'custom_tool_call', name: 'exec', call_id: 'c2', input: 'return "OK";' }];
 			else output = [message('OK')];
 			response.setHeader('content-type', 'text/event-stream');
@@ -122,6 +125,21 @@ test('rejects wrong structured output, function namespace and custom source', ()
 	assert.throws(
 		() => verifyMemoryStage('function', { output: [{ type: 'function_call', name: 'remember' }] }),
 		/invalid_function_call/
+	);
+	assert.throws(
+		() =>
+			verifyMemoryStage('function', {
+				output: [
+					{
+						type: 'function_call',
+						namespace: 'memory_probe',
+						name: 'remember',
+						call_id: 'c1',
+						arguments: '{"memory":"Use PowerShell."}'
+					}
+				]
+			}),
+		/invalid_function_arguments/
 	);
 	assert.throws(
 		() =>

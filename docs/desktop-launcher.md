@@ -124,6 +124,9 @@ complete Responses SSE. The probe uses synthetic inputs, executes no tool code,
 and passes credentials to `codex-memory-preflight.mjs` over stdin. Temporary
 router/bridge listeners bind exclusive OS-assigned ports and close in `finally`.
 Each request is limited to 120 seconds, with a 10-minute overall bound.
+The function probe specifies its exact arguments as JSON, so sentence
+punctuation cannot become part of the memory value. Argument validation
+still rejects any changed value or extra property.
 
 If memory validation fails, Desktop still launches with generation and use Off
 for that run. Saved preferences remain intact for the next attempt. Main-model
