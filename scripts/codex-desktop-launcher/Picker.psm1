@@ -3,6 +3,7 @@
 Import-Module (Join-Path $PSScriptRoot 'Memories.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'Logging.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'Models.psm1') -DisableNameChecking -ErrorAction Stop
+Import-Module (Join-Path $PSScriptRoot 'Capabilities.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'ToolCompatibility.psm1') -DisableNameChecking -ErrorAction Stop
 
 function Get-DefaultUngatePickerModelSlugs {
@@ -437,6 +438,8 @@ function Invoke-AddUngateModelMode {
         -Values @('low', 'medium', 'high', 'xhigh') `
         -DefaultIndex 2
     $supportsImageInput = Read-UngateYesNo -Prompt 'Supports image input?' -Default $true
+    $supportsOriginal = $false
+    if ($supportsImageInput) { $supportsOriginal = Read-UngateYesNo -Prompt 'Supports original image detail?' -Default $false }
 
     $newRecord = [pscustomobject][ordered]@{
         Slug = $slug
@@ -445,6 +448,7 @@ function Invoke-AddUngateModelMode {
         Transport = $transport
         DefaultReasoningLevel = $reasoningLevel
         SupportsImageInput = $supportsImageInput
+        SupportsImageDetailOriginal = $supportsOriginal
     }
     $candidate = ConvertTo-UngateModelDefinition -Context $Context `
         -Record $newRecord `
@@ -505,7 +509,7 @@ function Invoke-UngateModelVersionConfiguration {
 
         if ($NewUpstreamModel.Trim().Equals('reset', [System.StringComparison]::OrdinalIgnoreCase) -or
             $NewUpstreamModel.Trim().Equals('default', [System.StringComparison]::OrdinalIgnoreCase)) {
-            $saved = Remove-UngateModelOverride -OverridesPath $OverridesPath -Slug $targetDef.Slug
+            $saved = Remove-UngateModelOverride -OverridesPath $OverridesPath -Slug $targetDef.Slug -Fields @('upstreamModel', 'displayName', 'contextWindow')
             Write-Host "[ungate] Model '$($targetDef.DisplayName)' reset to default upstream: $saved" -ForegroundColor Green
             return $true
         }
@@ -630,7 +634,7 @@ function Invoke-UngateModelVersionConfiguration {
 
     if ($newUpstreamInput.Trim().Equals('reset', [System.StringComparison]::OrdinalIgnoreCase) -or
         $newUpstreamInput.Trim().Equals('default', [System.StringComparison]::OrdinalIgnoreCase)) {
-        $saved = Remove-UngateModelOverride -OverridesPath $OverridesPath -Slug $selectedDef.Slug
+        $saved = Remove-UngateModelOverride -OverridesPath $OverridesPath -Slug $selectedDef.Slug -Fields @('upstreamModel', 'displayName', 'contextWindow')
         Write-Host "[ungate] Model '$($selectedDef.DisplayName)' reset to default: $saved" -ForegroundColor Green
         return $true
     }
@@ -752,10 +756,12 @@ function Select-UngateDesktopModel {
         $memoryState = if ($memorySettings.Enabled) { 'On' } else { 'Off' }
         Write-Host ("  {0}) Настройки памяти [Current: {1}; {2} / {3}]" -f $memoryMenuIndex, $memoryState, $memorySettings.Provider, $memorySettings.Model) -ForegroundColor DarkCyan
         Write-Host '  [TT] Тестирование совместимости инструментов (чекбоксы)' -ForegroundColor Yellow
+        $capabilitiesMenuIndex = $memoryMenuIndex + 1
+        Write-Host ("  {0}) Возможности моделей [C]" -f $capabilitiesMenuIndex) -ForegroundColor DarkCyan
         Write-Host ''
 
         $fallbackHint = if ($IncludeProviderFallback) { ' or F' } else { '' }
-        $choicePrompt = "Mode [1-$memoryMenuIndex$fallbackHint or V or L or M or TT] (default: 1)"
+        $choicePrompt = "Mode [1-$capabilitiesMenuIndex$fallbackHint or V or L or M or TT or C] (default: 1)"
         $choice = Read-Host $choicePrompt
         if ([string]::IsNullOrWhiteSpace($choice)) {
             return $pickerDefinitions[0].Slug
@@ -764,6 +770,13 @@ function Select-UngateDesktopModel {
         if ($choice.Trim() -match '^(tt|tools|compat|testtools)$') {
             $null = Invoke-CodexToolCompatibility -Context $Context -Definitions $Definitions
             $null = Read-Host 'Нажмите Enter для возврата в меню'
+            continue
+        }
+        if ($choice.Trim() -match '^(c|capabilities)$' -or $choice.Trim() -eq [string]$capabilitiesMenuIndex) {
+            $changed = Invoke-UngateCapabilitiesMenu -Context $Context -Definitions $Definitions
+            if ($changed) {
+                $Definitions = @(Get-UngateModelDefinitions -Context $Context -BuiltInDefinitions $BuiltInDefinitions -RegistryPath $RegistryPath -OverridesPath $OverridesPath)
+            }
             continue
         }
 
@@ -866,7 +879,7 @@ function Select-UngateDesktopModel {
             }
         }
 
-        Write-Host "Enter a number from 1 to $memoryMenuIndex$fallbackHint or V or L or M or TT." -ForegroundColor Yellow
+        Write-Host "Enter a number from 1 to $capabilitiesMenuIndex$fallbackHint or V or L or M or TT or C." -ForegroundColor Yellow
     }
 }
 

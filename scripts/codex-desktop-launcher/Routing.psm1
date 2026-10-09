@@ -1,6 +1,7 @@
 #requires -Version 7.4
 # Routing: internal Desktop launcher module. No per-launch module state.
 Import-Module (Join-Path $PSScriptRoot 'Toml.psm1') -DisableNameChecking -ErrorAction Stop
+Import-Module (Join-Path $PSScriptRoot 'Models.psm1') -DisableNameChecking -ErrorAction Stop
 
 function Get-ProviderDefinitions {
     param(
@@ -103,25 +104,22 @@ function Get-CodexModelShellRoutes {
     $routes = [System.Collections.Generic.List[object]]::new()
     foreach ($definition in $Selection.Definitions) {
         $shellSlug = Get-CodexCatalogModelSlug -Selection $Selection -Definition $definition
-        $upstreamModelValue = if ($definition.PSObject.Properties['UpstreamModel'] -and $definition.UpstreamModel) {
-            [string]$definition.UpstreamModel
-        } else {
-            [string]$definition.Slug
-        }
-        [void]$routes.Add([ordered]@{
+        $route = [ordered]@{
             clientModel = $shellSlug
-            upstreamModel = $upstreamModelValue
+            upstreamModel = Get-UngateRequestModel -Definition $definition
             upstreamBaseUrl = [string]$definition.ProxyBaseUrl
             apiKeyEnv = [string]$definition.EnvKey
             responsesAdapter = if ($definition.PSObject.Properties['ResponsesAdapter']) { [string]$definition.ResponsesAdapter } else { $null }
-        })
+        }
+        if ($definition.PSObject.Properties['ParallelToolCallsOverride']) { $route.parallelToolCalls = [bool]$definition.ParallelToolCallsOverride }
+        [void]$routes.Add($route)
     }
 
     if ($Selection.MemoryEnabled) {
         $definition = $Selection.MemoryDefinition
         [void]$routes.Add([ordered]@{
             clientModel = 'ungate-memory'
-            upstreamModel = [string]$definition.UpstreamModel
+            upstreamModel = Get-UngateRequestModel -Definition $definition
             upstreamBaseUrl = [string]$definition.ProxyBaseUrl
             apiKeyEnv = 'UNGATE_MEMORY_API_KEY'
             responsesAdapter = [string]$definition.ResponsesAdapter

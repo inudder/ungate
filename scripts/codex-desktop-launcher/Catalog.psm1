@@ -2,6 +2,7 @@
 # Catalog: internal Desktop launcher module. No per-launch module state.
 Import-Module (Join-Path $PSScriptRoot 'Desktop.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'Models.psm1') -DisableNameChecking -ErrorAction Stop
+Import-Module (Join-Path $PSScriptRoot 'ModelCapabilities.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'Routing.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'Toml.psm1') -DisableNameChecking -ErrorAction Stop
 
@@ -79,6 +80,7 @@ function Write-UngateModelCatalog {
             $false
         }
         $contextWindow = Get-UngateModelContextWindow -Definition $definition
+        $capabilities = Get-UngateModelCapabilities -Definition $definition -Template $modelInfo
         $overrides = [ordered]@{
             slug = $catalogSlug
             display_name = $definition.DisplayName
@@ -93,9 +95,10 @@ function Write-UngateModelCatalog {
             availability_nux = $null
             upgrade = $null
             supports_reasoning_summaries = if ($null -ne $definition.SupportsReasoningSummaries) { [bool]$definition.SupportsReasoningSummaries } else { $false }
-            default_reasoning_summary = 'none'
-            support_verbosity = $false
-            default_verbosity = $null
+            supports_reasoning_summary_parameter = $capabilities.supportsReasoningSummaries
+            default_reasoning_summary = $capabilities.defaultReasoningSummary
+            support_verbosity = $capabilities.supportVerbosity
+            default_verbosity = $capabilities.defaultVerbosity
             context_window = $contextWindow.ContextWindow
             max_context_window = $contextWindow.MaxContextWindow
             effective_context_window_percent = $contextWindow.EffectiveContextWindowPercent
@@ -182,6 +185,20 @@ function Write-UngateModelCatalog {
         $memoryInfo.max_context_window = $memoryContext.MaxContextWindow
         $memoryInfo.effective_context_window_percent = $memoryContext.EffectiveContextWindowPercent
         $memoryInfo.default_reasoning_level = $Selection.MemoryDefinition.DefaultReasoningLevel
+        # Hidden memories use their own definition, never capabilities edited on
+        # the first visible picker model.
+        $memoryCapabilities = Get-UngateModelCapabilities -Definition $Selection.MemoryDefinition -Template $fallbackModelTemplate
+        $memoryInfo.input_modalities = @($Selection.MemoryDefinition.InputModalities)
+        $memoryInfo.supports_image_detail_original = $memoryCapabilities.supportsImageDetailOriginal
+        $memoryInfo.web_search_tool_type = $Selection.MemoryDefinition.WebSearchToolType
+        $memoryInfo.supports_reasoning_summaries = $memoryCapabilities.supportsReasoningSummaries
+        $memoryInfo | Add-Member NoteProperty supports_reasoning_summary_parameter $memoryCapabilities.supportsReasoningSummaries -Force
+        $memoryInfo.default_reasoning_summary = $memoryCapabilities.defaultReasoningSummary
+        $memoryInfo.support_verbosity = $memoryCapabilities.supportVerbosity
+        $memoryInfo.default_verbosity = $memoryCapabilities.defaultVerbosity
+        $memoryInfo.supports_parallel_tool_calls = $memoryCapabilities.supportsParallelToolCalls
+        $memoryLevels = @($memoryCapabilities.supportedReasoningLevels | ForEach-Object { @{ effort = $_; description = "Reasoning: $_" } })
+        $memoryInfo | Add-Member NoteProperty supported_reasoning_levels $memoryLevels -Force
         [void]$catalogModels.Add($memoryInfo)
     }
 

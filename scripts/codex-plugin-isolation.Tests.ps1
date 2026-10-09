@@ -338,7 +338,7 @@ Describe 'isolated Codex Beta plugin mirror' {
         (Get-Content -LiteralPath $configPath -Raw) | Should -BeExactly $before
     }
 
-    It 'rolls back the isolated profile when direct bundled staging fails' {
+    It 'preserves live state and staging evidence when bundled staging fails' {
         $null = Invoke-InitialMirror
         $configPath = Join-Path $script:homes.CustomHome 'config.toml'
         $browserClient = Get-ChildItem -LiteralPath (Join-Path $script:homes.CustomHome 'plugins\cache\openai-bundled\browser') -Recurse -Filter 'browser-client.mjs' | Select-Object -First 1
@@ -358,9 +358,10 @@ Describe 'isolated Codex Beta plugin mirror' {
         } | Should -Throw '*simulated staging failure*'
         (Get-Content -LiteralPath $configPath -Raw) | Should -BeExactly $beforeConfig
         (Get-Content -LiteralPath $browserClient.FullName -Raw) | Should -BeExactly $beforeBrowser
+        @(Get-ChildItem -LiteralPath $script:homes.CustomHome -Directory -Filter '.plugin-isolation-staging-*').Count | Should -BeGreaterThan 0
     }
 
-    It 'restores config and cache when commit replacement fails' {
+    It 'retains the effective cache and manual recovery evidence when commit fails' {
         $null = Invoke-InitialMirror
         $configPath = Join-Path $script:homes.CustomHome 'config.toml'
         $browserClient = Get-ChildItem -LiteralPath (Join-Path $script:homes.CustomHome 'plugins\cache\openai-bundled\browser') -Recurse -Filter 'browser-client.mjs' | Select-Object -First 1
@@ -379,7 +380,13 @@ Describe 'isolated Codex Beta plugin mirror' {
                 -BetaIsRunning $false
         } | Should -Throw '*simulated commit failure*'
         (Get-Content -LiteralPath $configPath -Raw) | Should -BeExactly $beforeConfig
-        (Get-Content -LiteralPath $browserClient.FullName -Raw) | Should -BeExactly $beforeBrowser
+        (Get-Content -LiteralPath $browserClient.FullName -Raw) | Should -Not -BeExactly $beforeBrowser
+        $failure = Get-ChildItem -LiteralPath (Join-Path $script:homes.CustomHome '.plugin-isolation-backups') -Recurse -File -Filter 'failure.json' | Select-Object -First 1
+        $failure | Should -Not -BeNullOrEmpty
+        $receipt = Get-Content -LiteralPath $failure.FullName -Raw | ConvertFrom-Json
+        $receipt.automaticRollback | Should -BeFalse
+        Test-Path -LiteralPath $receipt.stagingHome | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $receipt.backupRoot 'previous-plugins') | Should -BeTrue
     }
 
     It 'leaves live marketplace trees in place when staging has none' {

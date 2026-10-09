@@ -8,6 +8,7 @@
 		"mimo-adapter:test": "node --test mimo-responses-stream-adapter.test.mjs",
 		"shell-router:test": "node --test codex-model-shell-router.test.mjs",
 		"tool-compatibility:test": "node --test codex-tool-compatibility.test.mjs",
+		"capabilities:test": "node --test codex-model-capabilities.test.mjs",
 		"memory-preflight:test": "node --test codex-memory-preflight.test.mjs",
 		"deepseek-adapter:test": "node --test deepseek-responses-adapter.test.mjs",
 		"patch-mcp:test": "node --test ungate-patch-mcp.test.mjs",

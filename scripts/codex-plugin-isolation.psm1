@@ -620,6 +620,21 @@ function Set-StagedConfig {
     [System.IO.File]::Move($replacementConfig, $CustomConfig, $true)
 }
 
+function Write-PluginIsolationFailureReceipt {
+    param([Parameter(Mandatory)][string]$BackupRoot, [string]$StagingHome)
+    $receipt = [ordered]@{
+        version = 1
+        timestamp = [DateTime]::UtcNow.ToString('o')
+        status = 'commit_failed'
+        automaticRollback = $false
+        backupRoot = $BackupRoot
+        stagingHome = $StagingHome
+    }
+    $receiptPath = Join-Path $BackupRoot 'failure.json'
+    [IO.File]::WriteAllText($receiptPath, ($receipt | ConvertTo-Json) + "`r`n", [Text.UTF8Encoding]::new($false))
+    Write-Warning "Plugin isolation failed; effective state retained. Manual recovery evidence: $receiptPath"
+}
+
 function Commit-StagedPluginIsolation {
     param(
         [Parameter(Mandatory = $true)][psobject]$DirectoryState,
@@ -646,11 +661,6 @@ function Commit-StagedPluginIsolation {
     $backupConfig = Join-Path $backupRoot 'config.toml'
     Copy-Item -LiteralPath $customConfig -Destination $backupConfig
 
-    $linkRemoved = $false
-    $pluginsMoved = $false
-    $marketplacesMoved = $false
-    $curatedRepoMoved = $false
-    $curatedShaMoved = $false
     $previousMarketplaces = Join-Path $backupRoot 'previous-marketplaces'
     $previousCuratedRepo = Join-Path $backupRoot 'previous-curated-repo'
     $previousCuratedSha = Join-Path $backupRoot 'previous-curated.sha'
@@ -673,25 +683,20 @@ function Commit-StagedPluginIsolation {
                 throw 'The custom plugins junction changed during migration.'
             }
             [System.IO.Directory]::Delete($finalPlugins, $false)
-            $linkRemoved = $true
         }
 
         [System.IO.Directory]::Move($stagedPlugins, $finalPlugins)
-        $pluginsMoved = $true
 
         if (Test-Path -LiteralPath $stagedMarketplaces -PathType Container) {
             [System.IO.Directory]::Move($stagedMarketplaces, $finalMarketplaces)
-            $marketplacesMoved = $true
         }
         if (Test-Path -LiteralPath $stagedCuratedRepo -PathType Container) {
             New-Item -ItemType Directory -Path $finalTemporaryRoot -Force | Out-Null
             [System.IO.Directory]::Move($stagedCuratedRepo, $finalCuratedRepo)
-            $curatedRepoMoved = $true
         }
         if (Test-Path -LiteralPath $stagedCuratedSha -PathType Leaf) {
             New-Item -ItemType Directory -Path $finalTemporaryRoot -Force | Out-Null
             [System.IO.File]::Move($stagedCuratedSha, $finalCuratedSha)
-            $curatedShaMoved = $true
         }
 
         Set-StagedConfig `
@@ -699,44 +704,7 @@ function Commit-StagedPluginIsolation {
             -CustomConfig $customConfig
     }
     catch {
-        [System.IO.File]::Copy($backupConfig, $customConfig, $true)
-        if ($pluginsMoved -and (Test-Path -LiteralPath $finalPlugins)) {
-            $failedPlugins = Join-Path $backupRoot 'failed-plugins'
-            [System.IO.Directory]::Move($finalPlugins, $failedPlugins)
-        }
-        if ($marketplacesMoved -and (Test-Path -LiteralPath $finalMarketplaces)) {
-            [System.IO.Directory]::Move(
-                $finalMarketplaces,
-                (Join-Path $backupRoot 'failed-marketplaces')
-            )
-        }
-        if ($curatedRepoMoved -and (Test-Path -LiteralPath $finalCuratedRepo)) {
-            [System.IO.Directory]::Move(
-                $finalCuratedRepo,
-                (Join-Path $backupRoot 'failed-curated-repo')
-            )
-        }
-        if ($curatedShaMoved -and (Test-Path -LiteralPath $finalCuratedSha)) {
-            [System.IO.File]::Move(
-                $finalCuratedSha,
-                (Join-Path $backupRoot 'failed-curated.sha')
-            )
-        }
-        if (Test-Path -LiteralPath $previousMarketplaces -PathType Container) {
-            [System.IO.Directory]::Move($previousMarketplaces, $finalMarketplaces)
-        }
-        if (Test-Path -LiteralPath $previousCuratedRepo -PathType Container) {
-            New-Item -ItemType Directory -Path $finalTemporaryRoot -Force | Out-Null
-            [System.IO.Directory]::Move($previousCuratedRepo, $finalCuratedRepo)
-        }
-        if (Test-Path -LiteralPath $previousCuratedSha -PathType Leaf) {
-            New-Item -ItemType Directory -Path $finalTemporaryRoot -Force | Out-Null
-            [System.IO.File]::Move($previousCuratedSha, $finalCuratedSha)
-        }
-        if ($linkRemoved -and -not (Test-Path -LiteralPath $finalPlugins)) {
-            $expectedTarget = Join-Path $DefaultCodexHome 'plugins'
-            New-Item -ItemType Junction -Path $finalPlugins -Target $expectedTarget | Out-Null
-        }
+        Write-PluginIsolationFailureReceipt -BackupRoot $backupRoot -StagingHome $StagingHome
         throw
     }
 
@@ -767,6 +735,7 @@ function Invoke-DifferentialPluginSynchronization {
         Copy-Item -LiteralPath $customAuth -Destination (Join-Path $stagingHome 'auth.json')
     }
 
+    $commitCompleted = $false
     try {
         if (-not $SynchronizeExternal -and $DirectoryState.Kind -eq 'Directory') {
             Copy-PluginArtifactsToStaging -CustomCodexHome $CustomCodexHome -StagingHome $stagingHome
@@ -827,6 +796,7 @@ function Invoke-DifferentialPluginSynchronization {
             -DefaultCodexHome $DefaultCodexHome `
             -CustomCodexHome $CustomCodexHome `
             -StagingHome $stagingHome
+        $commitCompleted = $true
 
         return [pscustomobject]@{
             Action = if ($DirectoryState.Kind -in @('Missing', 'ExpectedJunction')) { 'Migrated' } else { 'Synchronized' }
@@ -836,7 +806,7 @@ function Invoke-DifferentialPluginSynchronization {
         }
     }
     finally {
-        Remove-PrivateTree -Path $stagingHome -CustomCodexHome $CustomCodexHome
+        if ($commitCompleted) { Remove-PrivateTree -Path $stagingHome -CustomCodexHome $CustomCodexHome }
     }
 }
 
@@ -1003,6 +973,7 @@ function Invoke-InitialPluginMigration {
         -LiteralPath (Join-Path $CustomCodexHome 'config.toml') `
         -Destination (Join-Path $stagingHome 'config.toml')
 
+    $commitCompleted = $false
     try {
         $marketplaceSources = Resolve-MarketplaceSources `
             -PluginIds $pluginIds `
@@ -1032,6 +1003,7 @@ function Invoke-InitialPluginMigration {
             -DefaultCodexHome $DefaultCodexHome `
             -CustomCodexHome $CustomCodexHome `
             -StagingHome $stagingHome
+        $commitCompleted = $true
 
         return [pscustomobject]@{
             Changed = $true
@@ -1042,7 +1014,7 @@ function Invoke-InitialPluginMigration {
         }
     }
     finally {
-        Remove-PrivateTree -Path $stagingHome -CustomCodexHome $CustomCodexHome
+        if ($commitCompleted) { Remove-PrivateTree -Path $stagingHome -CustomCodexHome $CustomCodexHome }
     }
 }
 
@@ -1154,11 +1126,7 @@ function Invoke-BundledPluginReconciliation {
         }
     }
     catch {
-        [System.IO.File]::Copy($backupConfig, $customConfig, $true)
-        Remove-PrivateTree -Path $bundledCache -CustomCodexHome $CustomCodexHome
-        if (Test-Path -LiteralPath $backupCache) {
-            Copy-Item -LiteralPath $backupCache -Destination $bundledCache -Recurse
-        }
+        Write-PluginIsolationFailureReceipt -BackupRoot $backupRoot
         throw
     }
 }
@@ -1823,8 +1791,6 @@ function Commit-DifferentialPluginIsolation {
         [pscustomobject]@{ Staged = (Join-Path $StagingHome '.tmp\plugins'); Final = (Join-Path $CustomCodexHome '.tmp\plugins'); Previous = (Join-Path $backupRoot 'previous-curated-repo') },
         [pscustomobject]@{ Staged = (Join-Path $StagingHome '.tmp\plugins.sha'); Final = (Join-Path $CustomCodexHome '.tmp\plugins.sha'); Previous = (Join-Path $backupRoot 'previous-curated.sha') }
     )
-    $linkRemoved = $false
-    $movedEntries = @()
     try {
         foreach ($entry in $entries) {
             if (-not (Test-Path -LiteralPath $entry.Staged)) {
@@ -1839,7 +1805,6 @@ function Commit-DifferentialPluginIsolation {
                     throw 'The custom plugins junction changed during migration.'
                 }
                 [System.IO.Directory]::Delete($entry.Final, $false)
-                $linkRemoved = $true
                 continue
             }
             New-Item -ItemType Directory -Path (Split-Path -Parent $entry.Previous) -Force | Out-Null
@@ -1852,26 +1817,11 @@ function Commit-DifferentialPluginIsolation {
             }
             New-Item -ItemType Directory -Path (Split-Path -Parent $entry.Final) -Force | Out-Null
             Move-Item -LiteralPath $entry.Staged -Destination $entry.Final
-            $movedEntries += $entry
         }
         Set-StagedConfig -StagedConfig $stagedConfig -CustomConfig $customConfig
     }
     catch {
-        Copy-Item -LiteralPath (Join-Path $backupRoot 'config.toml') -Destination $customConfig -Force
-        foreach ($entry in $movedEntries) {
-            if (Test-Path -LiteralPath $entry.Final) {
-                Move-Item -LiteralPath $entry.Final -Destination (Join-Path $backupRoot ('failed-' + [System.IO.Path]::GetFileName($entry.Final)))
-            }
-        }
-        foreach ($entry in $entries) {
-            if (Test-Path -LiteralPath $entry.Previous) {
-                New-Item -ItemType Directory -Path (Split-Path -Parent $entry.Final) -Force | Out-Null
-                Move-Item -LiteralPath $entry.Previous -Destination $entry.Final
-            }
-        }
-        if ($linkRemoved -and -not (Test-Path -LiteralPath $finalPlugins)) {
-            New-Item -ItemType Junction -Path $finalPlugins -Target (Join-Path $DefaultCodexHome 'plugins') | Out-Null
-        }
+        Write-PluginIsolationFailureReceipt -BackupRoot $backupRoot -StagingHome $StagingHome
         throw
     }
     return $backupRoot

@@ -1,5 +1,6 @@
 #requires -Version 7.4
 # Models: internal Desktop launcher module. No per-launch module state.
+Import-Module (Join-Path $PSScriptRoot 'ModelCapabilities.psm1') -DisableNameChecking -ErrorAction Stop
 
 
 function New-UngateModelSet {
@@ -372,7 +373,7 @@ function ConvertTo-UngateModelDefinition {
     if ($transport -notin @('ungate', 'cliproxyapi', 'omniroute')) {
         throw "Custom model '$slug' has unsupported transport '$transport'."
     }
-    if ($reasoningLevel -notin @('low', 'medium', 'high', 'xhigh')) {
+    if ($reasoningLevel -notin @('none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra')) {
         throw "Custom model '$slug' has unsupported reasoning level '$reasoningLevel'."
     }
     if ($Record.SupportsImageInput -isnot [bool]) {
@@ -414,7 +415,7 @@ function ConvertTo-UngateModelDefinition {
         -ProviderDisplayName $providerDisplayName `
         -TransportDescription $transportDescription
 
-    return [pscustomobject][ordered]@{
+    $definition = [pscustomobject][ordered]@{
         Slug = $slug
         DisplayName = $displayName
         UpstreamModel = $upstreamModel
@@ -433,6 +434,11 @@ function ConvertTo-UngateModelDefinition {
         EnvKey = $environmentKey
         RequiresUngate = $requiresUngate
     }
+    $capabilities = @{}
+    foreach ($name in @(Get-UngateCapabilityNames)) {
+        if ($name -ne 'defaultReasoningLevel' -and $name -in $Record.PSObject.Properties.Name) { $capabilities[$name] = $Record.$name }
+    }
+    return Apply-UngateModelCapabilities -Definition $definition -Context $Context -Values $capabilities
 }
 
 function Read-UngateCustomModelDefinitions {
@@ -526,7 +532,7 @@ function Write-UngateCustomModelDefinitions {
 
     $persistentRecords = @(
         foreach ($definition in $normalizedDefinitions) {
-            [ordered]@{
+            $persistent = [ordered]@{
                 slug = $definition.Slug
                 displayName = $definition.DisplayName
                 upstreamModel = $definition.UpstreamModel
@@ -534,6 +540,13 @@ function Write-UngateCustomModelDefinitions {
                 defaultReasoningLevel = $definition.DefaultReasoningLevel
                 supportsImageInput = $definition.SupportsImageInput
             }
+            foreach ($name in @(Get-UngateCapabilityNames)) {
+                if ($name -in @('supportsImageInput', 'defaultReasoningLevel')) { continue }
+                if ($name -eq 'supportedReasoningLevels' -and $definition.PSObject.Properties['SupportedReasoningLevels']) {
+                    $persistent[$name] = @($definition.SupportedReasoningLevels.effort)
+                } elseif ($definition.PSObject.Properties[$name]) { $persistent[$name] = $definition.$name }
+            }
+            $persistent
         }
     )
     $json = [ordered]@{
@@ -576,12 +589,10 @@ function Write-UngateCustomModelDefinitions {
         $writeCompleted = $true
     }
     finally {
-        if (Test-Path -LiteralPath $temporaryPath -PathType Leaf) {
+        if ($writeCompleted -and (Test-Path -LiteralPath $temporaryPath -PathType Leaf)) {
             Remove-Item -LiteralPath $temporaryPath -Force
         }
-        if ($writeCompleted -and (Test-Path -LiteralPath $backupPath -PathType Leaf)) {
-            Remove-Item -LiteralPath $backupPath -Force
-        }
+        # Retain the backup as a manual recovery path; never restore automatically.
     }
 
     return $absoluteRegistryPath
@@ -687,12 +698,10 @@ function Write-UngateModelOverrides {
         $writeCompleted = $true
     }
     finally {
-        if (Test-Path -LiteralPath $temporaryPath -PathType Leaf) {
+        if ($writeCompleted -and (Test-Path -LiteralPath $temporaryPath -PathType Leaf)) {
             Remove-Item -LiteralPath $temporaryPath -Force
         }
-        if ($writeCompleted -and (Test-Path -LiteralPath $backupPath -PathType Leaf)) {
-            Remove-Item -LiteralPath $backupPath -Force
-        }
+        # Retain the backup as a manual recovery path; never restore automatically.
     }
 
     return $absolutePath
@@ -714,7 +723,10 @@ function Set-UngateModelOverride {
     foreach ($key in $current.Keys) {
         $updated[$key] = $current[$key]
     }
-    $updated[$Slug] = $Override
+    $merged = @{}
+    if ($current.Contains($Slug)) { $merged = ConvertTo-CapabilityDictionary $current[$Slug] }
+    foreach ($name in $Override.Keys) { $merged[$name] = $Override[$name] }
+    $updated[$Slug] = $merged
     return Write-UngateModelOverrides -OverridesPath $OverridesPath -Overrides $updated
 }
 
@@ -723,14 +735,19 @@ function Remove-UngateModelOverride {
         [Parameter(Mandatory = $true)]
         [string]$OverridesPath,
         [Parameter(Mandatory = $true)]
-        [string]$Slug
+        [string]$Slug,
+        [string[]]$Fields
     )
     $ErrorActionPreference = 'Stop'
 
     $current = Read-UngateModelOverrides -OverridesPath $OverridesPath
     $updated = [ordered]@{}
     foreach ($key in $current.Keys) {
-        if ($key -ne $Slug) {
+        if ($key -eq $Slug -and $Fields) {
+            $remaining = ConvertTo-CapabilityDictionary $current[$key]
+            foreach ($field in $Fields) { $remaining.Remove($field) }
+            if ($remaining.Count -gt 0) { $updated[$key] = $remaining }
+        } elseif ($key -ne $Slug) {
             $updated[$key] = $current[$key]
         }
     }
@@ -820,6 +837,13 @@ function Apply-UngateModelOverrides {
         }
         $props['DisplayName'] = $newDisplayName
         $props['UpstreamModel'] = $newUpstreamModel
+        if ($ov.PSObject.Properties['upstreamModelPrefix']) {
+            $prefix = $ov.upstreamModelPrefix
+            if ($prefix -isnot [string] -or $prefix -notmatch '^[A-Za-z0-9._-]+$') {
+                throw "Invalid upstream model provider prefix for '$($def.Slug)'."
+            }
+            $props['UpstreamModelPrefix'] = $prefix
+        }
         if ($def.Description -and $newDisplayName -ne $def.DisplayName) {
             $props['Description'] = $def.Description -replace [regex]::Escape($def.DisplayName), $newDisplayName
         }
@@ -831,7 +855,12 @@ function Apply-UngateModelOverrides {
             $props['ContextWindow'] = $newContextWindow
             $props['MaxContextWindow'] = $newContextWindow
         }
-        [void]$result.Add([pscustomobject]$props)
+        $capabilities = @{}
+        $overrideProperties = ConvertTo-CapabilityDictionary $ov
+        foreach ($name in @(Get-UngateCapabilityNames)) {
+            if ($overrideProperties.ContainsKey($name)) { $capabilities[$name] = $overrideProperties[$name] }
+        }
+        [void]$result.Add((Apply-UngateModelCapabilities -Definition ([pscustomobject]$props) -Context $Context -Values $capabilities))
     }
 
     return @($result)
@@ -866,6 +895,17 @@ function Get-UngateModelDefinitions {
         }
     }
     return $all
+}
+
+function Get-UngateRequestModel {
+    param([Parameter(Mandatory)][object]$Definition)
+    $model = if ($Definition.PSObject.Properties['UpstreamModel'] -and $Definition.UpstreamModel) {
+        [string]$Definition.UpstreamModel
+    } else { [string]$Definition.Slug }
+    if ($Definition.PSObject.Properties['UpstreamModelPrefix'] -and $Definition.UpstreamModelPrefix -and $model -notmatch '/') {
+        return "$($Definition.UpstreamModelPrefix)/$model"
+    }
+    return $model
 }
 
 function Get-UngateModelContextWindow {
@@ -934,6 +974,7 @@ Export-ModuleMember -Function @(
     'Read-UngateCustomModelDefinitions',
     'Write-UngateCustomModelDefinitions',
     'Get-UngateModelDefinitions',
+    'Get-UngateRequestModel',
     'Get-UngateModelContextWindow',
     'New-UngateModelSet',
     'ConvertTo-ContextWindowTokens',

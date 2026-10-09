@@ -95,6 +95,9 @@ function New-CodexDesktopLaunchContext {
         NoLogWatch = $false
         ConfigureModel = $false
         ConfigureMemories = $false
+        ConfigureCapabilities = $false
+        SetModelCapabilities = ''
+        TestModelCapabilities = $false
         SetUpstreamModel = ''
     }
     foreach ($name in @($options.Keys)) {

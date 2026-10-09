@@ -11,6 +11,7 @@ Import-Module (Join-Path $PSScriptRoot 'Desktop.psm1') -DisableNameChecking -Err
 Import-Module (Join-Path $PSScriptRoot 'Logging.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'ToolCompatibility.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'Memories.psm1') -DisableNameChecking -ErrorAction Stop
+Import-Module (Join-Path $PSScriptRoot 'Capabilities.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'codex-plugin-isolation.psm1') -DisableNameChecking -ErrorAction Stop
 
 function Get-ActiveDesktopModelDefinitions {
@@ -203,11 +204,7 @@ function Initialize-CodexDesktopTransport {
     }
 
     $selectedKey = $providerKeys[$Selection.SelectedModel.ProviderName]
-    $modelToProbe = if ($Selection.SelectedModel.PSObject.Properties['UpstreamModel'] -and $Selection.SelectedModel.UpstreamModel) {
-        $Selection.SelectedModel.UpstreamModel
-    } else {
-        $Selection.SelectedModel.Slug
-    }
+    $modelToProbe = Get-UngateRequestModel -Definition $Selection.SelectedModel
     $preflightAttempts = if ($Selection.EnableProviderFallback) { 1 } else { 2 }
     $preflightFailure = $null
     for ($attempt = 1; $attempt -le $preflightAttempts; $attempt++) {
@@ -376,6 +373,17 @@ function Invoke-CodexDesktopLauncher {
     param([Parameter(Mandatory)][psobject]$Context)
 
     $ErrorActionPreference = 'Stop'
+    if ($Context.Options.ConfigureCapabilities -or $Context.Options.TestModelCapabilities -or $Context.BoundParameterNames.Contains('SetModelCapabilities')) {
+        $modes = @('ConfigureCapabilities', 'TestModelCapabilities', 'SetModelCapabilities') | Where-Object { $Context.BoundParameterNames.Contains($_) }
+        if ($modes.Count -gt 1) { throw 'Choose only one capability command.' }
+        $conflicts = @('PrepareOnly', 'SkipWorkspaceRestore', 'EnableProviderFallback', 'AddModel', 'TestTools', 'ConfigureModel', 'SetUpstreamModel', 'ConfigureMemories') |
+            Where-Object { $Context.BoundParameterNames.Contains($_) }
+        if (-not $Context.Options.TestModelCapabilities -and $Context.BoundParameterNames.Contains('ApiKey')) { $conflicts += 'ApiKey' }
+        if ($conflicts.Count -gt 0) { throw "Capability commands cannot be combined with: $($conflicts -join ', ')." }
+        $set = New-UngateModelSet -Context $Context
+        $definitions = @(Get-UngateModelDefinitions -Context $Context -BuiltInDefinitions $set.BuiltInDefinitions -RegistryPath $Context.CustomModelDefinitionsPath)
+        return Invoke-UngateCapabilitiesCommand -Context $Context -Definitions $definitions
+    }
     if ($Context.Options.ConfigureMemories) {
         $conflicts = @('ApiKey', 'Model', 'PrepareOnly', 'SkipWorkspaceRestore', 'EnableProviderFallback', 'AddModel', 'TestTools', 'ConfigureModel', 'SetUpstreamModel') |
             Where-Object { $Context.BoundParameterNames.Contains($_) }

@@ -188,6 +188,9 @@ function normalizeRoute(route) {
 	const upstreamBaseUrl = String(route.upstreamBaseUrl ?? '').trim();
 	const apiKey = String(route.apiKey ?? '').trim();
 	const responsesAdapter = String(route.responsesAdapter ?? '').trim() || null;
+	if (route.parallelToolCalls !== undefined && typeof route.parallelToolCalls !== 'boolean') {
+		throw new Error('parallelToolCalls must be a Boolean when specified.');
+	}
 	if (!clientModel || !upstreamModel || !upstreamBaseUrl || !apiKey) {
 		throw new Error('Each shell router route needs clientModel, upstreamModel, upstreamBaseUrl and apiKey.');
 	}
@@ -205,7 +208,14 @@ function normalizeRoute(route) {
 		throw new Error(`Unsupported Responses stream adapter '${responsesAdapter}' for model shell '${clientModel}'.`);
 	}
 
-	return { clientModel, upstreamModel, upstreamUrl: parsedUrl, apiKey, responsesAdapter };
+	return {
+		clientModel,
+		upstreamModel,
+		upstreamUrl: parsedUrl,
+		apiKey,
+		responsesAdapter,
+		parallelToolCalls: route.parallelToolCalls
+	};
 }
 
 function normalizeRoutes(routes) {
@@ -531,6 +541,9 @@ export function createShellRouterServer(options = {}) {
 			}
 
 			body.model = route.upstreamModel;
+			if (requestUrl.pathname === '/v1/responses' && route.parallelToolCalls !== undefined) {
+				body.parallel_tool_calls = route.parallelToolCalls;
+			}
 			const upstreamBody = Buffer.from(JSON.stringify(body));
 			const targetUrl = new URL(`${requestUrl.pathname}${requestUrl.search}`, route.upstreamUrl);
 			const headers = copyHeaders(request.headers);
@@ -585,7 +598,8 @@ function routesFromEnvironment() {
 		upstreamModel: route.upstreamModel,
 		upstreamBaseUrl: route.upstreamBaseUrl,
 		apiKey: process.env[route.apiKeyEnv],
-		responsesAdapter: route.responsesAdapter
+		responsesAdapter: route.responsesAdapter,
+		parallelToolCalls: route.parallelToolCalls
 	}));
 }
 

@@ -299,3 +299,79 @@ pwsh .\scripts\start-codex-desktop-ungate.ps1 -Model grok-4.7 -SetUpstreamModel 
 
 Overrides are persisted across launcher sessions in `$CustomCodexHome/ungate-model-overrides.json`.
 When all overrides are removed, the file is automatically cleaned up.
+
+An optional `upstreamModelPrefix` transport override selects a specific gateway
+provider without changing the native `upstreamModel` displayed by V. Routes and
+diagnostics prepend `<prefix>/` only to unqualified native IDs; subsequent
+version edits keep the prefix and use the new native ID. It is independent of
+capabilities and survives both capability and version resets. Use this only
+when the actual gateway route requires disambiguation; it grants no capability.
+
+## Model capabilities (C)
+
+Choose **C / Возможности моделей** or the appended numeric entry. Existing menu
+numbers and shortcuts stay unchanged. All registered models can be edited,
+including those currently absent from the Desktop picker. The editor displays
+effective values and explicit overrides. S saves, R resets only capabilities,
+T tests saved settings, and B or an empty input leaves without saving the draft.
+The next normal launcher start rebuilds the catalog; restart Beta to apply it.
+
+```powershell
+pwsh .\scripts\start-codex-desktop-ungate.ps1 -ConfigureCapabilities
+pwsh .\scripts\start-codex-desktop-ungate.ps1 -ConfigureCapabilities -Model mimo-v2.6-pro
+pwsh .\scripts\start-codex-desktop-ungate.ps1 -Model mimo-v2.6-pro -SetModelCapabilities '{"supportsImageInput":true,"supportsImageDetailOriginal":false}'
+pwsh .\scripts\start-codex-desktop-ungate.ps1 -Model mimo-v2.6-pro -TestModelCapabilities
+pwsh .\scripts\start-codex-desktop-ungate.ps1 -Model mimo-v2.6-pro -SetModelCapabilities reset
+```
+
+The version-1 overrides file accepts these optional fields:
+
+| Field | Value |
+| --- | --- |
+| `supportsImageInput`, `supportsImageDetailOriginal` | Boolean; original requires image |
+| `supportedReasoningLevels` | Nonempty unique string array: none, minimal, low, medium, high, xhigh, max, ultra |
+| `defaultReasoningLevel` | A member of the effective reasoning-level array |
+| `supportsReasoningSummaries` | Boolean |
+| `defaultReasoningSummary` | none, auto, concise, detailed |
+| `supportsParallelToolCalls` | Boolean |
+| `supportVerbosity` | Boolean |
+| `defaultVerbosity` | low, medium, high; null when disabled |
+
+Omitted fields inherit model defaults. Updates merge into the existing record;
+changing upstream does not discard capabilities. Version reset removes only
+upstream/name/context fields. Capability reset preserves those fields. Old
+custom registry entries remain supported; newly added models ask about original
+detail separately, defaulting it to off. Text is always available. Audio/video,
+native PDF, image generation and provider-native search are outside this editor.
+
+Catalog generation emits both `supports_reasoning_summary_parameter` and the
+legacy summaries field. Explicit parallel overrides also travel in router
+routes as optional Boolean `parallelToolCalls` and override the Responses
+request parameter; absent overrides retain previous behavior. Hidden memories
+take capabilities from their own definition rather than the first picker model.
+
+Tests use the same router and route-specific adapters, with an isolated bridge
+only for CLIProxy models, on exclusively bound OS-assigned ports. Readiness
+verifies HTTP status, service identity and serving PID. Credentials travel over
+stdin. No running provider, router or Beta process is restarted by C or tests.
+Each streamed probe has a 120-second timeout and 512 output-token budget, with
+no retries. The control request must complete; a failed control skips the rest.
+Image checks compare the answer with four randomly chosen PNG color bands.
+Original is checked separately when enabled. Reasoning/verbosity checks report
+parameter acceptance, not proof of behavioral effect. Parallel is verified only
+when both inert function calls occur in one response; no function is executed.
+
+Reports under `$CustomCodexHome/model-capabilities/reports/` preserve partial
+results and distinguish verified, parameter_accepted, unsupported, wrong_answer,
+inconclusive, timeout, provider_error, invalid_response and cancelled. The editor
+marks a report stale when its upstream/route/adapter/capability fingerprint no
+longer matches. Keys, request contents and PNG payloads are not saved. Exit
+codes: 0 checks accepted/verified; 1 explicit unsupported or wrong image answer;
+2 technical failure, cancellation or an inconclusive observation. A failed
+diagnostic never changes settings or triggers rollback.
+
+Override backups are retained for manual recovery. Plugin-isolation failures
+also retain the effective state, staging and backups, with `failure.json` in
+the backup directory after a commit failure. They do not restore automatically;
+inspect the recorded paths and perform a verified forward repair. Restore from
+backups only on explicit user instruction.

@@ -491,10 +491,13 @@ function Invoke-DesktopOmniRoutePreflight {
         "deepseek/$Model"
     } elseif ("ds/$Model" -in $ids) {
         "ds/$Model"
+    } elseif ($Model -match '^openai-compatible-(chat|responses)-[A-Za-z0-9._-]+/[^/]+$') {
+        Write-Host '[ungate] Explicit gateway provider route is absent from discovery; validating live Responses inference.' -ForegroundColor DarkGray
+        $Model
     } else {
         throw "OmniRoute model or combo '$Model' was not found in /v1/models. Configure the model before launching."
     }
-    Write-Host "[ungate] OmniRoute model or combo '$Model' available." -ForegroundColor Green
+    if ($Model -in $ids) { Write-Host "[ungate] OmniRoute model or combo '$Model' available." -ForegroundColor Green }
 
     $body = [ordered]@{
         model = $effectiveModel

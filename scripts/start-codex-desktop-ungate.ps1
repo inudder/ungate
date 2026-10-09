@@ -47,6 +47,15 @@
     (example: -Model grok-4.7 -SetUpstreamModel grok-4.8). Pass 'reset' or
     'default' to revert back to the built-in upstream model.
 
+.PARAMETER ConfigureCapabilities
+    Open the model capability editor without launching or stopping Beta. Optional -Model selects a model directly.
+
+.PARAMETER SetModelCapabilities
+    Merge a JSON capability object into the selected -Model override. 'reset' removes only capability overrides.
+
+.PARAMETER TestModelCapabilities
+    Test the selected -Model through temporary router/adapter instances without changing saved settings or the working runtime.
+
 .PARAMETER TestTools
     Test the cached Codex Beta tool schemas without launching or stopping Desktop.
     With -Model, test one registry model noninteractively; otherwise select models.
@@ -94,6 +103,9 @@ param(
     [switch]$AddModel,
     [switch]$ConfigureModel,
     [switch]$ConfigureMemories,
+    [switch]$ConfigureCapabilities,
+    [string]$SetModelCapabilities,
+    [switch]$TestModelCapabilities,
     [string]$SetUpstreamModel,
     [switch]$TestTools,
     [switch]$PrepareOnly,

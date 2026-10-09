@@ -403,6 +403,33 @@ Describe 'Transport preparation policies' {
 }
 
 Describe 'Desktop OmniRoute preflight remains distinct' {
+    It 'requires live inference for a qualified provider omitted from discovery (HTTP <Status>)' -ForEach @(200, 500) {
+        $script:probeStatus = $_
+        Mock -ModuleName ProxyRuntime Invoke-RestMethod {
+            param($Uri)
+            if ($Uri -like '*/api/health/ping') { return @{status='ok'} }
+            return @{data=@()}
+        }
+        Mock -ModuleName ProxyRuntime Invoke-WebRequest { @{StatusCode=$script:probeStatus;Content='{"id":"response-test"}'} }
+        $invoke = { Invoke-DesktopOmniRoutePreflight -Key test -Model 'openai-compatible-chat-test/mimo-v2.6-pro' -ProxyBaseUrl 'http://test' }
+        if ($script:probeStatus -eq 200) { & $invoke }
+        else { $invoke | Should -Throw '*HTTP 500*' }
+        Should -Invoke -ModuleName ProxyRuntime Invoke-WebRequest -Times 1 -Exactly -ParameterFilter {
+            ($Body | ConvertFrom-Json).model -eq 'openai-compatible-chat-test/mimo-v2.6-pro'
+        }
+    }
+
+    It 'still rejects an unknown unqualified model before inference' {
+        Mock -ModuleName ProxyRuntime Invoke-RestMethod {
+            param($Uri)
+            if ($Uri -like '*/api/health/ping') { return @{status='ok'} }
+            return @{data=@()}
+        }
+        Mock -ModuleName ProxyRuntime Invoke-WebRequest { throw 'Must not probe' }
+        { Invoke-DesktopOmniRoutePreflight -Key test -Model unknown -ProxyBaseUrl 'http://test' } | Should -Throw '*not found*'
+        Should -Invoke -ModuleName ProxyRuntime Invoke-WebRequest -Times 0
+    }
+
     It 'probes the unprefixed Mimo route when discovery only lists its native alias' {
         Mock -ModuleName ProxyRuntime Invoke-RestMethod {
             param($Uri)

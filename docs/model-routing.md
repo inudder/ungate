@@ -72,6 +72,31 @@ The local override for registry ID `mimo-v2.5-pro` currently selects
 `ungate-model-overrides.json`, rather than inferring the physical model from
 the registry ID. This machine maps that selection through shell `gpt-5.4`.
 
+The local override also retains transport prefix
+`openai-compatible-chat-a4d5b027-617b-4d6b-a100-a99e059637e8` in
+`upstreamModelPrefix`. The actual gateway request therefore names
+`openai-compatible-chat-a4d5b027-617b-4d6b-a100-a99e059637e8/mimo-v2.6-pro`.
+Without qualification OmniRoute initially resolves this ID through `codex`;
+its vision guardrail then reroutes PNG requests to an unconfigured provider
+before native Mimo re-resolution. The qualified route uses the existing Mimo
+custom-model metadata (`supportsVision: true`); no gateway settings change.
+Both ordinary routing and diagnostics use this prefix, and version changes
+retain it while updating the native suffix. A live four-band PNG diagnostic
+verified recognition through the qualified route.
+Desktop preflight uses the same qualified ID. OmniRoute discovery may omit
+manually registered compatible-provider models; for explicitly qualified
+compatible providers the live Responses probe is authoritative. An upstream
+failure still fails preflight.
+
+Image input is independently configurable via **C / Возможности моделей**.
+The current v2.6 override enables image and leaves `original` disabled; the
+built-in v2.5 definition remains text-only. Do not infer original-detail support
+from image support. Explicit capability settings merge with version settings
+and persist across upstream changes. The catalog declares image input to Beta;
+the router and Mimo namespace adapter preserve `input_image` content. The
+dedicated diagnostic checks actual PNG recognition through this route, rather
+than treating HTTP 200 as proof of vision. See [Model capabilities](desktop-launcher.md#model-capabilities-c).
+
 The gateway-wide profile in `%APPDATA%\OmniRoute\server.env` sets
 `OMNIROUTE_CHAT_MAX_HEAVY_IN_FLIGHT=4`,
 `OMNIROUTE_CHAT_ADMISSION_HEALTHY_HEADROOM=0`,
