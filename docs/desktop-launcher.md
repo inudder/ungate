@@ -104,7 +104,7 @@ on newer .NET versions).
 ## Safe verification
 
 Local memories default to Off, including the first copy of the normal profile.
-Open **Настройки памяти** with `M` (number 13 with seven picker models and
+Open **Настройки памяти** with `M` (number 12 with six picker models and
 provider fallback), or run `start-codex-desktop-ungate.ps1 -ConfigureMemories`
 to manage memory settings without stopping or launching Desktop. Choose On/Off,
 change the provider and upstream model, check the current model, or restore
@@ -122,8 +122,20 @@ A toggle changed only in Beta's UI is replaced by the launcher preference on
 the next preparation. The normal profile and existing memory files are retained.
 
 Catalog validation includes the hidden memory entry in both the generated file
-and Codex's raw loaded catalog. With seven picker models and memories On, both
-catalogs must contain eight entries, with exactly one hidden `ungate-memory`.
+and Codex's raw loaded catalog. With six picker models and memories On, both
+catalogs must contain eight entries: six listed models, hidden `ungate-memory`
+and hidden `gpt-5.6-luna` for Desktop background tasks.
+
+### Desktop background tasks
+
+Codex Desktop hard-codes `gpt-5.6-luna` for chat titles, ambient suggestions,
+their safety check and codex-auto-review, whatever model the chat uses. That ID
+is therefore not a picker slot: the picker holds six models, and the launcher
+adds a hidden catalog entry and router route for `gpt-5.6-luna`. By default it
+points at the model selected for the launch. Menu `B` saves another registry
+model, including one outside the picker, in `ungate-background-model.json`;
+`0` returns to the launch model. A saved model that no longer exists falls back
+to the launch model with a warning. Provider fallback mode does not remap it.
 
 Choosing a model or enabling memories requires successful live Responses
 validation. The check also runs at each launch with memories On; a successful

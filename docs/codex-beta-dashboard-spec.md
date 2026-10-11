@@ -120,7 +120,7 @@ Audio, video, прямой PDF, генерацию изображений и pro
 
 ### 5.4. Picker
 
-Checkboxes по всему реестру, счётчик выбранных моделей. Допустимо от одной до Context.CodexDesktopPickerCapacity, сейчас семь. Не зашивать capacity в компонент. UI показывает порядок, который действительно использует launcher; текущий writer нормализует порядок по Definitions, поэтому drag-and-drop порядка в первой версии не делать.
+Checkboxes по всему реестру, счётчик выбранных моделей. Допустимо от одной до Context.CodexDesktopPickerCapacity, сейчас шесть (gpt-5.6-luna зарезервирован под фоновые задачи Desktop). Не зашивать capacity в компонент. UI показывает порядок, который действительно использует launcher; текущий writer нормализует порядок по Definitions, поэтому drag-and-drop порядка в первой версии не делать.
 
 Сохранение использует ungate-picker-models.json и общий validator. Модель вне picker остаётся доступной редактору и диагностике. ungate-memory не расходует picker slot и не отображается как обычная модель. Не менять shell pool или shell mapping автоматически.
 

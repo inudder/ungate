@@ -1,6 +1,6 @@
 BeforeAll {
     $script:moduleRoot = Split-Path -Parent $PSScriptRoot
-    foreach ($name in @('Context', 'Models', 'Routing', 'ProxyRuntime', 'Desktop', 'Profile', 'Memories', 'Catalog', 'Launcher')) {
+    foreach ($name in @('Context', 'Models', 'Routing', 'ProxyRuntime', 'Desktop', 'Profile', 'Memories', 'BackgroundModel', 'Catalog', 'Launcher')) {
         Import-Module (Join-Path $script:moduleRoot "$name.psm1") -DisableNameChecking -ErrorAction Stop
     }
 
@@ -118,12 +118,42 @@ if ($before -cne $after) { throw 'Import changed environment' }
         $definitions = @($models | Where-Object Slug -In @('miniMax-M3', 'grok-4.7', 'mimo-v2.5-pro'))
         $selection = [pscustomobject]@{ Definitions = @(Set-CodexModelShellSlugs -Context $context -Definitions $definitions); EnableProviderFallback = $false }
         $routes = @(Get-CodexModelShellRoutes -Selection $selection)
-        @($routes.clientModel) | Should -Be @('gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna')
+        @($routes.clientModel) | Should -Be @('gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.3-codex')
         @($routes.upstreamBaseUrl) | Should -Be @('http://127.0.0.1:47821', 'http://127.0.0.1:8318', 'http://127.0.0.1:20128')
         @($routes.upstreamModel) | Should -Be @('miniMax-M3', 'grok-4.7', 'mimo-v2.5-pro')
         $routes[0].responsesAdapter | Should -BeNullOrEmpty
         $routes[1].responsesAdapter | Should -BeNullOrEmpty
         $routes[2].responsesAdapter | Should -Be 'mimo-textual-tools'
+    }
+
+    It 'routes Desktop background requests to the launch model by default and to a saved custom model' {
+        $context = New-TestContext @{ Model = 'grok-4.7' }
+        $selection = Get-TestSelection $context
+        $selection.BackgroundDefinition.Slug | Should -Be 'grok-4.7'
+        $selection.BackgroundDefinition.ShellSlug | Should -Be 'gpt-5.6-luna'
+        $selection.BackgroundDefinition.BackgroundSource | Should -Be 'launch'
+        @($selection.Definitions.ShellSlug) | Should -Not -Contain 'gpt-5.6-luna'
+        $selection.SelectedModel.ShellSlug | Should -Not -Be 'gpt-5.6-luna'
+        $route = @(Get-CodexModelShellRoutes -Selection $selection) | Where-Object clientModel -EQ 'gpt-5.6-luna'
+        $route.upstreamModel | Should -Be 'grok-4.7'
+        $route.upstreamBaseUrl | Should -Be 'http://127.0.0.1:8318'
+
+        Write-UngateBackgroundModelSetting -Context $context -ModelSlug 'miniMax-M3'
+        $custom = Get-TestSelection $context
+        $custom.SelectedModel.Slug | Should -Be 'grok-4.7'
+        $custom.BackgroundDefinition.Slug | Should -Be 'miniMax-M3'
+        $custom.BackgroundDefinition.BackgroundSource | Should -Be 'custom'
+        (@(Get-CodexModelShellRoutes -Selection $custom) | Where-Object clientModel -EQ 'gpt-5.6-luna').upstreamModel | Should -Be 'miniMax-M3'
+
+        Write-UngateBackgroundModelSetting -Context $context -ModelSlug 'removed-model'
+        (Get-TestSelection $context 3>$null).BackgroundDefinition.Slug | Should -Be 'grok-4.7'
+        Write-UngateBackgroundModelSetting -Context $context -ModelSlug $null
+        Read-UngateBackgroundModelSetting -Context $context | Should -BeNullOrEmpty
+    }
+
+    It 'does not remap background requests in provider fallback mode' {
+        $selection = [pscustomobject]@{ Definitions = @(); EnableProviderFallback = $true; BackgroundDefinition = [pscustomobject]@{ ShellSlug = 'gpt-5.6-luna' } }
+        Get-CodexBackgroundDefinition -Selection $selection | Should -BeNullOrEmpty
     }
 
     It 'preserves managed provider TOML and unrelated tables' {
@@ -308,10 +338,10 @@ Describe 'Complete preparation on disposable profiles' {
     }
 
     It 'writes and validates the complete <Mode> profile without live services' -ForEach @(
-        @{Mode='router';Options=@{PrepareOnly=$true;Model='grok-4.7'};Memory=$false;ExpectedProvider='ungate_model_shell_router';ExpectedCount=7;ExpectedModel='gpt-5.5'},
-        @{Mode='fallback';Options=@{PrepareOnly=$true;EnableProviderFallback=$true};Memory=$false;ExpectedProvider='omniroute';ExpectedCount=11;ExpectedModel='codex-fallback'},
-        @{Mode='memory-router';Options=@{PrepareOnly=$true;Model='grok-4.7'};Memory=$true;ExpectedProvider='ungate_model_shell_router';ExpectedCount=8;ExpectedModel='gpt-5.5'},
-        @{Mode='memory-fallback';Options=@{PrepareOnly=$true;EnableProviderFallback=$true};Memory=$true;ExpectedProvider='ungate_model_shell_router';ExpectedCount=12;ExpectedModel='codex-fallback'}
+        @{Mode='router';Options=@{PrepareOnly=$true;Model='grok-4.7'};Memory=$false;ExpectedProvider='ungate_model_shell_router';ExpectedCount=7;ExpectedHidden=1;ExpectedModel='gpt-5.5'},
+        @{Mode='fallback';Options=@{PrepareOnly=$true;EnableProviderFallback=$true};Memory=$false;ExpectedProvider='omniroute';ExpectedCount=11;ExpectedHidden=0;ExpectedModel='codex-fallback'},
+        @{Mode='memory-router';Options=@{PrepareOnly=$true;Model='grok-4.7'};Memory=$true;ExpectedProvider='ungate_model_shell_router';ExpectedCount=8;ExpectedHidden=2;ExpectedModel='gpt-5.5'},
+        @{Mode='memory-fallback';Options=@{PrepareOnly=$true;EnableProviderFallback=$true};Memory=$true;ExpectedProvider='ungate_model_shell_router';ExpectedCount=12;ExpectedHidden=1;ExpectedModel='codex-fallback'}
     ) {
         $context = New-TestContext $Options $Mode
         $context.DefaultCodexHome = $script:sourceHome
@@ -338,7 +368,7 @@ Describe 'Complete preparation on disposable profiles' {
         $config | Should -Match 'consolidation_model = "ungate-memory"'
         $catalog = Get-Content -LiteralPath $context.CustomModelCatalogPath -Raw | ConvertFrom-Json -Depth 100
         $catalog.models.Count | Should -Be $ExpectedCount
-        @($catalog.models | Where-Object visibility -EQ 'hide').Count | Should -Be $(if ($Memory) { 1 } else { 0 })
+        @($catalog.models | Where-Object visibility -EQ 'hide').Count | Should -Be $ExpectedHidden
         @($catalog.models | Where-Object { -not $_.base_instructions.EndsWith('Keep body') }).Count | Should -Be 0
         Get-Content -LiteralPath (Join-Path $context.CustomCodexHome 'AGENTS.md') -Raw | Should -BeExactly '# Fixture instructions'
         Get-Content -LiteralPath (Join-Path $context.CustomCodexHome 'auth.json') -Raw | Should -BeExactly '{}'

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { chmod, lstat, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readFile, rename, rm, rmdir, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, parse as parsePath, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -20,7 +20,7 @@ const DEVICE_PATH_PATTERN = /^\\\\[.?]\\/u;
 const EXEC_PATCH_AUTHORING = [
 	'When building a patch in exec, every array item must be a JavaScript string. Put patch markers inside the quotes: "+];", "@@", "-old", "+new". Never write +"...": unary + converts the string to a number before apply_patch sees it.',
 	'Before joining, validate the array: if (patchLines.some((line) => typeof line !== "string")) throw new Error("Patch lines must all be strings");',
-	'Join with patchLines.join("\\n"), call this same apply_patch tool, and pass its result to text(...).'
+	'Join with patchLines.join(String.fromCharCode(10)), call this same apply_patch tool, and pass its result to text(...).'
 ].join('\n');
 const NUMERIC_COERCION_REMEDIATION = [
 	'The patch contains a bare NaN line. A likely cause is unary + outside a JavaScript string in the exec array, such as +"];" instead of "+];".',
@@ -49,12 +49,40 @@ const UPDATE_FILE_REMEDIATION = [
 	'The first character is the marker. After it, copy the exact file line including its indent; file indent is not the marker, so a copied indented line needs one extra leading space.'
 ].join('\n');
 
+const OPERATION_RULES = [
+	'Every Update File needs at least one - or + line. A context-only @@ section between changing hunks only moves the search position.',
+	'To replace a whole existing file, write *** Delete File: path followed by *** Add File: path in one patch. Add File alone never overwrites.',
+	'Missing parent directories of Add File and Move to targets are created.'
+].join('\n');
+
 const CONTEXT_MISMATCH_REMEDIATION = [
-	'Exact context was not found. Re-read the current file, rebuild the hunk from the live lines, and retry this same apply_patch tool once.',
+	'The message names the patch line that does not match the live file and quotes the file line found there. Fix the hunk from the live lines and retry this same apply_patch tool once.',
 	'Do not switch to native apply_patch, a different exec wrapper, or Shell. Do not reuse a hunk that already applied.',
 	'If exec output is empty (Wall time 0.0s), you forgot text(result); the UI result is authoritative.',
-	'If the hunk copied indented file lines as-is, prefix each context line with one extra ASCII space. Column 1 is the marker; a missing marker space makes indented context look one space shorter than the file.'
+	'Context before and after the + lines must be different file lines. Do not repeat the line you insert next to on both sides of the insertion.'
 ].join('\n');
+const TARGET_EXISTS_REMEDIATION = [
+	'Add File creates a new file only.',
+	'To replace an existing file completely, put *** Delete File: path and then *** Add File: path for the same path in one patch. The replacement is atomic.',
+	'To change part of the file, use Update File hunks.'
+].join('\n');
+const PATH_CONFLICT_REMEDIATION = [
+	'Address each path once. Two forms are allowed for the same path:',
+	'*** Delete File: path followed by *** Add File: path replaces the file atomically.',
+	'Several *** Update File: path sections without Move to are applied in order.'
+].join('\n');
+const ESCAPED_NEWLINES_REMEDIATION = [
+	'The patch arrived as one line that contains the two characters backslash and n instead of line breaks.',
+	'Build the patch as an array of strings and join it with String.fromCharCode(10) instead of a backslash-n escape. Do not JSON.stringify the patch text.'
+].join('\n');
+const ADJUSTMENT_DESCRIPTIONS = {
+	loose_whitespace:
+		'matched after ignoring trailing whitespace and Unicode dash, quote, and space variants; file context was kept',
+	missing_context_marker_space:
+		'context lines were missing the marker space; matched them one space deeper and kept the file lines',
+	extra_space_after_marker: 'every - and + line had a space after the marker; removed that space from the + lines'
+};
+const MAX_QUOTED_LINE_LENGTH = 160;
 
 export class PatchError extends Error {
 	constructor(code, message, details = {}) {
@@ -74,10 +102,20 @@ function remediationFor(patchError) {
 		return NUMERIC_COERCION_REMEDIATION;
 	}
 
+	if (patchError.code === 'invalid_patch' && patchError.details.reason === 'escaped_newlines') {
+		return ESCAPED_NEWLINES_REMEDIATION;
+	}
+
 	const remediationByCode = {
-		no_change_hunk: "Add at least one '-' or '+' line to every Update File hunk, or remove the unchanged operation.",
+		no_change_hunk:
+			"This Update File has no '-' or '+' line in any hunk. Add the intended change, or remove the unchanged operation. A context-only @@ section is allowed only next to hunks that change lines.",
 		hunk_not_found: CONTEXT_MISMATCH_REMEDIATION,
 		anchor_not_found: CONTEXT_MISMATCH_REMEDIATION,
+		target_exists:
+			patchError.details.operation === 'add'
+				? TARGET_EXISTS_REMEDIATION
+				: 'Move to must name a path that does not exist yet. Delete or rename the occupying file in a separate step first.',
+		path_conflict: PATH_CONFLICT_REMEDIATION,
 		invalid_patch_header:
 			'Use only the exact supported headers: *** Begin Patch, *** End Patch, *** Add File: path, *** Update File: path, *** Delete File: path, and *** Move to: path.\n' +
 			ADD_FILE_REMEDIATION +
@@ -104,6 +142,34 @@ function remediationFor(patchError) {
 
 function byteLength(value) {
 	return Buffer.byteLength(value, 'utf8');
+}
+
+function quoteLine(value) {
+	if (value === undefined) {
+		return '<end of file>';
+	}
+	const text = value.length > MAX_QUOTED_LINE_LENGTH ? `${value.slice(0, MAX_QUOTED_LINE_LENGTH)}...` : value;
+
+	return JSON.stringify(text);
+}
+
+function leadingWhitespace(value) {
+	return /^[ \t]*/u.exec(value)[0];
+}
+
+// Mirrors the fallback in Codex's native apply_patch: trailing whitespace and typographic
+// dash, quote, and space variants do not count as differences. Leading indentation does.
+function looseLine(value) {
+	return value
+		.trimEnd()
+		.replace(/[‐-―−]/gu, '-')
+		.replace(/[‘-‛]/gu, "'")
+		.replace(/[“-‟]/gu, '"')
+		.replace(/[  -   　]/gu, ' ');
+}
+
+function sameIgnoringIndent(left, right) {
+	return looseLine(left).trimStart() === looseLine(right).trimStart();
 }
 
 function hashBuffer(buffer) {
@@ -196,6 +262,22 @@ function unwrapPatchEnvelope(patch) {
 	if (xmlMatch) {
 		normalized = xmlMatch[1].trim();
 	}
+	// A JSON-stringified line array is unambiguous: join it instead of rejecting it.
+	if (normalized.startsWith('[') && normalized.endsWith(']')) {
+		let parsedLines;
+		try {
+			parsedLines = JSON.parse(normalized);
+		} catch {
+			parsedLines = null;
+		}
+		if (
+			Array.isArray(parsedLines) &&
+			parsedLines.every((line) => typeof line === 'string') &&
+			normalizeDecoratedSentinel(parsedLines[0]?.trim()) === PATCH_BEGIN
+		) {
+			normalized = parsedLines.join('\n').trim();
+		}
+	}
 
 	return normalized;
 }
@@ -211,8 +293,8 @@ function failInvalidBodyLine(line, lineNumber, sourcePath, operation) {
 
 	const message =
 		operation === 'Add File'
-			? `Every Add File content line for '${sourcePath}' must start with +.`
-			: `Invalid update line for '${sourcePath}': every line must start with space, +, or -.`;
+			? `Every Add File content line for '${sourcePath}' must start with +; patch line ${lineNumber} is ${quoteLine(line)}.`
+			: `Invalid update line for '${sourcePath}' at patch line ${lineNumber}: ${quoteLine(line)}. Every line must start with space, +, or -.`;
 	fail('invalid_patch', message, { line: lineNumber });
 }
 
@@ -269,7 +351,7 @@ function parseUpdateBody(lines, startIndex, sourcePath) {
 				index += 1;
 				continue;
 			}
-			currentChunk.lines.push({ marker: ' ', text: '' });
+			currentChunk.lines.push({ marker: ' ', text: '', lineNumber: index + 1 });
 			index += 1;
 			continue;
 		}
@@ -280,23 +362,22 @@ function parseUpdateBody(lines, startIndex, sourcePath) {
 			currentChunk = { anchor: null, endOfFile: false, lines: [] };
 			chunks.push(currentChunk);
 		}
-		currentChunk.lines.push({ marker: line[0], text: line.slice(1) });
+		currentChunk.lines.push({ marker: line[0], text: line.slice(1), lineNumber: index + 1 });
 		index += 1;
 	}
 
-	for (const chunk of chunks) {
-		if (chunk.lines.length === 0) {
-			fail('invalid_patch', `Empty update hunk for '${sourcePath}'.`);
-		}
-		if (!chunk.lines.some((line) => line.marker === '+' || line.marker === '-')) {
-			fail('no_change_hunk', `Update hunk for '${sourcePath}' does not change any lines.`);
-		}
-	}
-	if (chunks.length === 0 && !movePath) {
+	// A bare @@ with no lines is a no-op. An anchor-only or context-only section is kept: like native
+	// Codex, it only moves the search position for the hunks after it.
+	const keptChunks = chunks.filter((chunk) => chunk.lines.length > 0 || chunk.anchor !== null);
+	if (keptChunks.length === 0 && !movePath) {
 		fail('invalid_patch', `Update operation for '${sourcePath}' has neither hunks nor a move destination.`);
 	}
+	const changesLines = keptChunks.some((chunk) => chunk.lines.some((line) => line.marker === '+' || line.marker === '-'));
+	if (!changesLines && !movePath) {
+		fail('no_change_hunk', `Update File for '${sourcePath}' does not change any lines.`);
+	}
 
-	return { chunks, movePath, nextIndex: index };
+	return { chunks: keptChunks, movePath, nextIndex: index };
 }
 
 export function parsePatch(patch, { maxPatchBytes = DEFAULT_MAX_PATCH_BYTES } = {}) {
@@ -320,6 +401,11 @@ export function parsePatch(patch, { maxPatchBytes = DEFAULT_MAX_PATCH_BYTES } = 
 	const lines = normalized.split('\n').map(normalizeDecoratedSentinel);
 	if (lines.at(-1) === '') {
 		lines.pop();
+	}
+	if (lines.length === 1 && /^\*\*\* Begin Patch(?: \*\*\*)?\\n/u.test(lines[0])) {
+		fail('invalid_patch', 'Patch is a single line with literal \\n escape sequences instead of line breaks.', {
+			reason: 'escaped_newlines'
+		});
 	}
 	if (lines[0] !== PATCH_BEGIN || lines.at(-1) !== PATCH_END) {
 		fail('invalid_patch', `Patch must start with '${PATCH_BEGIN}' and end with '${PATCH_END}'.`);
@@ -394,7 +480,8 @@ export function parsePatch(patch, { maxPatchBytes = DEFAULT_MAX_PATCH_BYTES } = 
 		fail('invalid_patch', 'Patch contains no file operations.');
 	}
 
-	for (const operation of operations) {
+	const mergedOperations = mergeSamePathOperations(operations);
+	for (const operation of mergedOperations) {
 		for (const pathValue of [operation.path, operation.movePath].filter(Boolean)) {
 			const key = pathValue.toLocaleLowerCase('en-US');
 			if (claimedPaths.has(key)) {
@@ -404,7 +491,36 @@ export function parsePatch(patch, { maxPatchBytes = DEFAULT_MAX_PATCH_BYTES } = 
 		}
 	}
 
-	return operations;
+	return mergedOperations;
+}
+
+// Delete File + Add File for one path is an atomic replace. Repeated Update File sections for one
+// path apply in order, each searching from the top of the file as a separate native patch would.
+function mergeSamePathOperations(operations) {
+	const merged = [];
+	const latestByPath = new Map();
+	for (const operation of operations) {
+		const key = operation.path.toLocaleLowerCase('en-US');
+		const previous = latestByPath.get(key);
+		if (previous?.kind === 'delete' && operation.kind === 'add') {
+			previous.kind = 'replace';
+			previous.content = operation.content;
+			continue;
+		}
+		if (previous?.kind === 'update' && operation.kind === 'update' && !previous.movePath && !operation.movePath) {
+			const [firstChunk, ...otherChunks] = operation.chunks;
+			if (firstChunk) {
+				previous.chunks.push({ ...firstChunk, resetCursor: true }, ...otherChunks);
+			}
+			continue;
+		}
+		merged.push(operation);
+		if (!previous) {
+			latestByPath.set(key, operation);
+		}
+	}
+
+	return merged;
 }
 
 function decodeTextFile(buffer, filePath, maxFileBytes) {
@@ -427,108 +543,311 @@ function decodeTextFile(buffer, filePath, maxFileBytes) {
 		fail('unsupported_newlines', `'${filePath}' contains lone carriage returns.`, { path: filePath });
 	}
 
-	const crlfCount = text.match(/\r\n/gu)?.length ?? 0;
-	const loneLfCount = text.replaceAll('\r\n', '').match(/\n/gu)?.length ?? 0;
-	if (crlfCount > 0 && loneLfCount > 0) {
-		fail('mixed_newlines', `'${filePath}' mixes CRLF and LF line endings.`, { path: filePath });
+	// Every line keeps its own terminator, so a file that mixes CRLF and LF keeps both.
+	// Inserted lines use the file's majority terminator.
+	const lines = [];
+	const endings = [];
+	let crlfCount = 0;
+	let lfCount = 0;
+	let lineStart = 0;
+	for (const match of text.matchAll(/\r?\n/gu)) {
+		lines.push(text.slice(lineStart, match.index));
+		endings.push(match[0]);
+		if (match[0] === '\r\n') {
+			crlfCount += 1;
+		} else {
+			lfCount += 1;
+		}
+		lineStart = match.index + match[0].length;
+	}
+	const finalNewline = text.length > 0 && lineStart === text.length;
+	if (lineStart < text.length) {
+		lines.push(text.slice(lineStart));
+		endings.push('');
 	}
 
 	return {
 		bom: hasBom,
-		finalNewline: text.endsWith('\n'),
-		newline: crlfCount > 0 ? '\r\n' : '\n',
-		text: text.replaceAll('\r\n', '\n')
+		finalNewline,
+		newline: crlfCount > lfCount ? '\r\n' : '\n',
+		lines,
+		endings
 	};
 }
 
-function encodeTextFile(textFile, normalizedText) {
-	const body = Buffer.from(normalizedText.replaceAll('\n', textFile.newline), 'utf8');
+function encodeTextFile(textFile, records) {
+	const body = records
+		.map((record, index) => {
+			if (index === records.length - 1 && !textFile.finalNewline) {
+				return record.text;
+			}
 
-	return textFile.bom ? Buffer.concat([UTF8_BOM, body]) : body;
+			return record.text + (record.ending || textFile.newline);
+		})
+		.join('');
+	const buffer = Buffer.from(body, 'utf8');
+
+	return textFile.bom ? Buffer.concat([UTF8_BOM, buffer]) : buffer;
 }
 
-function splitNormalizedText(text) {
-	const finalNewline = text.endsWith('\n');
-	const lines = text.split('\n');
-	if (finalNewline) {
-		lines.pop();
+function chunkOldEntries(chunk) {
+	return chunk.lines.filter((line) => line.marker !== '+');
+}
+
+function stripsMarkerSpace(entry, fileLine) {
+	return entry.text.startsWith(' ') && looseLine(entry.text.slice(1)) === looseLine(fileLine);
+}
+
+// Fallbacks tried in order when the exact hunk is absent. Each must match exactly one location.
+// Context lines always keep the live file text, so a fallback never rewrites unchanged lines.
+const MATCH_FALLBACKS = [
+	{
+		adjustment: 'loose_whitespace',
+		matches: (entry, fileLine) => looseLine(entry.text) === looseLine(fileLine)
+	},
+	{
+		// The hunk copied indented file lines without the leading marker space.
+		adjustment: 'missing_context_marker_space',
+		matches: (entry, fileLine) =>
+			looseLine(entry.text) === looseLine(fileLine) ||
+			(entry.marker === ' ' && looseLine(` ${entry.text}`) === looseLine(fileLine))
+	},
+	{
+		// The hunk wrote "- line" and "+ line" with a space after every change marker.
+		adjustment: 'extra_space_after_marker',
+		applies: (chunk) => {
+			const changedLines = chunk.lines.filter((line) => line.marker !== ' ' && line.text.trim() !== '');
+
+			return changedLines.some((line) => line.marker === '-') && changedLines.every((line) => line.text.startsWith(' '));
+		},
+		matches: (entry, fileLine) => {
+			if (entry.marker === ' ') {
+				return looseLine(entry.text) === looseLine(fileLine) || stripsMarkerSpace(entry, fileLine);
+			}
+			if (entry.text.trim() === '') {
+				return fileLine.trim() === '';
+			}
+
+			return stripsMarkerSpace(entry, fileLine);
+		}
+	}
+];
+
+function locateChunk(lines, chunk, cursor) {
+	const oldEntries = chunkOldEntries(chunk);
+	if (oldEntries.length === 0) {
+		return { index: chunk.endOfFile ? lines.length : cursor, length: 0, adjustment: null };
 	}
 
-	return { finalNewline, lines };
+	const firstStart = chunk.endOfFile ? lines.length - oldEntries.length : cursor;
+	const lastStart = chunk.endOfFile ? firstStart : lines.length - oldEntries.length;
+	if (firstStart < cursor) {
+		return null;
+	}
+	const matchesAt = (start, matches) => oldEntries.every((entry, offset) => matches(entry, lines[start + offset]));
+
+	for (let start = firstStart; start <= lastStart; start += 1) {
+		if (matchesAt(start, (entry, fileLine) => entry.text === fileLine)) {
+			return { index: start, length: oldEntries.length, adjustment: null };
+		}
+	}
+	for (const fallback of MATCH_FALLBACKS) {
+		if (fallback.applies && !fallback.applies(chunk)) {
+			continue;
+		}
+		const starts = [];
+		for (let start = firstStart; start <= lastStart && starts.length < 2; start += 1) {
+			if (matchesAt(start, fallback.matches)) {
+				starts.push(start);
+			}
+		}
+		if (starts.length === 1) {
+			return { index: starts[0], length: oldEntries.length, adjustment: fallback.adjustment };
+		}
+		if (starts.length > 1) {
+			return { ambiguous: true };
+		}
+	}
+
+	return null;
 }
 
-function findLine(lines, expected, startIndex) {
-	for (let index = startIndex; index < lines.length; index += 1) {
-		if (lines[index] === expected) {
-			return index;
+function findAnchor(lines, anchor, cursor) {
+	const comparisons = [
+		(fileLine) => fileLine === anchor,
+		(fileLine) => looseLine(fileLine) === looseLine(anchor),
+		(fileLine) => sameIgnoringIndent(fileLine, anchor)
+	];
+	for (const compare of comparisons) {
+		for (let index = cursor; index < lines.length; index += 1) {
+			if (compare(lines[index])) {
+				return index;
+			}
 		}
 	}
 
 	return -1;
 }
 
-function sequenceMatches(lines, expected, startIndex) {
-	if (startIndex + expected.length > lines.length) {
-		return false;
-	}
-
-	return expected.every((line, offset) => lines[startIndex + offset] === line);
+function failAnchorNotFound(lines, chunk, cursor, hunkNumber, displayPath) {
+	const earlierIndex = findAnchor(lines.slice(0, cursor), chunk.anchor, 0);
+	const position = cursor > 0 ? ` after line ${cursor}` : '';
+	const earlier =
+		earlierIndex >= 0
+			? ` It exists at line ${earlierIndex + 1}, above where the previous hunk ended; hunks for one file must follow file order.`
+			: '';
+	fail(
+		'anchor_not_found',
+		`Anchor @@ ${quoteLine(chunk.anchor)} for hunk ${hunkNumber} was not found in '${displayPath}'${position}.${earlier}`,
+		{
+			path: displayPath,
+			hunk: hunkNumber
+		}
+	);
 }
 
-function findSequence(lines, expected, startIndex) {
-	for (let index = startIndex; index <= lines.length - expected.length; index += 1) {
-		if (sequenceMatches(lines, expected, index)) {
-			return index;
+function duplicatedInsertionContext(chunk) {
+	return chunk.lines.find((line, index) => {
+		if (line.marker !== ' ' || line.text.trim() === '') {
+			return false;
+		}
+		let previous = index - 1;
+		while (previous >= 0 && chunk.lines[previous].marker === '+') {
+			previous -= 1;
+		}
+
+		return (
+			previous >= 0 && previous < index - 1 && chunk.lines[previous].marker === ' ' && chunk.lines[previous].text === line.text
+		);
+	});
+}
+
+// Names the first patch line that disagrees with the live file, so one retry can fix it.
+function failHunkNotFound(lines, chunk, cursor, hunkNumber, displayPath, ambiguous) {
+	const oldEntries = chunkOldEntries(chunk);
+	const fileKeys = lines.map((line) => looseLine(line).trimStart());
+	const entryKeys = oldEntries.map((entry) => looseLine(entry.text).trimStart());
+	let best = { start: -1, length: 0 };
+	for (let start = 0; start < lines.length; start += 1) {
+		let length = 0;
+		while (length < oldEntries.length && start + length < lines.length && entryKeys[length] === fileKeys[start + length]) {
+			length += 1;
+		}
+		if (length === 0 || !entryKeys.slice(0, length).some((key) => key !== '')) {
+			continue;
+		}
+		if (length > best.length || (length === best.length && best.start < cursor && start >= cursor)) {
+			best = { start, length };
 		}
 	}
 
-	return -1;
+	const prefix = `Hunk ${hunkNumber} for '${displayPath}' was not found`;
+	const parts = [];
+	let reportedLine;
+	const indentOffset =
+		best.length === oldEntries.length
+			? oldEntries.findIndex((entry, index) => looseLine(entry.text) !== looseLine(lines[best.start + index]))
+			: -1;
+	if (ambiguous) {
+		parts.push(
+			`${prefix}: its lines match several places once trailing whitespace, Unicode punctuation, or a one-space marker offset is ignored. Add distinctive context.`
+		);
+	} else if (best.length === 0) {
+		const firstEntry = oldEntries.find((entry) => entry.text.trim() !== '') ?? oldEntries[0];
+		reportedLine = firstEntry.lineNumber;
+		parts.push(`${prefix}: patch line ${firstEntry.lineNumber} ${quoteLine(firstEntry.text)} does not occur in the file.`);
+	} else if (best.length === oldEntries.length && indentOffset < 0) {
+		reportedLine = oldEntries[0].lineNumber;
+		parts.push(`${prefix} where it may apply: its lines are at file lines ${best.start + 1}-${best.start + best.length}.`);
+		if (chunk.endOfFile && best.start + best.length !== lines.length) {
+			parts.push(`*** End of File requires the hunk to end at the last file line, line ${lines.length}.`);
+		}
+	} else if (best.length === oldEntries.length) {
+		const entry = oldEntries[indentOffset];
+		const fileLine = lines[best.start + indentOffset];
+		reportedLine = entry.lineNumber;
+		parts.push(
+			`${prefix}: it matches file lines ${best.start + 1}-${best.start + best.length} only when indentation is ignored. ` +
+				`After the marker, patch line ${entry.lineNumber} has ${leadingWhitespace(entry.text).length} leading whitespace characters; ` +
+				`file line ${best.start + indentOffset + 1} has ${leadingWhitespace(fileLine).length}: ${quoteLine(fileLine)}.`
+		);
+	} else {
+		const entry = oldEntries[best.length];
+		const fileIndex = best.start + best.length;
+		reportedLine = entry.lineNumber;
+		parts.push(
+			`${prefix}: its first ${best.length} context or removed lines match file lines ${best.start + 1}-${fileIndex}, ` +
+				`but patch line ${entry.lineNumber} ${quoteLine(entry.text)} differs from file line ${fileIndex + 1} ${quoteLine(lines[fileIndex])}.`
+		);
+	}
+	if (!ambiguous && best.length > 0 && best.start < cursor) {
+		parts.push(
+			`That location is above line ${cursor + 1}, where the previous hunk ended; hunks for one file must follow file order.`
+		);
+	}
+	const duplicated = duplicatedInsertionContext(chunk);
+	if (duplicated) {
+		parts.push(
+			`Context line ${quoteLine(duplicated.text)} appears both before and after the added lines (patch line ${duplicated.lineNumber}); unless the file repeats it, keep it on one side only.`
+		);
+	}
+
+	fail('hunk_not_found', parts.join(' '), { path: displayPath, hunk: hunkNumber, line: reportedLine });
 }
 
 function applyUpdateChunks(textFile, chunks, displayPath) {
-	const split = splitNormalizedText(textFile.text);
-	const lines = split.lines;
+	const records = textFile.lines.map((text, index) => ({ text, ending: textFile.endings[index] }));
+	const adjustments = [];
 	let cursor = 0;
 
 	for (const [chunkIndex, chunk] of chunks.entries()) {
+		const hunkNumber = chunkIndex + 1;
+		const lines = records.map((record) => record.text);
+		if (chunk.resetCursor) {
+			cursor = 0;
+		}
 		if (chunk.anchor !== null) {
-			const anchorIndex = findLine(lines, chunk.anchor, cursor);
+			const anchorIndex = findAnchor(lines, chunk.anchor, cursor);
 			if (anchorIndex < 0) {
-				fail('anchor_not_found', `Anchor for hunk ${chunkIndex + 1} was not found in '${displayPath}'.`, {
-					path: displayPath,
-					hunk: chunkIndex + 1
-				});
+				failAnchorNotFound(lines, chunk, cursor, hunkNumber, displayPath);
 			}
 			cursor = anchorIndex + 1;
 		}
+		if (chunk.lines.length === 0) {
+			continue;
+		}
 
-		const oldLines = chunk.lines.filter((line) => line.marker !== '+').map((line) => line.text);
-		const newLines = chunk.lines.filter((line) => line.marker !== '-').map((line) => line.text);
-		let matchIndex;
-		if (oldLines.length === 0) {
-			matchIndex = chunk.endOfFile ? lines.length : cursor;
-		} else if (chunk.endOfFile) {
-			matchIndex = lines.length - oldLines.length;
-			if (matchIndex < cursor || !sequenceMatches(lines, oldLines, matchIndex)) {
-				matchIndex = -1;
+		const match = locateChunk(lines, chunk, cursor);
+		if (!match || match.ambiguous) {
+			failHunkNotFound(lines, chunk, cursor, hunkNumber, displayPath, Boolean(match?.ambiguous));
+		}
+		if (match.adjustment) {
+			adjustments.push(`${displayPath} hunk ${hunkNumber}: ${ADJUSTMENT_DESCRIPTIONS[match.adjustment]}.`);
+		}
+
+		const replacement = [];
+		let fileIndex = match.index;
+		for (const line of chunk.lines) {
+			if (line.marker === ' ') {
+				replacement.push(records[fileIndex]);
+				fileIndex += 1;
+			} else if (line.marker === '-') {
+				fileIndex += 1;
+			} else {
+				const text =
+					match.adjustment === 'extra_space_after_marker' && line.text.startsWith(' ') ? line.text.slice(1) : line.text;
+				replacement.push({ text, ending: '' });
 			}
-		} else {
-			matchIndex = findSequence(lines, oldLines, cursor);
 		}
-		if (matchIndex < 0) {
-			fail('hunk_not_found', `Exact context for hunk ${chunkIndex + 1} was not found in '${displayPath}'.`, {
-				path: displayPath,
-				hunk: chunkIndex + 1
-			});
-		}
-
-		lines.splice(matchIndex, oldLines.length, ...newLines);
+		records.splice(match.index, match.length, ...replacement);
 		const trailingContextCount = [...chunk.lines].reverse().findIndex((line) => line.marker !== ' ');
-		const reusableContext = trailingContextCount < 0 ? chunk.lines.length : trailingContextCount;
-		cursor = Math.max(matchIndex, matchIndex + newLines.length - reusableContext);
+		// A context-only section exists to skip past its lines; a changing hunk lets the next
+		// hunk reuse its trailing context.
+		const reusableContext = trailingContextCount < 0 ? 0 : trailingContextCount;
+		cursor = Math.max(match.index, match.index + replacement.length - reusableContext);
 	}
 
-	return `${lines.join('\n')}${split.finalNewline ? '\n' : ''}`;
+	return { records, adjustments };
 }
 
 async function assertNoReparsePoints(targetPath, { includeLeaf = true } = {}) {
@@ -601,22 +920,42 @@ async function readSnapshot(filePath, displayPath, maxFileBytes) {
 	};
 }
 
-async function assertParentDirectory(targetPath) {
+// Returns the missing parent directories of targetPath, outermost first. Like native apply_patch,
+// the commit creates them; existing ancestors must be real directories inside working_directory.
+async function planParentDirectories(workingDirectory, targetPath) {
 	const parentPath = dirname(targetPath);
-	await assertNoReparsePoints(parentPath);
-	const parentStats = await lstatIfExists(parentPath);
-	if (!parentStats?.isDirectory()) {
-		fail('parent_directory_missing', `Parent directory '${parentPath}' does not exist or is not a directory.`, {
-			path: parentPath
-		});
+	const segments = relative(workingDirectory, parentPath).split(sep).filter(Boolean);
+	const missing = [];
+	let currentPath = workingDirectory;
+	for (const segment of segments) {
+		currentPath = join(currentPath, segment);
+		if (missing.length > 0) {
+			missing.push(currentPath);
+			continue;
+		}
+		const stats = await lstatIfExists(currentPath);
+		if (!stats) {
+			missing.push(currentPath);
+			continue;
+		}
+		if (stats.isSymbolicLink()) {
+			fail('reparse_point_rejected', `'${currentPath}' is a symbolic link or junction.`, { path: currentPath });
+		}
+		if (!stats.isDirectory()) {
+			fail('parent_not_directory', `'${relative(workingDirectory, currentPath)}' exists and is not a directory.`, {
+				path: currentPath
+			});
+		}
 	}
+
+	return missing;
 }
 
-async function assertAbsent(targetPath, displayPath) {
+async function assertAbsent(targetPath, displayPath, operation = 'move') {
 	await assertNoReparsePoints(targetPath, { includeLeaf: false });
 	const targetExists = await lstatIfExists(targetPath);
 	if (targetExists) {
-		fail('target_exists', `'${displayPath}' already exists.`, { path: displayPath });
+		fail('target_exists', `'${displayPath}' already exists.`, { path: displayPath, operation });
 	}
 }
 
@@ -636,8 +975,8 @@ async function prepareOperations(workingDirectory, operations, maxFileBytes) {
 		}
 
 		if (operation.kind === 'add') {
-			await assertParentDirectory(targetPath);
-			await assertAbsent(targetPath, operation.path);
+			const createDirectories = await planParentDirectories(workingDirectory, targetPath);
+			await assertAbsent(targetPath, operation.path, 'add');
 			const outputBuffer = Buffer.from(operation.content, 'utf8');
 			if (outputBuffer.length > maxFileBytes) {
 				fail('file_too_large', `'${operation.path}' would exceed the ${maxFileBytes}-byte limit.`);
@@ -648,12 +987,28 @@ async function prepareOperations(workingDirectory, operations, maxFileBytes) {
 				sourcePath: null,
 				targetPath,
 				snapshot: null,
-				outputBuffer
+				outputBuffer,
+				createDirectories
 			});
 			continue;
 		}
 
 		const snapshot = await readSnapshot(sourcePath, operation.path, maxFileBytes);
+		if (operation.kind === 'replace') {
+			const outputBuffer = Buffer.from(operation.content, 'utf8');
+			if (outputBuffer.length > maxFileBytes) {
+				fail('file_too_large', `'${operation.path}' would exceed the ${maxFileBytes}-byte limit.`);
+			}
+			prepared.push({
+				kind: 'replace',
+				displayPath: operation.path,
+				sourcePath,
+				targetPath,
+				snapshot,
+				outputBuffer
+			});
+			continue;
+		}
 		if (operation.kind === 'delete') {
 			prepared.push({
 				kind: 'delete',
@@ -666,12 +1021,12 @@ async function prepareOperations(workingDirectory, operations, maxFileBytes) {
 			continue;
 		}
 
+		const createDirectories = operation.movePath ? await planParentDirectories(workingDirectory, targetPath) : [];
 		if (operation.movePath) {
-			await assertParentDirectory(targetPath);
 			await assertAbsent(targetPath, operation.movePath);
 		}
-		const updatedText = applyUpdateChunks(snapshot.textFile, operation.chunks, operation.path);
-		const outputBuffer = encodeTextFile(snapshot.textFile, updatedText);
+		const { records, adjustments } = applyUpdateChunks(snapshot.textFile, operation.chunks, operation.path);
+		const outputBuffer = encodeTextFile(snapshot.textFile, records);
 		if (outputBuffer.length > maxFileBytes) {
 			fail('file_too_large', `'${operation.movePath ?? operation.path}' would exceed the ${maxFileBytes}-byte limit.`);
 		}
@@ -682,7 +1037,9 @@ async function prepareOperations(workingDirectory, operations, maxFileBytes) {
 			sourcePath,
 			targetPath,
 			snapshot,
-			outputBuffer
+			outputBuffer,
+			createDirectories,
+			adjustments
 		});
 	}
 
@@ -703,7 +1060,7 @@ async function verifyPreparedState(prepared) {
 			}
 		}
 		if (item.targetPath && (!item.sourcePath || pathKey(item.targetPath) !== pathKey(item.sourcePath))) {
-			await assertAbsent(item.targetPath, item.displayTargetPath ?? item.displayPath);
+			await assertAbsent(item.targetPath, item.displayTargetPath ?? item.displayPath, item.kind);
 		}
 	}
 }
@@ -773,10 +1130,56 @@ async function rollbackOperations(states) {
 	return rollbackErrors;
 }
 
+async function createPlannedDirectories(prepared) {
+	const created = [];
+	const seen = new Set();
+	try {
+		for (const directoryPath of prepared.flatMap((item) => item.createDirectories ?? [])) {
+			const key = pathKey(directoryPath);
+			if (seen.has(key)) {
+				continue;
+			}
+			seen.add(key);
+			const existing = await lstatIfExists(directoryPath);
+			if (existing?.isDirectory() && !existing.isSymbolicLink()) {
+				continue;
+			}
+			if (existing) {
+				fail('parent_not_directory', `'${directoryPath}' appeared before commit and is not a directory.`, {
+					path: directoryPath
+				});
+			}
+			await mkdir(directoryPath);
+			created.push(directoryPath);
+		}
+	} catch (error) {
+		await removeCreatedDirectories(created);
+		throw error;
+	}
+
+	return created;
+}
+
+async function removeCreatedDirectories(directories) {
+	for (const directoryPath of [...directories].reverse()) {
+		try {
+			await rmdir(directoryPath);
+		} catch {
+			// A directory that is no longer empty is left in place rather than risking its contents.
+		}
+	}
+}
+
 async function commitPreparedOperations(prepared, transactionId, testHooks) {
 	const states = [];
 	await verifyPreparedState(prepared);
-	await stageOutputs(prepared, transactionId);
+	const createdDirectories = await createPlannedDirectories(prepared);
+	try {
+		await stageOutputs(prepared, transactionId);
+	} catch (error) {
+		await removeCreatedDirectories(createdDirectories);
+		throw error;
+	}
 
 	try {
 		for (const [index, item] of prepared.entries()) {
@@ -797,6 +1200,7 @@ async function commitPreparedOperations(prepared, transactionId, testHooks) {
 	} catch (error) {
 		const rollbackErrors = await rollbackOperations(states);
 		await cleanupPaths(prepared.map((item) => item.temporaryPath));
+		await removeCreatedDirectories(createdDirectories);
 		if (rollbackErrors.length > 0) {
 			fail('rollback_failed', 'Patch commit failed and automatic rollback was incomplete.', {
 				rollbackErrors: rollbackErrors.length
@@ -855,6 +1259,20 @@ export async function applyPatchTransaction(
 		operations: prepared.map(operationSummary),
 		changed_files: prepared.length
 	};
+	const createdDirectories = [
+		...new Set(
+			prepared
+				.flatMap((item) => item.createDirectories ?? [])
+				.map((directoryPath) => relative(resolvedWorkingDirectory, directoryPath).replaceAll(sep, '/'))
+		)
+	];
+	if (createdDirectories.length > 0) {
+		result.created_directories = createdDirectories;
+	}
+	const adjustments = prepared.flatMap((item) => item.adjustments ?? []);
+	if (adjustments.length > 0) {
+		result.adjustments = adjustments;
+	}
 
 	if (!dryRun) {
 		await commitPreparedOperations(prepared, randomUUID().replaceAll('-', ''), testHooks);
@@ -949,7 +1367,7 @@ export function createPatchMcpServer(options) {
 				ADD_FILE_REMEDIATION,
 				UPDATE_FILE_REMEDIATION,
 				EXEC_PATCH_AUTHORING,
-				'Every Update File hunk must contain at least one - or + line; context-only hunks are invalid.'
+				OPERATION_RULES
 			].join('\n'),
 			inputSchema: {
 				working_directory: z.string().min(1).describe('Absolute Windows working directory. Patch paths are relative to it.'),
@@ -962,7 +1380,7 @@ export function createPatchMcpServer(options) {
 							ADD_FILE_REMEDIATION,
 							UPDATE_FILE_REMEDIATION,
 							EXEC_PATCH_AUTHORING,
-							'Every Update File hunk must include at least one - or + line; context-only hunks are invalid.'
+							OPERATION_RULES
 						].join('\n')
 					),
 				dry_run: z.boolean().optional().default(false).describe('Validate and summarize without changing files.')

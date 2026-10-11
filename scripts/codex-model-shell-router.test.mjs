@@ -76,6 +76,76 @@ for (const { state, status, category } of [
 	});
 }
 
+for (const { state, status, category } of [
+	{ state: 'completed', status: 200, category: null },
+	{ state: 'in_progress', status: 499, category: 'client_disconnected' },
+	{ state: 'failed', status: 499, category: 'response_failed' }
+]) {
+	test(`logs a client closing an unadapted ${state} stream accurately`, { timeout: 5000 }, async () => {
+		const logs = [];
+		let resolveDiagnostic;
+		const diagnostic = new Promise((resolve) => {
+			resolveDiagnostic = resolve;
+		});
+		const eventType = state === 'in_progress' ? 'response.created' : `response.${state}`;
+		const upstream = http.createServer((request, response) => {
+			request.resume();
+			request.once('end', () => {
+				response.writeHead(200, { 'content-type': 'text/event-stream' });
+				response.write(sse('response.output_text.delta', { delta: '"type":"response.completed" in model text' }));
+				// Split the terminal frame so the observer must join a line across chunks.
+				const frame = sse(eventType, { response: { id: 'r1', status: state, output: [] } });
+				response.write(frame.slice(0, 12));
+				setTimeout(() => response.write(frame.slice(12)), 20);
+			});
+		});
+		const upstreamPort = await listen(upstream);
+		const router = createShellRouterServer({
+			logger: (line) => {
+				logs.push(line);
+				resolveDiagnostic(line);
+			},
+			routes: [
+				{
+					clientModel: 'gpt-5.6-terra',
+					upstreamModel: 'grok-4.7',
+					upstreamBaseUrl: `http://127.0.0.1:${upstreamPort}`,
+					apiKey: 'fixture'
+				}
+			]
+		});
+		const routerPort = await listen(router);
+		try {
+			const response = await fetch(`http://127.0.0.1:${routerPort}/v1/responses`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ model: 'gpt-5.6-terra', stream: true }),
+				signal: AbortSignal.timeout(4000)
+			});
+			assert.equal(response.status, 200);
+			const reader = response.body.getReader();
+			let received = '';
+			while (!received.includes(`"status":"${state}"`)) {
+				const chunk = await reader.read();
+				assert.equal(chunk.done, false);
+				received += new TextDecoder().decode(chunk.value);
+			}
+			await reader.cancel();
+			const line = await diagnostic;
+			const details = JSON.parse(line.slice(line.indexOf(' {') + 1));
+			assert.equal(details.status, status);
+			assert.equal(details.response_completed, state === 'completed');
+			assert.equal(details.error_category, category);
+			assert.equal(logs.length, 1);
+		} finally {
+			router.closeAllConnections();
+			upstream.closeAllConnections();
+			await close(router);
+			await close(upstream);
+		}
+	});
+}
+
 test('preserves early HTTP errors and converts late admission errors to terminal SSE', async () => {
 	for (const scenario of [
 		{ status: 503, delay: 0, stream: true, code: 'server_error' },

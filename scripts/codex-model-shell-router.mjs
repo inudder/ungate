@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import http from 'node:http';
 import https from 'node:https';
-import { pipeline } from 'node:stream';
+import { pipeline, Transform } from 'node:stream';
+import { StringDecoder } from 'node:string_decoder';
 import { fileURLToPath } from 'node:url';
 
 import { createToolsCacheWriter } from './codex-tools-schema-cache.mjs';
@@ -86,6 +87,66 @@ function sendStreamError(response, code, message) {
 
 function diagnosticId(value) {
 	return typeof value === 'string' && /^[a-zA-Z0-9_.:-]{1,160}$/u.test(value) ? value : undefined;
+}
+
+const SSE_LINE_HEAD_CHARS = 256;
+const SSE_TERMINAL_FAILURES = new Map([
+	['response.failed', 'response_failed'],
+	['response.incomplete', 'response_incomplete'],
+	['error', 'stream_error']
+]);
+
+// Passes an unadapted SSE stream through unchanged and records whether it reached
+// response.completed. Codex closes the socket right after that event, so without this a
+// finished turn was logged as 499 client_disconnected. Only each line's head is retained.
+export class SseCompletionObserver extends Transform {
+	constructor({ onFailure } = {}) {
+		super();
+		this.decoder = new StringDecoder('utf8');
+		this.lineHead = '';
+		this.completed = false;
+		this.failed = false;
+		this.onFailure = onFailure;
+	}
+
+	_transform(chunk, _encoding, callback) {
+		this.scan(this.decoder.write(chunk));
+		callback(null, chunk);
+	}
+
+	_flush(callback) {
+		this.scan(this.decoder.end());
+		this.inspectLine();
+		callback();
+	}
+
+	scan(text) {
+		let start = 0;
+		for (let newline = text.indexOf('\n'); newline >= 0; newline = text.indexOf('\n', start)) {
+			this.appendLineHead(text.slice(start, newline));
+			this.inspectLine();
+			start = newline + 1;
+		}
+		this.appendLineHead(text.slice(start));
+	}
+
+	appendLineHead(fragment) {
+		if (this.lineHead.length < SSE_LINE_HEAD_CHARS) {
+			this.lineHead += fragment.slice(0, SSE_LINE_HEAD_CHARS - this.lineHead.length);
+		}
+	}
+
+	inspectLine() {
+		const match = /^(?:event:[ \t]*([\w.]+)|data:[ \t]*\{[ \t]*"type"[ \t]*:[ \t]*"([\w.]+)")/u.exec(this.lineHead);
+		this.lineHead = '';
+		const type = match?.[1] ?? match?.[2];
+		if (type === 'response.completed') {
+			this.completed = true;
+		} else if (SSE_TERMINAL_FAILURES.has(type) && !this.failed) {
+			this.failed = true;
+			this.onFailure?.(SSE_TERMINAL_FAILURES.get(type));
+		}
+	}
 }
 
 function startSseKeepAlive(response, intervalMs) {
@@ -388,6 +449,8 @@ function proxyRequest({
 			}
 			if (adapterEnabled) keepAlive?.activate();
 			else keepAlive?.stop();
+			const observePassthrough =
+				!adapterEnabled && upstreamStatus >= 200 && upstreamStatus < 300 && contentType.includes('text/event-stream');
 			streamAdapter =
 				adapterEnabled && responsesAdapter === DEEPSEEK_RESPONSES_ADAPTER
 					? createDeepSeekStreamAdapter(namespaceMapping)
@@ -400,7 +463,13 @@ function proxyRequest({
 								},
 								logger: (message) => console.error(`[${SERVICE_NAME}] ${message}`)
 							})
-						: null;
+						: observePassthrough
+							? new SseCompletionObserver({
+									onFailure: (code) => {
+										errorCategory = code;
+									}
+								})
+							: null;
 			const onPipelineError = (error) => {
 				keepAlive?.stop();
 				const expectedDisconnect = [

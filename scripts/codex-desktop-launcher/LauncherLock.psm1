@@ -1,7 +1,16 @@
 #requires -Version 7.4
 # Cross-process settings lock. Importing this module has no side effects.
 
-$script:UngateProfileLocks = @{}
+# Re-entrant leases live in AppDomain data, not module state: they survive Import-Module -Force,
+# so a re-imported module never waits 15 seconds on a lock its own process already holds.
+function Get-UngateProfileLockTable {
+    $table = [System.AppDomain]::CurrentDomain.GetData('Ungate.ProfileLocks')
+    if ($null -eq $table) {
+        $table = [System.Collections.Concurrent.ConcurrentDictionary[string, object]]::new()
+        [System.AppDomain]::CurrentDomain.SetData('Ungate.ProfileLocks', $table)
+    }
+    return ,$table
+}
 
 function Normalize-UngateLauncherHome {
     param([Parameter(Mandatory)][string]$PathValue)
@@ -34,8 +43,9 @@ function Enter-UngateProfileLock {
     param([Parameter(Mandatory)][string]$HomePath)
     $normalizedProfile = Normalize-UngateLauncherHome $HomePath
     $key = "$($normalizedProfile.ToLowerInvariant())|$([System.Threading.Thread]::CurrentThread.ManagedThreadId)"
-    if ($script:UngateProfileLocks.ContainsKey($key)) {
-        $script:UngateProfileLocks[$key].Depth += 1
+    $locks = Get-UngateProfileLockTable
+    if ($locks.ContainsKey($key)) {
+        $locks[$key].Depth += 1
         return [pscustomobject]@{ Key = $key; Nested = $true }
     }
     if (-not (Test-Path -LiteralPath $normalizedProfile -PathType Container)) {
@@ -53,22 +63,24 @@ function Enter-UngateProfileLock {
                 [System.IO.FileShare]::None)
             break
         } catch [System.IO.IOException] {
-            if ([DateTime]::UtcNow -ge $deadline) { throw "Launcher settings are locked: $home" }
+            if ([DateTime]::UtcNow -ge $deadline) { throw "Launcher settings are locked: $normalizedProfile" }
             Start-Sleep -Milliseconds 50
         }
     } while ($true)
-    $script:UngateProfileLocks[$key] = @{ Stream = $stream; Depth = 1 }
+    $locks[$key] = @{ Stream = $stream; Depth = 1 }
     return [pscustomobject]@{ Key = $key; Nested = $false }
 }
 
 function Exit-UngateProfileLock {
     param($Lease)
-    if (-not $Lease -or -not $script:UngateProfileLocks.ContainsKey([string]$Lease.Key)) { return }
-    $state = $script:UngateProfileLocks[[string]$Lease.Key]
+    $locks = Get-UngateProfileLockTable
+    if (-not $Lease -or -not $locks.ContainsKey([string]$Lease.Key)) { return }
+    $state = $locks[[string]$Lease.Key]
     $state.Depth -= 1
     if ($state.Depth -le 0) {
         $state.Stream.Dispose()
-        [void]$script:UngateProfileLocks.Remove([string]$Lease.Key)
+        $removed = $null
+        [void]$locks.TryRemove([string]$Lease.Key, [ref]$removed)
     }
 }
 

@@ -168,6 +168,13 @@ Router diagnostics distinguish Mimo's validated `response.completed` from
 HTTP stream closure. A client closing after that event retains the upstream
 success status with `response_completed=true`; an unfinished response still
 logs `499`, and a known stream failure retains its error category.
+Unadapted SSE routes (CLIProxy, OmniRoute) pass through `SseCompletionObserver`,
+which forwards bytes unchanged and only reads each line's event type. Codex
+closes the socket right after `response.completed`, so before the observer
+every finished Grok turn that outlived its upstream stream was logged as
+`499 client_disconnected`. `response.failed`, `response.incomplete` and
+`error` events set `response_failed`, `response_incomplete` and
+`stream_error`.
 
 Before a runtime refresh, wait for zero active/heavy/headroom/waiting/queued
 work in both `chatAdmission` and `adaptiveAdmission`; `dedup=0` is insufficient.
@@ -204,6 +211,10 @@ for the menu, validation stages and failure behavior.
 
 - The Mimo stream adapter is enabled only for the Mimo `/v1/responses`
   streaming route when the route has `responsesAdapter = mimo-textual-tools`.
+- The CLIProxy bridge repairs `+"..."` array lines in `exec` scripts that call
+  `apply_patch` (`repairUnaryPlusPatchLines`) in finished items it emits, so a
+  misplaced diff marker no longer becomes `NaN`. Scripts with template literals
+  are left unchanged.
 - The CLIProxy bridge is for CLIProxyAPI models, currently mode 3 Grok. It
   must not be inserted into direct Ungate or OmniRoute routes.
 - MiniMax tool compatibility is an `apps\api` concern and remains separate
@@ -356,7 +367,7 @@ When exposing a new provider model from OmniRoute through the Desktop launcher:
    - Add built-in definition in `New-UngateModelSet` with `Slug`, `DisplayName`, `UpstreamModel`, `Aliases`, `ContextWindow`, and `SupportedReasoningLevels`.
    - `Aliases` enable friendly command-line resolution (e.g. `-Model deepseek-flash` mapping to `deepseek-v4-flash`).
 4. **Desktop picker configuration (`%USERPROFILE%\.codex-ungate\ungate-picker-models.json`)**:
-   - The native desktop picker supports at most 7 models (`$CodexDesktopPickerCapacity = 7`).
+   - The native desktop picker supports at most 6 models (`$CodexDesktopPickerCapacity = 6`). Desktop renders labels only for seven known IDs, and `gpt-5.6-luna` is reserved: Desktop hard-codes it for chat titles, ambient suggestions, their safety check and codex-auto-review. The launcher routes it as a hidden entry to the launch model, or to the model saved with menu `B` in `ungate-background-model.json`.
    - Add the slug to `modelSlugs` if it should appear directly in the interactive menu without manual reconfiguration.
 5. **Test fixture snapshot synchronization (`tests/fixtures/models.json`)**:
    - `scripts/codex-desktop-launcher/tests/fixtures/models.json` holds the snapshot for `Launcher.Tests.ps1`, including `IdentitySha256` hashes computed against `environment-instructions.txt`.

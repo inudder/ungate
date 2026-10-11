@@ -200,6 +200,114 @@ function execWaitInputFromToolCall(value) {
 	return null;
 }
 
+function isLineStart(source, index) {
+	for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+		if (source[cursor] === '\n') return true;
+		if (source[cursor] !== ' ' && source[cursor] !== '\t') return false;
+	}
+
+	return true;
+}
+
+// Models building an apply_patch line array sometimes put the diff marker outside the quotes:
+// +"`tsc` check" instead of "+`tsc` check". JavaScript evaluates that unary plus to NaN, so the
+// line is lost before apply_patch can report it. A string literal that starts its own line right
+// after "," or "[" is an array element, where a unary plus is never meaningful in a patch script.
+// The plus moves inside the quotes, or is dropped when the text already starts with one.
+// Strings and comments are skipped; a script with a template literal is left unchanged, because
+// its text could itself contain such lines.
+export function repairUnaryPlusPatchLines(source) {
+	if (typeof source !== 'string' || !source.includes('apply_patch') || !source.includes('+')) {
+		return { source, repaired: 0 };
+	}
+
+	const repairs = [];
+	let lastCodeChar = '';
+	let index = 0;
+	while (index < source.length) {
+		const char = source[index];
+		const next = source[index + 1];
+		if (char === '`') return { source, repaired: 0 };
+		if (char === '/' && next === '/') {
+			const end = source.indexOf('\n', index);
+			index = end < 0 ? source.length : end;
+			continue;
+		}
+		if (char === '/' && next === '*') {
+			const end = source.indexOf('*/', index + 2);
+			index = end < 0 ? source.length : end + 2;
+			continue;
+		}
+		if (char === '"' || char === "'") {
+			let cursor = index + 1;
+			while (cursor < source.length && source[cursor] !== char && source[cursor] !== '\n') {
+				cursor += source[cursor] === '\\' ? 2 : 1;
+			}
+			index = cursor + 1;
+			lastCodeChar = char;
+			continue;
+		}
+		if (char === '+' && (lastCodeChar === ',' || lastCodeChar === '[') && isLineStart(source, index)) {
+			let quoteIndex = index + 1;
+			while (source[quoteIndex] === ' ' || source[quoteIndex] === '\t') quoteIndex += 1;
+			if (source[quoteIndex] === '"' || source[quoteIndex] === "'") {
+				repairs.push({ plusIndex: index, quoteIndex, insertPlus: source[quoteIndex + 1] !== '+' });
+				index = quoteIndex;
+				continue;
+			}
+		}
+		if (!/\s/u.test(char)) lastCodeChar = char;
+		index += 1;
+	}
+	if (repairs.length === 0) return { source, repaired: 0 };
+
+	let repaired = '';
+	let copiedUpTo = 0;
+	for (const repair of repairs) {
+		repaired += source.slice(copiedUpTo, repair.plusIndex) + source[repair.quoteIndex] + (repair.insertPlus ? '+' : '');
+		copiedUpTo = repair.quoteIndex + 1;
+	}
+
+	return { source: repaired + source.slice(copiedUpTo), repaired: repairs.length };
+}
+
+function repairExecItem(item) {
+	if (!isObject(item) || item.type !== 'custom_tool_call' || item.name !== 'exec' || typeof item.input !== 'string') {
+		return { item, repaired: 0 };
+	}
+	const result = repairUnaryPlusPatchLines(item.input);
+
+	return { item: result.repaired > 0 ? { ...item, input: result.source } : item, repaired: result.repaired };
+}
+
+// Repairs exec inputs in the event shapes Codex reads: a finished output item, the finished
+// custom input, and the output list of response.completed. Streaming deltas stay as sent.
+export function repairExecPatchPayload(data) {
+	if (!isObject(data)) return { data, repaired: 0 };
+	if (data.type === 'response.custom_tool_call_input.done' && typeof data.input === 'string') {
+		const result = repairUnaryPlusPatchLines(data.input);
+
+		return { data: result.repaired > 0 ? { ...data, input: result.source } : data, repaired: result.repaired };
+	}
+	if (isObject(data.item)) {
+		const result = repairExecItem(data.item);
+
+		return { data: result.repaired > 0 ? { ...data, item: result.item } : data, repaired: result.repaired };
+	}
+	const response = isObject(data.response) ? data.response : data;
+	if (!Array.isArray(response.output)) return { data, repaired: 0 };
+	let repaired = 0;
+	const output = response.output.map((item) => {
+		const result = repairExecItem(item);
+		repaired += result.repaired;
+
+		return result.item;
+	});
+	if (repaired === 0) return { data, repaired: 0 };
+
+	return { data: response === data ? { ...data, output } : { ...data, response: { ...response, output } }, repaired };
+}
+
 export function rewriteExecWaitToolCall(value) {
 	const input = execWaitInputFromToolCall(value);
 	if (input === null) return value;
@@ -774,10 +882,11 @@ export function convertChatCompletionToResponse(completion, mapping, usageOption
 
 function rewriteJsonResponse(parsed, protocol, mapping, usageOptions) {
 	if (protocol === 'responses' && Array.isArray(parsed.choices)) {
-		return convertChatCompletionToResponse(parsed, mapping, usageOptions);
+		return repairExecPatchPayload(convertChatCompletionToResponse(parsed, mapping, usageOptions)).data;
 	}
 	if (protocol === 'responses') {
-		return applyUnresolvedYieldWait(rewriteResponseForCodex(parsed, mapping, usageOptions), usageOptions);
+		return repairExecPatchPayload(applyUnresolvedYieldWait(rewriteResponseForCodex(parsed, mapping, usageOptions), usageOptions))
+			.data;
 	}
 
 	return rewriteChatCompletionForClient(parsed, mapping);
@@ -879,7 +988,14 @@ class ChatCompletionsResponsesTransform extends Transform {
 	}
 
 	emitEvent(type, data) {
-		this.emitRaw(encodeSse(type, data));
+		const { data: repaired, repaired: repairedLines } = repairExecPatchPayload(data);
+		// The same input also appears in custom_tool_call_input.done and response.completed.
+		if (repairedLines > 0 && type === 'response.output_item.done') {
+			this.logger?.log?.(
+				`[${SERVICE_NAME}] repaired ${repairedLines} unary-plus patch line(s) in exec input event=${type} model=${this.model}`
+			);
+		}
+		this.emitRaw(encodeSse(type, repaired));
 	}
 
 	startResponse(data) {

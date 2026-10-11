@@ -15,7 +15,8 @@ import {
 	rewriteResponseForCodex,
 	unresolvedYieldCellId,
 	requestHasWaitTool,
-	applyUnresolvedYieldWait
+	applyUnresolvedYieldWait,
+	repairUnaryPlusPatchLines
 } from './cliproxy-namespace-bridge.mjs';
 
 function namespaceTool(namespace, name, schema = { type: 'object', properties: {} }) {
@@ -1230,4 +1231,98 @@ test('converts Chat SSE through the Responses bridge endpoint and preserves dire
 	assert.equal(chat.status, 200);
 	assert.match(chatText, /chat.completion.chunk/u);
 	assert.doesNotMatch(chatText, /response.created/u);
+});
+
+test('moves a unary plus into the quotes of apply_patch array lines', () => {
+	const source = [
+		'const nl = String.fromCharCode(10);',
+		'const patch = [',
+		'"*** Begin Patch",',
+		'"*** Update File: AGENTS.md",',
+		'"@@",',
+		'"+`pnpm --filter @ungate/web build` updates `apps/web/dist` only. A control",',
+		'+"`tsc` check does not update `bundle\\\\main.cjs`. Neither command changes what",',
+		"  + '+- PHP warning from plugins',",
+		'+"}",',
+		'"*** End Patch"',
+		'].join(nl);',
+		'const result = await tools.mcp__ungate_patch__apply_patch({ working_directory: "J:\\\\x", patch });',
+		'text(JSON.stringify(result));'
+	].join('\n');
+
+	const result = repairUnaryPlusPatchLines(source);
+
+	assert.equal(result.repaired, 3);
+	const lines = result.source.split('\n');
+	assert.equal(lines[6], '"+`tsc` check does not update `bundle\\\\main.cjs`. Neither command changes what",');
+	assert.equal(lines[7], "  '+- PHP warning from plugins',");
+	assert.equal(lines[8], '"+}",');
+	assert.equal(lines.length, source.split('\n').length);
+	assert.deepEqual(repairUnaryPlusPatchLines(result.source), { source: result.source, repaired: 0 });
+});
+
+test('leaves concatenation, strings, comments, template literals and other tools unchanged', () => {
+	const unchanged = [
+		// Binary plus continuing a string expression.
+		'const patch = "*** Begin Patch\\n"\n+ "*** End Patch";\nawait tools.mcp__ungate_patch__apply_patch({ patch });',
+		// The pattern inside a string literal and inside comments.
+		'const note = "[\\n+\\"x\\"";\n// [,\n// +"x"\n/* [\n+"y" */\nawait tools.mcp__ungate_patch__apply_patch({ patch: note });',
+		// A template literal may carry the text itself, so the script is left alone.
+		'const patch = `*** Begin Patch\n+const a = [1,\n+"x"];\n*** End Patch`;\nawait tools.mcp__ungate_patch__apply_patch({ patch });',
+		// Not an apply_patch script.
+		'const values = [\n+"5",\n];\ntext(values);',
+		// A unary plus in the middle of a line is not rewritten.
+		'const index = a[+"1"];\nawait tools.mcp__ungate_patch__apply_patch({ patch: "" });'
+	];
+	for (const source of unchanged) {
+		assert.deepEqual(repairUnaryPlusPatchLines(source), { source, repaired: 0 });
+	}
+});
+
+test('repairs exec patch arrays in the Chat SSE custom tool lifecycle', async () => {
+	const mapping = flattenResponsesRequest({ tools: [{ type: 'custom', name: 'exec', format: { type: 'text' } }] }).mapping;
+	const input = [
+		'const patch = [',
+		'"*** Begin Patch",',
+		'"*** Update File: notes.md",',
+		'"@@",',
+		'+"`tsc` check",',
+		'"*** End Patch"',
+		'].join(String.fromCharCode(10));',
+		'text(JSON.stringify(await tools.mcp__ungate_patch__apply_patch({ working_directory: "J:/x", patch })));'
+	].join('\n');
+	const logs = [];
+	const output = await transformResponsesChat(
+		[
+			sse('chat.completion.chunk', {
+				id: 'chat_patch',
+				choices: [
+					{
+						index: 0,
+						delta: {
+							tool_calls: [
+								{
+									index: 0,
+									id: 'call_patch',
+									type: 'function',
+									function: { name: 'exec', arguments: JSON.stringify({ input }) }
+								}
+							]
+						},
+						finish_reason: 'tool_calls'
+					}
+				]
+			}),
+			'data: [DONE]\n\n'
+		],
+		{ mapping, model: 'grok-4.7', logger: { error() {}, log: (line) => logs.push(line) } }
+	);
+	const events = eventData(output);
+	const expected = input.replace('+"`tsc` check",', '"+`tsc` check",');
+
+	assert.equal(events.find((event) => event.type === 'response.custom_tool_call_input.done').input, expected);
+	assert.equal(events.find((event) => event.type === 'response.output_item.done').item.input, expected);
+	const completed = events.find((event) => event.type === 'response.completed');
+	assert.equal(completed.response.output.find((item) => item.type === 'custom_tool_call').input, expected);
+	assert.equal(logs.filter((line) => line.includes('repaired 1 unary-plus patch line')).length, 1);
 });

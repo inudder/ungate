@@ -212,7 +212,9 @@ Describe 'Memory transport preparation' {
         $null = & (Get-Module Launcher) { param($c,$s) Initialize-CodexDesktopTransport -Context $c -Selection $s } $script:context $selection
         $selection.Definitions.Count | Should -Be $count
         $routes = @(Get-CodexModelShellRoutes -Selection $selection)
-        $routes.Count | Should -Be ($count + 1)
+        # The memory route and the Desktop background-task route are both hidden.
+        $routes.Count | Should -Be ($count + 2)
+        ($routes | Where-Object clientModel -EQ 'gpt-5.6-luna').upstreamModel | Should -Be ($routes | Where-Object clientModel -EQ $selection.SelectedModel.ShellSlug).upstreamModel
         $memoryRoute = $routes | Where-Object clientModel -EQ 'ungate-memory'
         $memoryRoute.upstreamModel | Should -Be 'gemini-3.8-flash-high'
         $memoryRoute.upstreamBaseUrl | Should -Be 'http://127.0.0.1:8318'

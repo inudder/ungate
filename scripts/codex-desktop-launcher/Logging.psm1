@@ -172,6 +172,53 @@ function Test-CodexToolFailure {
     return $false
 }
 
+# Returns the {code, message} of an ungate_patch apply_patch error nested in a tool result.
+function Find-CodexPatchError {
+    param([AllowNull()][object]$Result, [int]$Depth = 0)
+    if ($null -eq $Result -or $Depth -gt 8) { return $null }
+    if ($Result -is [array]) {
+        foreach ($item in $Result) {
+            $found = Find-CodexPatchError -Result $item -Depth ($Depth + 1)
+            if ($found) { return $found }
+        }
+        return $null
+    }
+    if ($Result -is [string]) {
+        $value = $Result.Trim()
+        if ($value -match '(?s)^Script (?:completed|failed)\r?\nWall time[^\r\n]*\r?\nOutput:\r?\n(.*)$') {
+            return Find-CodexPatchError -Result $Matches[1] -Depth ($Depth + 1)
+        }
+        if (-not ($value.StartsWith('{') -or $value.StartsWith('[') -or $value.StartsWith('"'))) { return $null }
+        try {
+            $parsed = ConvertFrom-Json -InputObject $value -ErrorAction Stop
+        } catch {
+            return $null
+        }
+        return Find-CodexPatchError -Result $parsed -Depth ($Depth + 1)
+    }
+    $ok = $Result.PSObject.Properties['ok']
+    $patchError = $Result.PSObject.Properties['error']
+    if ($null -ne $ok -and $ok.Value -eq $false -and $null -ne $patchError -and $patchError.Value.code) {
+        return [pscustomobject]@{ Code = [string]$patchError.Value.code; Message = [string]$patchError.Value.message }
+    }
+    foreach ($field in @('output', 'value', 'result', 'content', 'text')) {
+        $property = $Result.PSObject.Properties[$field]
+        if ($null -ne $property) {
+            $found = Find-CodexPatchError -Result $property.Value -Depth ($Depth + 1)
+            if ($found) { return $found }
+        }
+    }
+    return $null
+}
+
+# A nested shell command that exited 1 and printed nothing, which is how rg, grep, findstr and
+# Select-String report "no matches". The exec still failed, so it stays visible, but as one line.
+function Test-CodexSilentExitOne {
+    param([AllowNull()][string]$Text)
+    if ([string]::IsNullOrWhiteSpace($Text)) { return $false }
+    return $Text.Trim() -match '(?s)^Script failed\r?\nWall time[^\r\n]*\r?\nOutput:\s*Script error:\s*Exit code: 1\r?\nWall time[^\r\n]*\r?\nOutput:$'
+}
+
 function Test-CodexRouterFailure {
     param([Parameter(Mandatory)][string]$Line)
     if ($Line -match '->\s*[45]\d\d\b') { return $true }
@@ -338,6 +385,18 @@ function Format-CodexSessionEvent {
                 return
             }
 
+            if ($isToolError) {
+                $patchError = Find-CodexPatchError -Result $p
+                if ($patchError) {
+                    Write-Host "<-- [PATCH ERROR] [session: $SessionId] $($patchError.Code): $($patchError.Message)" -ForegroundColor Red
+                    return
+                }
+                if (Test-CodexSilentExitOne -Text $outText) {
+                    Write-Host "<-- [TOOL EXIT 1] [session: $SessionId] no output (rg, grep, findstr and Select-String exit 1 when nothing matches)" -ForegroundColor DarkYellow
+                    return
+                }
+            }
+
             if ($outText) {
                 $limit = switch ($LogLevel) {
                     'Full' { 0 }
@@ -420,6 +479,9 @@ function Watch-CodexActivity {
         }
     }
     $currentSessionPath = $null
+    # Codex also appends to older rollouts (titles, settings), which reorders LastWriteTime.
+    # Announce each session once so following the newest file does not print a switch storm.
+    $announcedSessions = @{}
 
     $routerFs = $null
     $routerSr = $null
@@ -518,7 +580,8 @@ function Watch-CodexActivity {
                         $currentSessionPath = $newest.FullName
                         $sessionStates[$currentSessionPath].Active = $true
                         if ($isFirstAttach) { Write-Host "[ungate] Attached to active session: $($newest.Name)" -ForegroundColor DarkGray }
-                        else { Write-Host "`n[ungate] Switched to new session: $($newest.Name)" -ForegroundColor Cyan }
+                        elseif (-not $announcedSessions.ContainsKey($currentSessionPath)) { Write-Host "`n[ungate] Switched to session: $($newest.Name)" -ForegroundColor Cyan }
+                        $announcedSessions[$currentSessionPath] = $true
                     }
                 }
             }

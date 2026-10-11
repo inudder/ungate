@@ -1,6 +1,7 @@
 #requires -Version 7.4
 # Picker: internal Desktop launcher module. No per-launch module state.
 Import-Module (Join-Path $PSScriptRoot 'Memories.psm1') -DisableNameChecking -ErrorAction Stop
+Import-Module (Join-Path $PSScriptRoot 'BackgroundModel.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'Logging.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'Models.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'LauncherLock.psm1') -DisableNameChecking -ErrorAction Stop
@@ -761,10 +762,18 @@ function Select-UngateDesktopModel {
         Write-Host '  [TT] Тестирование совместимости инструментов (чекбоксы)' -ForegroundColor Yellow
         $capabilitiesMenuIndex = $memoryMenuIndex + 1
         Write-Host ("  {0}) Возможности моделей [C]" -f $capabilitiesMenuIndex) -ForegroundColor DarkCyan
+        $backgroundSlug = Read-UngateBackgroundModelSetting -Context $Context
+        $backgroundLabel = if (-not $backgroundSlug) {
+            'модель запуска'
+        } else {
+            $backgroundModel = $Definitions | Where-Object { $_.Slug -eq $backgroundSlug } | Select-Object -First 1
+            if ($backgroundModel) { $backgroundModel.DisplayName } else { "$backgroundSlug (не найдена)" }
+        }
+        Write-Host "  [B] Фоновые задачи Desktop (заголовки, подсказки, auto-review) [Current: $backgroundLabel]" -ForegroundColor DarkCyan
         Write-Host ''
 
         $fallbackHint = if ($IncludeProviderFallback) { ' or F' } else { '' }
-        $choicePrompt = "Mode [1-$capabilitiesMenuIndex$fallbackHint or V or L or M or TT or C] (default: 1)"
+        $choicePrompt = "Mode [1-$capabilitiesMenuIndex$fallbackHint or V or L or M or TT or C or B] (default: 1)"
         $choice = Read-Host $choicePrompt
         if ([string]::IsNullOrWhiteSpace($choice)) {
             return $pickerDefinitions[0].Slug
@@ -811,6 +820,11 @@ function Select-UngateDesktopModel {
 
         if ($choice.Trim().Equals('m', [System.StringComparison]::OrdinalIgnoreCase)) {
             Invoke-UngateMemoryMenu -Context $Context
+            continue
+        }
+
+        if ($choice.Trim().Equals('b', [System.StringComparison]::OrdinalIgnoreCase)) {
+            Invoke-UngateBackgroundModelMenu -Context $Context -Definitions $Definitions
             continue
         }
 

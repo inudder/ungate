@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { lstat, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -431,11 +431,12 @@ test('returns safe remediation for patch authoring errors', async (t) => {
 +replacement
 *** End Patch`,
 			code: 'hunk_not_found',
+			line: 4,
 			remediation:
-				'Exact context was not found. Re-read the current file, rebuild the hunk from the live lines, and retry this same apply_patch tool once.\n' +
+				'The message names the patch line that does not match the live file and quotes the file line found there. Fix the hunk from the live lines and retry this same apply_patch tool once.\n' +
 				'Do not switch to native apply_patch, a different exec wrapper, or Shell. Do not reuse a hunk that already applied.\n' +
 				'If exec output is empty (Wall time 0.0s), you forgot text(result); the UI result is authoritative.\n' +
-				'If the hunk copied indented file lines as-is, prefix each context line with one extra ASCII space. Column 1 is the marker; a missing marker space makes indented context look one space shorter than the file.'
+				'Context before and after the + lines must be different file lines. Do not repeat the line you insert next to on both sides of the insertion.'
 		},
 		{
 			patch: `*** Begin Patch
@@ -444,7 +445,8 @@ test('returns safe remediation for patch authoring errors', async (t) => {
  context only
 *** End Patch`,
 			code: 'no_change_hunk',
-			remediation: "Add at least one '-' or '+' line to every Update File hunk, or remove the unchanged operation."
+			remediation:
+				"This Update File has no '-' or '+' line in any hunk. Add the intended change, or remove the unchanged operation. A context-only @@ section is allowed only next to hunks that change lines."
 		},
 		{
 			patch: `*** Begin Patch
@@ -635,6 +637,8 @@ test('documents exact Add File and Update File grammar', async (t) => {
 	);
 	assert.match(tool.description, /Never emit a raw empty line inside a hunk/iu);
 	assert.match(tool.description, /at least one - or \+ line/iu);
+	assert.match(tool.description, /Delete File: path followed by \*\*\* Add File: path/u);
+	assert.match(tool.description, /String\.fromCharCode\(10\)/u);
 	assert.match(tool.description, /exec template literal/iu);
 	assert.match(tool.description, /\$\{\}/u);
 	assert.match(tool.description, /text\(/u);
@@ -643,10 +647,8 @@ test('documents exact Add File and Update File grammar', async (t) => {
 	assert.match(tool.description, /typeof line !== "string"/);
 	assert.match(tool.description, /Required source-edit tool/iu);
 	assert.doesNotMatch(tool.description, /when the native Codex apply_patch tool is unavailable/iu);
-	assert.match(
-		tool.inputSchema.properties.patch.description,
-		/context-only hunks? are invalid|each Update File hunk must include at least one - or \+ line/iu
-	);
+	assert.match(tool.inputSchema.properties.patch.description, /Every Update File needs at least one - or \+ line/u);
+	assert.match(tool.inputSchema.properties.patch.description, /context-only @@ section between changing hunks only moves/u);
 	assert.match(tool.inputSchema.properties.patch.description, /\*\*\* Add File: relative\/path\n\+content/iu);
 	assert.match(tool.inputSchema.properties.patch.description, /\*\*\* Update File: relative\/path\n@@\n unchanged context/iu);
 	assert.match(tool.inputSchema.properties.patch.description, /typeof line !== "string"/);
@@ -678,4 +680,316 @@ test('accepts raw empty lines in update hunks and add files gracefully', async (
 
 	assert.equal(await readFile(join(root, 'update.txt'), 'utf8'), 'line 1\n\nline THREE\n');
 	assert.equal(await readFile(join(root, 'added.txt'), 'utf8'), 'item 1\n\nitem 2\n');
+});
+
+test('treats context-only and anchor-only sections as navigation between changing hunks', async (t) => {
+	const root = await temporaryDirectory(t);
+	await writeFile(join(root, 'source.txt'), 'call(a)\nvalue = 1\ncall(a)\nvalue = 1\nclass Second\n  value = 1\n');
+
+	await applyPatchTransaction(
+		{
+			workingDirectory: root,
+			patch: [
+				'*** Begin Patch',
+				'*** Update File: source.txt',
+				'@@',
+				' call(a)',
+				' value = 1',
+				'@@',
+				' call(a)',
+				'-value = 1',
+				'+value = 2',
+				'@@ class Second',
+				'@@',
+				'-  value = 1',
+				'+  value = 3',
+				'*** End Patch'
+			].join('\n')
+		},
+		unrestrictedOptions()
+	);
+
+	assert.equal(
+		await readFile(join(root, 'source.txt'), 'utf8'),
+		'call(a)\nvalue = 1\ncall(a)\nvalue = 2\nclass Second\n  value = 3\n'
+	);
+});
+
+test('repairs context lines that lost their marker space and keeps the file text', async (t) => {
+	const root = await temporaryDirectory(t);
+	await writeFile(join(root, 'source.ps1'), 'function A {\n    $x = 1\n    return $x\n}\n');
+
+	const result = await applyPatchTransaction(
+		{
+			workingDirectory: root,
+			patch: [
+				'*** Begin Patch',
+				'*** Update File: source.ps1',
+				'@@',
+				' function A {',
+				'-    $x = 1',
+				'+    $x = 2',
+				'    return $x',
+				'*** End Patch'
+			].join('\n')
+		},
+		unrestrictedOptions()
+	);
+
+	assert.equal(await readFile(join(root, 'source.ps1'), 'utf8'), 'function A {\n    $x = 2\n    return $x\n}\n');
+	assert.equal(result.adjustments.length, 1);
+	assert.match(result.adjustments[0], /missing the marker space/u);
+});
+
+test('removes a consistent space written after every change marker', async (t) => {
+	const root = await temporaryDirectory(t);
+	await writeFile(join(root, 'notes.md'), '# Notes\n\n- old item\n- keep\n');
+
+	const result = await applyPatchTransaction(
+		{
+			workingDirectory: root,
+			patch: [
+				'*** Begin Patch',
+				'*** Update File: notes.md',
+				'@@',
+				' ',
+				'- - old item',
+				'+ - new item',
+				'  - keep',
+				'*** End Patch'
+			].join('\n')
+		},
+		unrestrictedOptions()
+	);
+
+	assert.equal(await readFile(join(root, 'notes.md'), 'utf8'), '# Notes\n\n- new item\n- keep\n');
+	assert.match(result.adjustments[0], /space after the marker/u);
+});
+
+test('matches trailing whitespace and typographic punctuation like native apply_patch', async (t) => {
+	const root = await temporaryDirectory(t);
+	await writeFile(join(root, 'source.txt'), 'say(“hello”)   \nold — value\n');
+
+	await applyPatchTransaction(
+		{
+			workingDirectory: root,
+			patch: [
+				'*** Begin Patch',
+				'*** Update File: source.txt',
+				'@@',
+				' say("hello")',
+				'-old - value',
+				'+new value',
+				'*** End Patch'
+			].join('\n')
+		},
+		unrestrictedOptions()
+	);
+
+	assert.equal(await readFile(join(root, 'source.txt'), 'utf8'), 'say(“hello”)   \nnew value\n');
+});
+
+test('refuses a whitespace-tolerant match that is not unique', async (t) => {
+	const root = await temporaryDirectory(t);
+	await writeFile(join(root, 'source.txt'), 'value = 1 \nvalue = 1  \n');
+
+	await assert.rejects(
+		applyPatchTransaction(
+			{
+				workingDirectory: root,
+				patch: ['*** Begin Patch', '*** Update File: source.txt', '@@', '-value = 1', '+value = 2', '*** End Patch'].join('\n')
+			},
+			unrestrictedOptions()
+		),
+		(error) => error instanceof PatchError && error.code === 'hunk_not_found' && error.message.includes('several places')
+	);
+	assert.equal(await readFile(join(root, 'source.txt'), 'utf8'), 'value = 1 \nvalue = 1  \n');
+});
+
+test('names the first mismatching line and duplicated insertion context', async (t) => {
+	const root = await temporaryDirectory(t);
+	await writeFile(join(root, 'source.ps1'), '}\n\nfunction Reset-Model {\n    param()\n}\n');
+
+	await assert.rejects(
+		applyPatchTransaction(
+			{
+				workingDirectory: root,
+				patch: [
+					'*** Begin Patch',
+					'*** Update File: source.ps1',
+					'@@',
+					' }',
+					' ',
+					' function Reset-Model {',
+					'+function Update-Model {',
+					'+}',
+					'+',
+					' function Reset-Model {',
+					'*** End Patch'
+				].join('\n')
+			},
+			unrestrictedOptions()
+		),
+		(error) =>
+			error instanceof PatchError &&
+			error.code === 'hunk_not_found' &&
+			error.details.line === 10 &&
+			error.message.includes('differs from file line 4 "    param()"') &&
+			error.message.includes('appears both before and after the added lines')
+	);
+
+	await assert.rejects(
+		applyPatchTransaction(
+			{
+				workingDirectory: root,
+				patch: [
+					'*** Begin Patch',
+					'*** Update File: source.ps1',
+					'@@',
+					' function Reset-Model {',
+					'-  param()',
+					'+  param($Name)',
+					'*** End Patch'
+				].join('\n')
+			},
+			unrestrictedOptions()
+		),
+		(error) =>
+			error instanceof PatchError && error.code === 'hunk_not_found' && error.message.includes('only when indentation is ignored')
+	);
+});
+
+test('creates missing parent directories and removes them on rollback', async (t) => {
+	const root = await temporaryDirectory(t);
+	await writeFile(join(root, 'existing.txt'), 'old\n');
+	const patch = [
+		'*** Begin Patch',
+		'*** Add File: deep/nested/new.txt',
+		'+created',
+		'*** Update File: existing.txt',
+		'@@',
+		'-old',
+		'+new',
+		'*** End Patch'
+	].join('\n');
+
+	const dryRun = await applyPatchTransaction({ workingDirectory: root, patch, dryRun: true }, unrestrictedOptions());
+	assert.deepEqual(dryRun.created_directories, ['deep', 'deep/nested']);
+	await assert.rejects(lstat(join(root, 'deep')), { code: 'ENOENT' });
+
+	await assert.rejects(
+		applyPatchTransaction(
+			{ workingDirectory: root, patch },
+			unrestrictedOptions({
+				testHooks: {
+					beforeCommitOperation(index) {
+						if (index === 1) {
+							throw new Error('forced failure');
+						}
+					}
+				}
+			})
+		),
+		errorCode('commit_failed')
+	);
+	await assert.rejects(lstat(join(root, 'deep')), { code: 'ENOENT' });
+
+	await applyPatchTransaction({ workingDirectory: root, patch }, unrestrictedOptions());
+	assert.equal(await readFile(join(root, 'deep', 'nested', 'new.txt'), 'utf8'), 'created\n');
+
+	await writeFile(join(root, 'blocker'), 'file\n');
+	await assert.rejects(
+		applyPatchTransaction(
+			{ workingDirectory: root, patch: ['*** Begin Patch', '*** Add File: blocker/child.txt', '+x', '*** End Patch'].join('\n') },
+			unrestrictedOptions()
+		),
+		errorCode('parent_not_directory')
+	);
+});
+
+test('preserves each line ending in a file that mixes CRLF and LF', async (t) => {
+	const root = await temporaryDirectory(t);
+	await writeFile(join(root, 'mixed.txt'), 'one\r\ntwo\nthree\r\nfour\r\n');
+
+	await applyPatchTransaction(
+		{
+			workingDirectory: root,
+			patch: [
+				'*** Begin Patch',
+				'*** Update File: mixed.txt',
+				'@@',
+				' two',
+				'-three',
+				'+THREE',
+				'+inserted',
+				'*** End Patch'
+			].join('\n')
+		},
+		unrestrictedOptions()
+	);
+
+	assert.equal(await readFile(join(root, 'mixed.txt'), 'utf8'), 'one\r\ntwo\nTHREE\r\ninserted\r\nfour\r\n');
+});
+
+test('replaces a file atomically with Delete File followed by Add File', async (t) => {
+	const root = await temporaryDirectory(t);
+	await writeFile(join(root, 'page.svelte'), 'old\n');
+
+	await assert.rejects(
+		applyPatchTransaction(
+			{ workingDirectory: root, patch: ['*** Begin Patch', '*** Add File: page.svelte', '+new', '*** End Patch'].join('\n') },
+			unrestrictedOptions()
+		),
+		(error) => error instanceof PatchError && error.code === 'target_exists' && error.details.operation === 'add'
+	);
+
+	const result = await applyPatchTransaction(
+		{
+			workingDirectory: root,
+			patch: ['*** Begin Patch', '*** Delete File: page.svelte', '*** Add File: page.svelte', '+new', '*** End Patch'].join('\n')
+		},
+		unrestrictedOptions()
+	);
+
+	assert.deepEqual(result.operations, [{ operation: 'replace', path: 'page.svelte' }]);
+	assert.equal(await readFile(join(root, 'page.svelte'), 'utf8'), 'new\n');
+	assert.throws(
+		() => parsePatch(['*** Begin Patch', '*** Add File: a.txt', '+x', '*** Delete File: a.txt', '*** End Patch'].join('\n')),
+		errorCode('path_conflict')
+	);
+});
+
+test('applies repeated Update File sections for one path in order', async (t) => {
+	const root = await temporaryDirectory(t);
+	await writeFile(join(root, 'README.md'), 'alpha\nbeta\n');
+
+	await applyPatchTransaction(
+		{
+			workingDirectory: root,
+			patch: [
+				'*** Begin Patch',
+				'*** Update File: README.md',
+				'@@',
+				'-beta',
+				'+BETA',
+				'*** Update File: README.md',
+				'@@',
+				'-alpha',
+				'+ALPHA',
+				'*** End Patch'
+			].join('\n')
+		},
+		unrestrictedOptions()
+	);
+
+	assert.equal(await readFile(join(root, 'README.md'), 'utf8'), 'ALPHA\nBETA\n');
+});
+
+test('joins a JSON line array and explains literal backslash-n patches', () => {
+	const lines = ['*** Begin Patch', '*** Add File: a.txt', '+x', '*** End Patch'];
+	assert.equal(parsePatch(JSON.stringify(lines))[0].path, 'a.txt');
+	assert.throws(
+		() => parsePatch(lines.join('\\n')),
+		(error) => error instanceof PatchError && error.code === 'invalid_patch' && error.details.reason === 'escaped_newlines'
+	);
 });

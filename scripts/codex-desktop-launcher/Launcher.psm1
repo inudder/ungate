@@ -11,6 +11,7 @@ Import-Module (Join-Path $PSScriptRoot 'Desktop.psm1') -DisableNameChecking -Err
 Import-Module (Join-Path $PSScriptRoot 'Logging.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'ToolCompatibility.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'Memories.psm1') -DisableNameChecking -ErrorAction Stop
+Import-Module (Join-Path $PSScriptRoot 'BackgroundModel.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'Capabilities.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'codex-plugin-isolation.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'OmniRouteContextLimit.psm1') -DisableNameChecking -ErrorAction Stop
@@ -52,6 +53,7 @@ function Resolve-CodexDesktopSelection {
         MemoryDefinition = $null
         MemoryApiKey = $null
         MemoryFailure = $null
+        BackgroundDefinition = $null
     }
     $AllUngateModelDefinitions = @(
         Get-UngateModelDefinitions -Context $Context `
@@ -119,6 +121,15 @@ function Resolve-CodexDesktopSelection {
         throw "Unsupported Desktop model '$Model'. Configured models: $supportedModels"
     }
     $Model = [string]$Selection.SelectedModel.Slug
+    if (-not $Selection.EnableProviderFallback) {
+        $Selection.BackgroundDefinition = Resolve-UngateBackgroundDefinition -Context $Context `
+            -LaunchDefinition $Selection.SelectedModel `
+            -PickerDefinitions $Selection.Definitions `
+            -AllDefinitions $AllUngateModelDefinitions `
+            -CustomModelSlug (Read-UngateBackgroundModelSetting -Context $Context)
+        $backgroundLabel = if ($Selection.BackgroundDefinition.BackgroundSource -eq 'custom') { 'custom' } else { 'launch model' }
+        Write-Host "[ungate] Background tasks (titles, suggestions, auto-review) use $($Selection.BackgroundDefinition.DisplayName) ($backgroundLabel) via $($Context.CodexBackgroundShellSlug)." -ForegroundColor DarkGray
+    }
     $Selection.LaunchModel = if ($Selection.EnableProviderFallback) {
         $Model
     } else {
@@ -146,8 +157,8 @@ function Initialize-CodexDesktopTransport {
     $ApiKey = $Context.Options.ApiKey
     $providerKeys = @{}
     foreach ($provider in (Get-ProviderDefinitions -Selection $Selection)) {
-        $sampleDefinition = $Selection.Definitions |
-            Where-Object { $_.ProviderName -eq $provider.Name } |
+        $sampleDefinition = @($Selection.Definitions) + @(Get-CodexBackgroundDefinition -Selection $Selection) |
+            Where-Object { $_ -and $_.ProviderName -eq $provider.Name } |
             Select-Object -First 1
         $providerKeys[$provider.Name] = Resolve-ModelApiKey -Context $Context `
             -Definition $sampleDefinition `
@@ -184,18 +195,26 @@ function Initialize-CodexDesktopTransport {
             Ensure-CliProxyBridge -Context $Context -Key $providerKeys[$Context.CliProxyProviderName]
         } catch {
             if (@($Selection.Definitions | Where-Object ProviderName -EQ $Context.CliProxyProviderName).Count -gt 0) { throw }
-            $Selection.MemoryEnabled = $false
-            $Selection.MemoryFailure = 'memory_bridge_unavailable'
-            $providerKeys.Remove($Context.CliProxyProviderName)
-            if ($Selection.EnableProviderFallback) {
-                $Selection.LaunchProvider = [pscustomobject]@{
-                    Name = $Selection.SelectedModel.ProviderName
-                    DisplayName = $Selection.SelectedModel.ProviderDisplayName
-                    ProxyBaseUrl = $Selection.SelectedModel.ProxyBaseUrl
-                    EnvKey = $Selection.SelectedModel.EnvKey
-                }
+            # Only the background route or memories needed the bridge; keep the launch working without it.
+            $backgroundDefinition = Get-CodexBackgroundDefinition -Selection $Selection
+            if ($backgroundDefinition -and $backgroundDefinition.ProviderName -eq $Context.CliProxyProviderName) {
+                $Selection.BackgroundDefinition = Resolve-UngateBackgroundDefinition -Context $Context -LaunchDefinition $Selection.SelectedModel
+                Write-Warning "CLIProxy bridge unavailable. Background tasks use $($Selection.SelectedModel.DisplayName) for this run."
             }
-            Write-Warning 'Memory bridge unavailable. Launching without memories for this run; saved preferences are unchanged.'
+            $providerKeys.Remove($Context.CliProxyProviderName)
+            if ($Selection.MemoryEnabled -and $Selection.MemoryDefinition.ProviderName -eq $Context.CliProxyProviderName) {
+                $Selection.MemoryEnabled = $false
+                $Selection.MemoryFailure = 'memory_bridge_unavailable'
+                if ($Selection.EnableProviderFallback) {
+                    $Selection.LaunchProvider = [pscustomobject]@{
+                        Name = $Selection.SelectedModel.ProviderName
+                        DisplayName = $Selection.SelectedModel.ProviderDisplayName
+                        ProxyBaseUrl = $Selection.SelectedModel.ProxyBaseUrl
+                        EnvKey = $Selection.SelectedModel.EnvKey
+                    }
+                }
+                Write-Warning 'Memory bridge unavailable. Launching without memories for this run; saved preferences are unchanged.'
+            }
         }
     }
     if (-not $Selection.EnableProviderFallback -or $Selection.MemoryEnabled) {

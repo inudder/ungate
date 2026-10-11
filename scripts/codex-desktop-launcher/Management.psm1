@@ -9,10 +9,10 @@ Import-Module (Join-Path $PSScriptRoot 'Logging.psm1') -DisableNameChecking -Err
 Import-Module (Join-Path $PSScriptRoot 'ProxyRuntime.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'LauncherLock.psm1') -DisableNameChecking -ErrorAction Stop
 
-$script:VersionFields = @('upstreamModel', 'displayName', 'contextWindow')
-$script:CapabilityFields = @(Get-UngateCapabilityNames)
-$script:LogLevels = @('Full', 'Standard', 'Compact', 'Minimal', 'Off', 'Errors')
-$script:ReasoningLevels = @('none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra')
+# Constant field lists are functions: launcher modules keep no module-level state.
+function Get-LauncherVersionFields { return @('upstreamModel', 'displayName', 'contextWindow') }
+function Get-LauncherLogLevels { return @('Full', 'Standard', 'Compact', 'Minimal', 'Off', 'Errors') }
+function Get-LauncherReasoningLevels { return @('none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra') }
 
 function Stop-LauncherRequest {
     param([Parameter(Mandatory)][int]$Status, [Parameter(Mandatory)][string]$Code, [Parameter(Mandatory)][string]$Message, [hashtable]$Extra)
@@ -115,7 +115,7 @@ function Get-DefinitionsWithoutCapabilityOverrides {
     $stripped = Copy-OverrideMap $Map
     if ($stripped.Contains($Slug)) {
         $fields = ConvertTo-LauncherDictionary $stripped[$Slug]
-        foreach ($name in $script:CapabilityFields) { [void]$fields.Remove($name) }
+        foreach ($name in @(Get-UngateCapabilityNames)) { [void]$fields.Remove($name) }
         if ($fields.Count -eq 0) { [void]$stripped.Remove($Slug) }
         else {
             $record = [ordered]@{}
@@ -184,7 +184,7 @@ function Get-UngateLauncherState {
     if ($logPresent) {
         try {
             $parsedLog = Get-Content -LiteralPath $context.LogSettingsPath -Raw -Encoding utf8 | ConvertFrom-Json -ErrorAction Stop
-            if ($parsedLog.LogLevel -notin $script:LogLevels) { throw 'Unsupported log level.' }
+            if ($parsedLog.LogLevel -notin @(Get-LauncherLogLevels)) { throw 'Unsupported log level.' }
             $logLevel = [string]$parsedLog.LogLevel
         } catch { $logError = $_.Exception.Message }
     } else { $logLevel = 'Standard' }
@@ -209,12 +209,12 @@ function Get-UngateLauncherState {
         if ($template -and $template.PSObject.Properties['slug']) { $templateId = [string]$template.slug }
         $capExplicit = [ordered]@{}
         $explicitCapabilities = [ordered]@{}
-        foreach ($name in $script:CapabilityFields) {
+        foreach ($name in @(Get-UngateCapabilityNames)) {
             if ($explicit.ContainsKey($name)) { $capExplicit[$name] = $explicit[$name]; $explicitCapabilities[$name] = $explicit[$name] }
             else { $capExplicit[$name] = 'missing' }
         }
         $versionExplicit = [ordered]@{}
-        foreach ($name in $script:VersionFields) {
+        foreach ($name in @(Get-LauncherVersionFields)) {
             if ($explicit.ContainsKey($name)) { $versionExplicit[$name] = $explicit[$name] } else { $versionExplicit[$name] = 'missing' }
         }
         $prefixExplicit = 'missing'
@@ -223,7 +223,7 @@ function Get-UngateLauncherState {
         $native = [string]$definition.UpstreamModel
         if ($definition.PSObject.Properties['DefaultUpstreamModel'] -and $definition.DefaultUpstreamModel) { $native = [string]$definition.DefaultUpstreamModel }
         $capabilityProvenance = 'definition'
-        $explicitCapabilityCount = @($script:CapabilityFields | Where-Object { $explicit.ContainsKey($_) }).Count
+        $explicitCapabilityCount = @(@(Get-UngateCapabilityNames) | Where-Object { $explicit.ContainsKey($_) }).Count
         if ($explicitCapabilityCount -gt 0) { $capabilityProvenance = 'override' }
         elseif ($templateId) { $capabilityProvenance = 'catalog-template' }
         $credential = $credentials[[string]$definition.ProviderName]
@@ -291,7 +291,7 @@ function Get-UngateLauncherState {
         registry = [ordered]@{ revision = (Get-FileRevision $context.CustomModelDefinitionsPath); corrupt = [bool]$registryDocument.Corrupt; message = $registryDocument.Message }
         overrides = [ordered]@{ corrupt = [bool]$overrideInfo.Document.Corrupt; message = $overrideInfo.Document.Message }
         models = @($models)
-        launch = [ordered]@{ entryPoint = (Join-Path $context.ScriptsRoot 'start-codex-desktop-ungate.ps1'); agentScript = (Join-Path $context.ScriptsRoot 'start-codex-launcher-control.ps1'); fallbackModel = $context.OmniRouteFallbackModel; logLevels = $script:LogLevels; reasoningLevels = $script:ReasoningLevels }
+        launch = [ordered]@{ entryPoint = (Join-Path $context.ScriptsRoot 'start-codex-desktop-ungate.ps1'); agentScript = (Join-Path $context.ScriptsRoot 'start-codex-launcher-control.ps1'); fallbackModel = $context.OmniRouteFallbackModel; logLevels = @(Get-LauncherLogLevels); reasoningLevels = @(Get-LauncherReasoningLevels) }
         activeOperation = $active
     }
 }
@@ -339,7 +339,7 @@ function Get-ModelSnapshot {
 function Update-UngateLauncherVersion {
     param([Parameter(Mandatory)][string]$BetaHome, [Parameter(Mandatory)][hashtable]$Payload)
     $registryId = [string]$Payload.registryId
-    $patch = Get-PatchLists -Payload $Payload -Allowed $script:VersionFields
+    $patch = Get-PatchLists -Payload $Payload -Allowed @(Get-LauncherVersionFields)
     $lease = Enter-UngateProfileLock -HomePath $BetaHome
     try {
         $context = Get-LauncherContext -BetaHome $BetaHome
@@ -374,7 +374,7 @@ function Update-UngateLauncherVersion {
 function Update-UngateLauncherCapabilities {
     param([Parameter(Mandatory)][string]$BetaHome, [Parameter(Mandatory)][hashtable]$Payload)
     $registryId = [string]$Payload.registryId
-    $patch = Get-PatchLists -Payload $Payload -Allowed $script:CapabilityFields
+    $patch = Get-PatchLists -Payload $Payload -Allowed @(Get-UngateCapabilityNames)
     $lease = Enter-UngateProfileLock -HomePath $BetaHome
     try {
         $context = Get-LauncherContext -BetaHome $BetaHome
@@ -389,7 +389,7 @@ function Update-UngateLauncherCapabilities {
         foreach ($name in $patch.Unset) { [void]$fields.Remove($name) }
         foreach ($name in @($patch.Set.Keys)) { $fields[$name] = $patch.Set[$name] }
         $values = @{}
-        foreach ($name in $script:CapabilityFields) { if ($fields.ContainsKey($name)) { $values[$name] = $fields[$name] } }
+        foreach ($name in @(Get-UngateCapabilityNames)) { if ($fields.ContainsKey($name)) { $values[$name] = $fields[$name] } }
         if ($values.Contains('supportsImageInput') -and $values.supportsImageInput -eq $false -and -not $values.Contains('supportsImageDetailOriginal')) { $values.supportsImageDetailOriginal = $false; $fields.supportsImageDetailOriginal = $false }
         if ($values.Contains('supportsReasoningSummaries') -and $values.supportsReasoningSummaries -eq $false) { $values.defaultReasoningSummary = 'none'; $fields.defaultReasoningSummary = 'none' }
         if ($values.Contains('supportVerbosity') -and $values.supportVerbosity -eq $false) { $values.defaultVerbosity = $null; $fields.defaultVerbosity = $null }
@@ -436,8 +436,8 @@ function Reset-UngateLauncherModel {
     $registryId = [string]$Payload.registryId
     $scope = [string]$Payload.scope
     $fields = switch ($scope) {
-        'version' { $script:VersionFields }
-        'capabilities' { $script:CapabilityFields }
+        'version' { @(Get-LauncherVersionFields) }
+        'capabilities' { @(Get-UngateCapabilityNames) }
         'transport-prefix' { @('upstreamModelPrefix') }
         default { Stop-LauncherRequest -Status 422 -Code 'invalid_settings' -Message 'Unknown reset scope.' }
     }
@@ -511,7 +511,7 @@ function Set-UngateLauncherPicker {
 function Set-UngateLauncherLogging {
     param([Parameter(Mandatory)][string]$BetaHome, [Parameter(Mandatory)][hashtable]$Payload)
     $level = [string]$Payload.level
-    if ($level -notin $script:LogLevels) { Stop-LauncherRequest -Status 422 -Code 'invalid_settings' -Message 'Unsupported log level.' }
+    if ($level -notin @(Get-LauncherLogLevels)) { Stop-LauncherRequest -Status 422 -Code 'invalid_settings' -Message 'Unsupported log level.' }
     $lease = Enter-UngateProfileLock -HomePath $BetaHome
     try {
         $context = Get-LauncherContext -BetaHome $BetaHome

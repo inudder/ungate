@@ -32,6 +32,38 @@ Describe 'Structured tool diagnostics' {
         Format-CodexSessionEvent -Line $line -LogLevel Errors -SessionId 'chat-a'
         Should -Invoke Write-Host -ModuleName Logging -ParameterFilter { $Object -like '*TOOL ERROR*chat-a*' } -Times 1
     }
+    It 'prints an apply_patch error as one line without the remediation text' {
+        $printed = [System.Collections.Generic.List[string]]::new()
+        Mock Write-Host { param($Object) $printed.Add([string]$Object) } -ModuleName Logging
+        $patchPayload = '{"ok":false,"error":{"code":"hunk_not_found","message":"Hunk 1 for ''a.ps1'' was not found.","remediation":"Re-read the file."}}'
+        $mcpResult = @{ content = @(@{ type = 'text'; text = $patchPayload }); isError = $true } | ConvertTo-Json -Depth 5 -Compress
+        $output = @(
+            @{ type = 'input_text'; text = "Script completed`nWall time 0.0 seconds`nOutput:`n" },
+            @{ type = 'input_text'; text = $mcpResult }
+        )
+        $line = @{ type = 'response_item'; payload = @{ type = 'custom_tool_call_output'; output = $output } } | ConvertTo-Json -Depth 8 -Compress
+        Format-CodexSessionEvent -Line $line -LogLevel Errors -SessionId 'chat-a'
+        $printed.Count | Should -Be 1
+        $printed[0] | Should -Be "<-- [PATCH ERROR] [session: chat-a] hunk_not_found: Hunk 1 for 'a.ps1' was not found."
+    }
+    It 'collapses a nested command that exited 1 without output' {
+        $printed = [System.Collections.Generic.List[string]]::new()
+        Mock Write-Host { param($Object) $printed.Add([string]$Object) } -ModuleName Logging
+        $output = @(
+            @{ type = 'input_text'; text = "Script failed`nWall time 0.5 seconds`nOutput:`n" },
+            @{ type = 'input_text'; text = "Script error:`nExit code: 1`nWall time: 0.5 seconds`nOutput:`n" }
+        )
+        $line = @{ type = 'response_item'; payload = @{ type = 'custom_tool_call_output'; output = $output } } | ConvertTo-Json -Depth 8 -Compress
+        Format-CodexSessionEvent -Line $line -LogLevel Errors -SessionId 'chat-a'
+        $printed.Count | Should -Be 1
+        $printed[0] | Should -BeLike '<-- `[TOOL EXIT 1`] `[session: chat-a`] no output*'
+
+        $printed.Clear()
+        $output[1] = @{ type = 'input_text'; text = "Script error:`nExit code: 1`nWall time: 0.5 seconds`nOutput:`nrg: regex parse error`n" }
+        $line = @{ type = 'response_item'; payload = @{ type = 'custom_tool_call_output'; output = $output } } | ConvertTo-Json -Depth 8 -Compress
+        Format-CodexSessionEvent -Line $line -LogLevel Errors -SessionId 'chat-a'
+        $printed[0] | Should -Be '<-- [TOOL ERROR] [session: chat-a]'
+    }
 }
 
 Describe 'Independent session append cursors' {

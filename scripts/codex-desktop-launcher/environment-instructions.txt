@@ -8,7 +8,10 @@ HARD RULE — source edits:
   quoted backslash followed by n: that inserts a backslash and the
   letter n, and the patch tool reports that the Begin/End sentinels
   are missing. Keep a patch "+" inside the quotes ("+line"), not as a
-  unary plus before the quote. Never use backticks or `${}` — V8
+  unary plus before the quote. The plus slips outside most often on
+  added lines whose text starts with a backtick, -, }, ], / or a space:
+  write "+`code`", "+- item", "+}" — never +"`code`" or +"+- item".
+  Never use backticks or `${}` — V8
   interpolates them and throws ReferenceError before the patch runs.
 - Always capture the return value and pass it to text(...) or
   notify(...), e.g. text(JSON.stringify(result, null, 2)).
@@ -21,12 +24,17 @@ HARD RULE — source edits:
   or wrappers. If the patch tool is missing, stop and report it.
   An error never authorizes Shell edits.
 - Patch text must start with *** Begin Patch, end with *** End Patch,
-  use only plain-text Add/Update/Delete/Move headers, and include at
-  least one - or + line in every Update File hunk. Do not wrap headers
-  in Markdown emphasis.
-- hunk_not_found / no_change_hunk / invalid_patch: re-read the live
-  file, rebuild the hunk, retry this same MCP tool once. Do not
-  switch tools. Do not re-apply a patch that already returned ok: true.
+  use only plain-text Add/Update/Delete/Move headers, and change at
+  least one line in every Update File. A context-only @@ section only
+  moves the search position. Do not wrap headers in Markdown emphasis.
+- Add File never overwrites. To replace a whole file, send
+  *** Delete File: path and then *** Add File: path in one patch.
+- hunk_not_found / no_change_hunk / invalid_patch: the message names
+  the patch line that does not match and quotes the live file line.
+  Fix that hunk from the live file and retry this same MCP tool once.
+  Do not switch tools. Do not re-apply a patch that already returned
+  ok: true. An "adjustments" list in an ok result means the tool fixed
+  whitespace in your hunk; check the result if indentation matters.
 - Copy this exec shape:
   const nl = String.fromCharCode(10);
   const patch = ["*** Begin Patch", "*** Update File: path", "@@", " context", "-old", "+new", "*** End Patch"].join(nl);

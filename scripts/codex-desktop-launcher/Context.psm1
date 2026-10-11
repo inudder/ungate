@@ -128,15 +128,21 @@ function New-CodexDesktopLaunchContext {
     $CodexModelShellRouterProviderName = 'ungate_model_shell_router'
     $CodexModelShellRouterPath = Join-Path $ScriptsRoot 'codex-model-shell-router.mjs'
     $CodexModelShellRouterServiceName = 'codex-model-shell-router'
-    $CodexDesktopPickerCapacity = 7
+    # Desktop renders custom catalog labels only for model IDs it knows, and only seven of those
+    # are usable. Desktop also hard-codes gpt-5.6-luna for its own background requests (chat
+    # titles, ambient suggestions and their safety check, codex-auto-review), so that ID is a
+    # hidden background route and the picker keeps the other six. The third picker slot took
+    # gpt-5.3-codex from the removed seventh slot, so slots 1, 2, 4, 5 and 6 keep their IDs and
+    # existing threads on those models still resolve to the same model.
+    $CodexBackgroundShellSlug = 'gpt-5.6-luna'
+    $CodexDesktopPickerCapacity = 6
     $CodexModelShellPool = @(
         'gpt-5.6-sol',
         'gpt-5.6-terra',
-        'gpt-5.6-luna',
+        'gpt-5.3-codex',
         'gpt-5.5',
         'gpt-5.4',
-        'gpt-5.4-mini',
-        'gpt-5.3-codex'
+        'gpt-5.4-mini'
     )
     $CodexModelShellRouterProviderDefinition = [pscustomobject][ordered]@{
         Name = $CodexModelShellRouterProviderName
@@ -168,6 +174,7 @@ function New-CodexDesktopLaunchContext {
         PickerModelSelectionPath = $PickerModelSelectionPath
         LogSettingsPath = $LogSettingsPath
         MemorySettingsPath = Join-Path $CustomCodexHome 'ungate-memory-settings.json'
+        BackgroundModelSettingsPath = Join-Path $CustomCodexHome 'ungate-background-model.json'
         MemoryValidationSignature = $null
         MemoryValidationResult = $null
         CustomGlobalStatePath = $CustomGlobalStatePath
@@ -185,6 +192,7 @@ function New-CodexDesktopLaunchContext {
         CodexModelShellRouterServiceName = $CodexModelShellRouterServiceName
         CodexDesktopPickerCapacity = $CodexDesktopPickerCapacity
         CodexModelShellPool = $CodexModelShellPool
+        CodexBackgroundShellSlug = $CodexBackgroundShellSlug
         CodexModelShellRouterProviderDefinition = $CodexModelShellRouterProviderDefinition
         CliProxyConfigPath = $CliProxyConfigPath
         CliProxyBridgePath = $CliProxyBridgePath

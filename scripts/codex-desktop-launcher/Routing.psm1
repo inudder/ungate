@@ -12,6 +12,8 @@ function Get-ProviderDefinitions {
     $byName = [ordered]@{}
     $transportDefinitions = @($Selection.Definitions)
     if ($Selection.MemoryEnabled) { $transportDefinitions += $Selection.MemoryDefinition }
+    $backgroundDefinition = Get-CodexBackgroundDefinition -Selection $Selection
+    if ($backgroundDefinition) { $transportDefinitions += $backgroundDefinition }
     foreach ($definition in $transportDefinitions) {
         if (-not $byName.Contains($definition.ProviderName)) {
             $byName[$definition.ProviderName] = [pscustomobject][ordered]@{
@@ -23,6 +25,28 @@ function Get-ProviderDefinitions {
         }
     }
     return @($byName.Values)
+}
+
+function Get-CodexBackgroundDefinition {
+    param([Parameter(Mandatory)][psobject]$Selection)
+    # Provider fallback launches without the shell router, so background IDs are not remapped there.
+    if ($Selection.EnableProviderFallback) { return $null }
+    $property = $Selection.PSObject.Properties['BackgroundDefinition']
+    if ($null -eq $property) { return $null }
+    return $property.Value
+}
+
+function New-CodexShellRoute {
+    param([Parameter(Mandatory)][string]$ClientModel, [Parameter(Mandatory)][object]$Definition)
+    $route = [ordered]@{
+        clientModel = $ClientModel
+        upstreamModel = Get-UngateRequestModel -Definition $Definition
+        upstreamBaseUrl = [string]$Definition.ProxyBaseUrl
+        apiKeyEnv = [string]$Definition.EnvKey
+        responsesAdapter = if ($Definition.PSObject.Properties['ResponsesAdapter']) { [string]$Definition.ResponsesAdapter } else { $null }
+    }
+    if ($Definition.PSObject.Properties['ParallelToolCallsOverride']) { $route.parallelToolCalls = [bool]$Definition.ParallelToolCallsOverride }
+    return $route
 }
 
 function Set-CodexModelShellSlugs {
@@ -104,15 +128,12 @@ function Get-CodexModelShellRoutes {
     $routes = [System.Collections.Generic.List[object]]::new()
     foreach ($definition in $Selection.Definitions) {
         $shellSlug = Get-CodexCatalogModelSlug -Selection $Selection -Definition $definition
-        $route = [ordered]@{
-            clientModel = $shellSlug
-            upstreamModel = Get-UngateRequestModel -Definition $definition
-            upstreamBaseUrl = [string]$definition.ProxyBaseUrl
-            apiKeyEnv = [string]$definition.EnvKey
-            responsesAdapter = if ($definition.PSObject.Properties['ResponsesAdapter']) { [string]$definition.ResponsesAdapter } else { $null }
-        }
-        if ($definition.PSObject.Properties['ParallelToolCallsOverride']) { $route.parallelToolCalls = [bool]$definition.ParallelToolCallsOverride }
-        [void]$routes.Add($route)
+        [void]$routes.Add((New-CodexShellRoute -ClientModel $shellSlug -Definition $definition))
+    }
+
+    $backgroundDefinition = Get-CodexBackgroundDefinition -Selection $Selection
+    if ($backgroundDefinition) {
+        [void]$routes.Add((New-CodexShellRoute -ClientModel ([string]$backgroundDefinition.ShellSlug) -Definition $backgroundDefinition))
     }
 
     if ($Selection.MemoryEnabled) {
@@ -175,6 +196,7 @@ function Ensure-ModelProvidersInConfig {
 
 Export-ModuleMember -Function @(
     'Get-ProviderDefinitions',
+    'Get-CodexBackgroundDefinition',
     'Set-CodexModelShellSlugs',
     'Get-CodexCatalogModelSlug',
     'Get-CodexConfigProviderDefinitions',

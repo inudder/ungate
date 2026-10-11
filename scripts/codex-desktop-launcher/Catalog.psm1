@@ -25,6 +25,127 @@ function Set-ModelIdentity {
 	return $firstLine.Replace($Instructions, $replacement, 1)
 }
 
+function New-UngateCatalogModelInfo {
+    param(
+        [Parameter(Mandatory)][object]$Definition,
+        [Parameter(Mandatory)][string]$CatalogSlug,
+        [Parameter(Mandatory)][object]$DefaultCatalog,
+        [Parameter(Mandatory)][object]$FallbackModelTemplate
+    )
+    $ErrorActionPreference = 'Stop'
+
+    $modelTemplate = $DefaultCatalog.models |
+        Where-Object { $_.slug -eq $catalogSlug } |
+        Select-Object -First 1
+    if (-not $modelTemplate) {
+        $modelTemplate = $fallbackModelTemplate
+    }
+    $modelInfo = $modelTemplate |
+        ConvertTo-Json -Depth 100 |
+        ConvertFrom-Json -Depth 100
+    $supportsParallelToolCalls = if ($null -ne $definition.SupportsParallelToolCalls) {
+        [bool]$definition.SupportsParallelToolCalls
+    }
+    elseif ($modelInfo.PSObject.Properties['supports_parallel_tool_calls']) {
+        [bool]$modelInfo.supports_parallel_tool_calls
+    }
+    else {
+        # The Codex model-catalog schema requires this field even when the
+        # models cache used as a template omits it. Prefer a conservative
+        # serial-tool fallback for custom providers.
+        $false
+    }
+    $contextWindow = Get-UngateModelContextWindow -Definition $definition
+    $capabilities = Get-UngateModelCapabilities -Definition $definition -Template $modelInfo
+    $overrides = [ordered]@{
+        slug = $catalogSlug
+        display_name = $definition.DisplayName
+        description = $definition.Description
+        default_reasoning_level = $definition.DefaultReasoningLevel
+        visibility = 'list'
+        supported_in_api = $true
+        priority = $definition.Priority
+        additional_speed_tiers = @()
+        service_tiers = @()
+        default_service_tier = $null
+        availability_nux = $null
+        upgrade = $null
+        supports_reasoning_summaries = if ($null -ne $definition.SupportsReasoningSummaries) { [bool]$definition.SupportsReasoningSummaries } else { $false }
+        supports_reasoning_summary_parameter = $capabilities.supportsReasoningSummaries
+        default_reasoning_summary = $capabilities.defaultReasoningSummary
+        support_verbosity = $capabilities.supportVerbosity
+        default_verbosity = $capabilities.defaultVerbosity
+        context_window = $contextWindow.ContextWindow
+        max_context_window = $contextWindow.MaxContextWindow
+        effective_context_window_percent = $contextWindow.EffectiveContextWindowPercent
+        auto_compact_token_limit = $null
+        comp_hash = $null
+        supports_search_tool = $false
+        use_responses_lite = $false
+        input_modalities = @($definition.InputModalities)
+        supports_parallel_tool_calls = $supportsParallelToolCalls
+        supports_image_detail_original = [bool]$definition.SupportsImageDetailOriginal
+        web_search_tool_type = [string]$definition.WebSearchToolType
+    }
+
+    $baseInstructions = if (
+        $modelInfo.PSObject.Properties['base_instructions'] -and
+        -not [string]::IsNullOrWhiteSpace([string]$modelInfo.base_instructions)
+    ) {
+        [string]$modelInfo.base_instructions
+    }
+    else {
+        $null
+    }
+    $instructionsTemplate = if (
+        $modelInfo.model_messages -and
+        -not [string]::IsNullOrWhiteSpace([string]$modelInfo.model_messages.instructions_template)
+    ) {
+        [string]$modelInfo.model_messages.instructions_template
+    }
+    else {
+        $null
+    }
+    if (-not $baseInstructions -and -not $instructionsTemplate) {
+        throw "Codex model catalog template for '$catalogSlug' has no usable instruction template."
+    }
+
+    # Newer catalog caches put instructions in model_messages, while the
+    # currently installed Codex CLI still requires base_instructions. Keep
+    # both fields aligned, deriving the legacy field from the template.
+    $baseInstructionSource = if ($baseInstructions) {
+        $baseInstructions
+    }
+    else {
+        $instructionsTemplate
+    }
+    $overrides.base_instructions = Set-ModelIdentity `
+        -Instructions $baseInstructionSource `
+        -Identity $definition.Identity
+
+    if ($null -ne $definition.TruncationPolicy) {
+        $overrides.truncation_policy = $definition.TruncationPolicy
+    }
+    if ($null -ne $definition.SupportedReasoningLevels) {
+        $overrides.supported_reasoning_levels = $definition.SupportedReasoningLevels
+    }
+    foreach ($override in $overrides.GetEnumerator()) {
+        $modelInfo | Add-Member `
+            -MemberType NoteProperty `
+            -Name $override.Key `
+            -Value $override.Value `
+            -Force
+    }
+
+    if ($instructionsTemplate) {
+        $modelInfo.model_messages.instructions_template = Set-ModelIdentity `
+            -Instructions $instructionsTemplate `
+            -Identity $definition.Identity
+    }
+
+    return $modelInfo
+}
+
 function Write-UngateModelCatalog {
     param(
         [Parameter(Mandatory)][psobject]$Context,
@@ -58,116 +179,7 @@ function Write-UngateModelCatalog {
     $catalogModels = [System.Collections.Generic.List[object]]::new()
     foreach ($definition in $Selection.Definitions) {
         $catalogSlug = Get-CodexCatalogModelSlug -Selection $Selection -Definition $definition
-        $modelTemplate = $defaultCatalog.models |
-            Where-Object { $_.slug -eq $catalogSlug } |
-            Select-Object -First 1
-        if (-not $modelTemplate) {
-            $modelTemplate = $fallbackModelTemplate
-        }
-        $modelInfo = $modelTemplate |
-            ConvertTo-Json -Depth 100 |
-            ConvertFrom-Json -Depth 100
-        $supportsParallelToolCalls = if ($null -ne $definition.SupportsParallelToolCalls) {
-            [bool]$definition.SupportsParallelToolCalls
-        }
-        elseif ($modelInfo.PSObject.Properties['supports_parallel_tool_calls']) {
-            [bool]$modelInfo.supports_parallel_tool_calls
-        }
-        else {
-            # The Codex model-catalog schema requires this field even when the
-            # models cache used as a template omits it. Prefer a conservative
-            # serial-tool fallback for custom providers.
-            $false
-        }
-        $contextWindow = Get-UngateModelContextWindow -Definition $definition
-        $capabilities = Get-UngateModelCapabilities -Definition $definition -Template $modelInfo
-        $overrides = [ordered]@{
-            slug = $catalogSlug
-            display_name = $definition.DisplayName
-            description = $definition.Description
-            default_reasoning_level = $definition.DefaultReasoningLevel
-            visibility = 'list'
-            supported_in_api = $true
-            priority = $definition.Priority
-            additional_speed_tiers = @()
-            service_tiers = @()
-            default_service_tier = $null
-            availability_nux = $null
-            upgrade = $null
-            supports_reasoning_summaries = if ($null -ne $definition.SupportsReasoningSummaries) { [bool]$definition.SupportsReasoningSummaries } else { $false }
-            supports_reasoning_summary_parameter = $capabilities.supportsReasoningSummaries
-            default_reasoning_summary = $capabilities.defaultReasoningSummary
-            support_verbosity = $capabilities.supportVerbosity
-            default_verbosity = $capabilities.defaultVerbosity
-            context_window = $contextWindow.ContextWindow
-            max_context_window = $contextWindow.MaxContextWindow
-            effective_context_window_percent = $contextWindow.EffectiveContextWindowPercent
-            auto_compact_token_limit = $null
-            comp_hash = $null
-            supports_search_tool = $false
-            use_responses_lite = $false
-            input_modalities = @($definition.InputModalities)
-            supports_parallel_tool_calls = $supportsParallelToolCalls
-            supports_image_detail_original = [bool]$definition.SupportsImageDetailOriginal
-            web_search_tool_type = [string]$definition.WebSearchToolType
-        }
-
-        $baseInstructions = if (
-            $modelInfo.PSObject.Properties['base_instructions'] -and
-            -not [string]::IsNullOrWhiteSpace([string]$modelInfo.base_instructions)
-        ) {
-            [string]$modelInfo.base_instructions
-        }
-        else {
-            $null
-        }
-        $instructionsTemplate = if (
-            $modelInfo.model_messages -and
-            -not [string]::IsNullOrWhiteSpace([string]$modelInfo.model_messages.instructions_template)
-        ) {
-            [string]$modelInfo.model_messages.instructions_template
-        }
-        else {
-            $null
-        }
-        if (-not $baseInstructions -and -not $instructionsTemplate) {
-            throw "Codex model catalog template for '$catalogSlug' has no usable instruction template."
-        }
-
-        # Newer catalog caches put instructions in model_messages, while the
-        # currently installed Codex CLI still requires base_instructions. Keep
-        # both fields aligned, deriving the legacy field from the template.
-        $baseInstructionSource = if ($baseInstructions) {
-            $baseInstructions
-        }
-        else {
-            $instructionsTemplate
-        }
-        $overrides.base_instructions = Set-ModelIdentity `
-            -Instructions $baseInstructionSource `
-            -Identity $definition.Identity
-
-        if ($null -ne $definition.TruncationPolicy) {
-            $overrides.truncation_policy = $definition.TruncationPolicy
-        }
-        if ($null -ne $definition.SupportedReasoningLevels) {
-            $overrides.supported_reasoning_levels = $definition.SupportedReasoningLevels
-        }
-        foreach ($override in $overrides.GetEnumerator()) {
-            $modelInfo | Add-Member `
-                -MemberType NoteProperty `
-                -Name $override.Key `
-                -Value $override.Value `
-                -Force
-        }
-
-        if ($instructionsTemplate) {
-            $modelInfo.model_messages.instructions_template = Set-ModelIdentity `
-                -Instructions $instructionsTemplate `
-                -Identity $definition.Identity
-        }
-
-        [void]$catalogModels.Add($modelInfo)
+        [void]$catalogModels.Add((New-UngateCatalogModelInfo -Definition $definition -CatalogSlug $catalogSlug -DefaultCatalog $defaultCatalog -FallbackModelTemplate $fallbackModelTemplate))
     }
 
     if ($Selection.MemoryEnabled) {
@@ -200,6 +212,19 @@ function Write-UngateModelCatalog {
         $memoryLevels = @($memoryCapabilities.supportedReasoningLevels | ForEach-Object { @{ effort = $_; description = "Reasoning: $_" } })
         $memoryInfo | Add-Member NoteProperty supported_reasoning_levels $memoryLevels -Force
         [void]$catalogModels.Add($memoryInfo)
+    }
+
+    # Desktop's own background requests use this hidden ID; it carries the background model's
+    # identity and capabilities so a title or auto-review turn never claims to be a GPT model.
+    $backgroundDefinition = Get-CodexBackgroundDefinition -Selection $Selection
+    if ($backgroundDefinition) {
+        $backgroundInfo = New-UngateCatalogModelInfo -Definition $backgroundDefinition `
+            -CatalogSlug ([string]$backgroundDefinition.ShellSlug) `
+            -DefaultCatalog $defaultCatalog `
+            -FallbackModelTemplate $fallbackModelTemplate
+        $backgroundInfo.display_name = "$($backgroundDefinition.DisplayName) (background tasks)"
+        $backgroundInfo.visibility = 'hide'
+        [void]$catalogModels.Add($backgroundInfo)
     }
 
     $catalog = [ordered]@{ models = @($catalogModels) }
@@ -289,12 +314,20 @@ function Assert-UngateCodexConfig {
     $catalog = Get-Content -LiteralPath $Context.CustomModelCatalogPath -Raw |
         ConvertFrom-Json -Depth 100
     $catalogModels = @($catalog.models)
-    $expectedCatalogCount = $Selection.Definitions.Count + $(if ($Selection.MemoryEnabled) { 1 } else { 0 })
+    $backgroundDefinition = Get-CodexBackgroundDefinition -Selection $Selection
+    $expectedCatalogCount = $Selection.Definitions.Count + $(if ($Selection.MemoryEnabled) { 1 } else { 0 }) + $(if ($backgroundDefinition) { 1 } else { 0 })
     if ($catalogModels.Count -ne $expectedCatalogCount) {
         throw "Custom model catalog failed validation: $($Context.CustomModelCatalogPath)"
     }
     if ($Selection.MemoryEnabled -and @($catalogModels | Where-Object { $_.slug -eq 'ungate-memory' -and $_.visibility -eq 'hide' }).Count -ne 1) {
         throw 'Dedicated memory model is missing from the hidden catalog.'
+    }
+    if ($backgroundDefinition) {
+        $backgroundModel = @($catalogModels | Where-Object { $_.slug -eq $backgroundDefinition.ShellSlug })
+        if ($backgroundModel.Count -ne 1 -or $backgroundModel[0].visibility -ne 'hide' -or
+            -not ([string]$backgroundModel[0].base_instructions).StartsWith($backgroundDefinition.Identity)) {
+            throw 'Background task model is missing from the hidden catalog.'
+        }
     }
     foreach ($definition in $Selection.Definitions) {
         $catalogSlug = Get-CodexCatalogModelSlug -Selection $Selection -Definition $definition
@@ -415,6 +448,9 @@ function Assert-UngateCodexConfig {
                     }
                     if ($Selection.MemoryEnabled -and @($resolvedModels | Where-Object { $_.slug -eq 'ungate-memory' -and $_.visibility -eq 'hide' }).Count -ne 1) {
                         throw 'Codex did not load the dedicated memory model as hidden.'
+                    }
+                    if ($backgroundDefinition -and @($resolvedModels | Where-Object { $_.slug -eq $backgroundDefinition.ShellSlug -and $_.visibility -eq 'hide' }).Count -ne 1) {
+                        throw 'Codex did not load the background task model as hidden.'
                     }
                     foreach ($definition in $Selection.Definitions) {
                         $catalogSlug = Get-CodexCatalogModelSlug -Selection $Selection -Definition $definition
