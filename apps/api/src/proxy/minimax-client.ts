@@ -129,7 +129,7 @@ export async function normalizeMiniMaxUpstreamResponse(
 			};
 		}
 
-		if (!stream) {
+		if (!stream || !response.ok) {
 			return {
 				response,
 				bodyJson,

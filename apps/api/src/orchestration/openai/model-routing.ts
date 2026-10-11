@@ -1,4 +1,6 @@
 import { openaiToAnthropic } from 'src/adapter/openai-to-anthropic';
+import { ResponsesModelResolver } from 'src/proxy/responses-input-normalizer/resolve-model';
+import { logReasoningSelection, resolveReasoningEffort, withReasoningSelection } from 'src/utils/reasoning-effort';
 
 import type { ModelMappingConfig } from '@ungate/shared';
 import type { OpenAIChatRequest } from 'src/types/openai';
@@ -113,12 +115,9 @@ export class CompletionModelRouting {
 
 	static buildMiniMaxBody(openaiBody: OpenAIChatRequest, resolved: ModelMappingConfig | null): OpenAIChatRequest {
 		const withModel = resolved?.provider === 'minimax' ? { ...openaiBody, model: resolved.upstreamModel } : openaiBody;
-		const hasClientReasoning = Boolean(withModel.reasoning?.effort ?? withModel.reasoning_effort);
-
-		const withReasoning: OpenAIChatRequest =
-			!hasClientReasoning && resolved?.reasoningBudget
-				? { ...withModel, reasoning: { effort: resolved.reasoningBudget } }
-				: withModel;
+		const reasoning = resolveReasoningEffort(openaiBody, resolved?.reasoningBudget);
+		logReasoningSelection('minimax', withModel.model, reasoning);
+		const withReasoning = withReasoningSelection(withModel, reasoning);
 
 		return withMiniMaxFileEditingInstruction(withReasoning);
 	}
@@ -141,16 +140,13 @@ export class CompletionModelRouting {
 			model: resolved.upstreamModel
 		};
 
-		if (resolved.reasoningBudget) {
-			const withReasoning: OpenAIChatRequest = {
-				...withModel,
-				reasoning: { effort: resolved.reasoningBudget }
-			};
+		const legacyModel =
+			ResponsesModelResolver.resolveReasoningSuffix(openaiBody.model) ??
+			ResponsesModelResolver.resolveReasoningSuffix(resolved.upstreamModel);
+		const reasoning = resolveReasoningEffort(openaiBody, resolved.reasoningBudget, legacyModel?.reasoningEffort);
+		logReasoningSelection('openai', withModel.model, reasoning);
 
-			return withReasoning;
-		}
-
-		return withModel;
+		return withReasoningSelection(withModel, reasoning);
 	}
 
 	static toAnthropicRequest(

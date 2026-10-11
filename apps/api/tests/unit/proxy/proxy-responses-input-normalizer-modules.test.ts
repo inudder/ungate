@@ -6,8 +6,7 @@ import { ResponsesModelResolver } from 'src/proxy/responses-input-normalizer/res
 describe('proxy-responses-input-normalizer-modules', () => {
 	it('resolves gpt aliases into codex-compatible model and effort', () => {
 		expect(ResponsesModelResolver.resolveModel('gpt-5.3')).toEqual({
-			model: 'gpt-5.3-codex',
-			reasoningEffort: 'medium'
+			model: 'gpt-5.3-codex'
 		});
 		expect(ResponsesModelResolver.resolveModel('gpt-5.4-high')).toEqual({
 			model: 'gpt-5.4',

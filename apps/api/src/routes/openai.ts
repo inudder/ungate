@@ -22,14 +22,14 @@ const plugin: FastifyPluginCallback = (app) => {
 
 				// Branch order matters: MiniMax (mapping or name prefix) before DB-mapped OpenAI, then default Claude path.
 				if (CompletionModelRouting.shouldRouteMiniMax(resolvedModel, openaiBody.model)) {
-					return MiniMaxChatHandler.handle(openaiBody, resolvedModel, reply);
+					return await MiniMaxChatHandler.handle(openaiBody, resolvedModel, reply);
 				}
 
 				if (CompletionModelRouting.isOpenAiMapped(resolvedModel)) {
-					return OpenAiMappedChatHandler.handle(openaiBody, resolvedModel, reply);
+					return await OpenAiMappedChatHandler.handle(openaiBody, resolvedModel, reply);
 				}
 
-				return ClaudeChatHandler.handle(request, openaiBody, resolvedModel, reply);
+				return await ClaudeChatHandler.handle(request, openaiBody, resolvedModel, reply);
 			} catch (error) {
 				logger.error(`OpenAI request handling error: ${String(error)}`);
 

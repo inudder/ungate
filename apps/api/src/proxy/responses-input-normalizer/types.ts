@@ -1,4 +1,6 @@
-export type CodexReasoningEffort = 'none' | 'low' | 'medium' | 'high' | 'xhigh';
+import type { OpenAIReasoningEffort } from 'src/types/openai';
+
+export type CodexReasoningEffort = OpenAIReasoningEffort;
 
 export interface ResolvedChatGptModel {
 	model: string;

@@ -14,6 +14,31 @@ matrix below.
 
 ## Local endpoints
 
+### Ungate API reasoning precedence
+
+The direct Ungate `/v1/chat/completions` and `/v1/responses` routes resolve reasoning
+as explicit client fields, then a recognized legacy model suffix, then the model
+card's `reasoningBudget`, then the upstream model default. Arbitrary mapping IDs
+such as `custom-high` are not interpreted as suffixes. For Chat Completions,
+`reasoning.effort` wins over `reasoning_effort`; Responses uses `reasoning.effort`.
+Missing/null levels inherit, Responses `minimal` becomes `low`, `max` remains
+`max`, and empty/unknown values return HTTP 400 before contacting the provider.
+
+The shared resolver is `apps/api/src/utils/reasoning-effort.ts`. Claude translates
+positive levels to `thinking: adaptive` and `output_config.effort`, while explicit
+`none` becomes `thinking: disabled`. OpenAI receives the selected effort in its
+Responses payload. MiniMax retains its adaptive/disabled switch for positive
+levels/`none`. Without any selected level, no effort or thinking override is added;
+legacy OpenAI aliases no longer inject an implicit `medium`.
+
+The model card's **Model default** is still stored as `reasoningBudget: null` and
+does not disable thinking. The landing generator's **Off** omits the effort field
+and therefore inherits the card/upstream default. Unsupported provider choices
+return the upstream error without a different effort or reasoning fallback.
+`[Reasoning]` diagnostics report provider, model, selected effort, and source
+(`client`, `ungate`, or `model_default`), without request contents or credentials.
+Native `/v1/messages`, OmniRoute, and CLIProxyAPI are outside this contract.
+
 | Component | Endpoint | Repository or data location | Responsibility |
 | --- | --- | --- | --- |
 | Ungate Responses proxy | `http://127.0.0.1:47821` | `J:\Dev\ungate-local\apps\api` | Direct Ungate and MiniMax Responses routes |

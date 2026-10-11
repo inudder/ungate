@@ -35,6 +35,8 @@ export interface OpenAIToolCall {
 	};
 }
 
+export type OpenAIReasoningEffort = 'none' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
 export interface OpenAIChatRequest {
 	model: string;
 	messages: OpenAIMessage[];
@@ -51,10 +53,10 @@ export interface OpenAIChatRequest {
 	user?: string;
 	tools?: OpenAITool[];
 	tool_choice?: 'none' | 'auto' | 'required' | { type: 'function'; function: { name: string } };
-	reasoning_effort?: 'none' | 'low' | 'medium' | 'high' | 'xhigh';
+	reasoning_effort?: OpenAIReasoningEffort | null;
 	reasoning?: {
-		effort?: 'none' | 'low' | 'medium' | 'high' | 'xhigh';
-	};
+		effort?: OpenAIReasoningEffort | null;
+	} | null;
 }
 
 export interface OpenAIChatResponse {
@@ -90,7 +92,7 @@ export interface OpenAIStreamChunkToolCall {
 	};
 }
 
-export type OpenAIResponseReasoningEffort = 'minimal' | 'none' | 'low' | 'medium' | 'high' | 'xhigh';
+export type OpenAIResponseReasoningEffort = 'minimal' | OpenAIReasoningEffort;
 
 export interface OpenAIResponsesFunctionTool {
 	type: 'function';
@@ -133,8 +135,8 @@ export interface OpenAIResponsesRequest {
 	max_output_tokens?: number;
 	parallel_tool_calls?: boolean;
 	reasoning?: {
-		effort?: OpenAIResponseReasoningEffort;
-	};
+		effort?: OpenAIResponseReasoningEffort | null;
+	} | null;
 	metadata?: Record<string, unknown> | null;
 	user?: string;
 	previous_response_id?: string;

@@ -1,10 +1,11 @@
 import { CodexInputUtils } from 'src/proxy/codex-input-utils';
+import { resolveReasoningEffort } from 'src/utils/reasoning-effort';
 
 import { ResponsesInputShape } from './input-shape';
 import { ResponsesInputText } from './input-text';
 import { ResponsesModelResolver } from './resolve-model';
 
-import type { BuildResponsesBodyOptions, BuildResponsesBodyResult, CodexReasoningEffort } from './types';
+import type { BuildResponsesBodyOptions, BuildResponsesBodyResult } from './types';
 import type { OpenAIChatRequest } from 'src/types/openai';
 
 export class ResponsesBodyBuilder {
@@ -15,8 +16,7 @@ export class ResponsesBodyBuilder {
 	): BuildResponsesBodyResult {
 		const messages = CodexInputUtils.coerceMessages(body);
 		const resolvedModel = ResponsesModelResolver.resolveModel(requestedModel);
-		const explicitReasoning = body.reasoning as { effort?: CodexReasoningEffort } | undefined;
-		const reasoningEffort = explicitReasoning?.effort ?? body.reasoning_effort ?? resolvedModel.reasoningEffort;
+		const reasoningEffort = resolveReasoningEffort(body, undefined, resolvedModel.reasoningEffort).effort;
 		const expandedInput = CodexInputUtils.expandInput(body.input);
 		const usedExpandedInput = expandedInput !== null;
 

@@ -1,13 +1,8 @@
 import type { CodexReasoningEffort, ResolvedChatGptModel } from './types';
 
-const LEGACY_MODEL_REASONING_DEFAULTS: Record<string, CodexReasoningEffort> = {
-	'gpt-5.3-codex': 'medium',
-	'gpt-5.1-codex-mini': 'medium'
-};
-
 const LEGACY_MODEL_PREFIX_ALIASES: Record<string, ResolvedChatGptModel> = {
-	'gpt-5.3': { model: 'gpt-5.3-codex', reasoningEffort: 'medium' },
-	'gpt-5.1': { model: 'gpt-5.1-codex-mini', reasoningEffort: 'medium' }
+	'gpt-5.3': { model: 'gpt-5.3-codex' },
+	'gpt-5.1': { model: 'gpt-5.1-codex-mini' }
 };
 
 export class ResponsesModelResolver {
@@ -24,12 +19,6 @@ export class ResponsesModelResolver {
 
 		if (model === 'gpt-5.4' || model === 'gpt-5.4-mini') {
 			return { model };
-		}
-
-		const defaultReasoning = LEGACY_MODEL_REASONING_DEFAULTS[model];
-
-		if (defaultReasoning) {
-			return { model, reasoningEffort: defaultReasoning };
 		}
 
 		if (model.includes('codex')) {
@@ -49,8 +38,12 @@ export class ResponsesModelResolver {
 		return { model: 'gpt-5.4' };
 	}
 
-	private static resolveReasoningSuffix(model: string): ResolvedChatGptModel | null {
-		const effortLevels: CodexReasoningEffort[] = ['none', 'low', 'medium', 'high', 'xhigh'];
+	public static resolveReasoningSuffix(model: string): ResolvedChatGptModel | null {
+		if (!/^gpt-\d/.test(model)) {
+			return null;
+		}
+
+		const effortLevels: CodexReasoningEffort[] = ['none', 'low', 'medium', 'high', 'xhigh', 'max'];
 
 		for (const effort of effortLevels) {
 			if (model.endsWith(`-${effort}`)) {

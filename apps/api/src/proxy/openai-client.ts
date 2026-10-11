@@ -168,8 +168,9 @@ export class OpenAiClient {
 	private static streamResponse(response: Response, state: ReturnType<typeof StreamStateFactory.create>): Response {
 		const reader = response.body!.getReader();
 		const decoder = new TextDecoder();
+		const encoder = new TextEncoder();
 
-		const streamBody = new ReadableStream({
+		const streamBody = new ReadableStream<Uint8Array>({
 			async start(controller) {
 				while (true) {
 					const { done, value } = await reader.read();
@@ -183,9 +184,9 @@ export class OpenAiClient {
 
 					for (const result of results) {
 						if (result.type === 'chunk') {
-							controller.enqueue(`data: ${JSON.stringify(result.data)}\n\n`);
+							controller.enqueue(encoder.encode(`data: ${JSON.stringify(result.data)}\n\n`));
 						} else if (result.type === 'done') {
-							controller.enqueue('data: [DONE]\n\n');
+							controller.enqueue(encoder.encode('data: [DONE]\n\n'));
 						}
 					}
 				}

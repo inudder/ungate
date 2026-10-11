@@ -4,13 +4,12 @@ import { ResponsesBodyBuilder } from 'src/proxy/responses-input-normalizer/build
 import { ResponsesModelResolver } from 'src/proxy/responses-input-normalizer/resolve-model';
 
 describe('proxy-responses-input-normalizer', () => {
-	it('resolves model aliases and reasoning defaults', () => {
+	it('resolves model aliases without inventing reasoning defaults', () => {
 		expect(ResponsesModelResolver.resolveModel('')).toEqual({ model: 'gpt-5.4' });
-		expect(ResponsesModelResolver.resolveModel('gpt-5.3-codex')).toEqual({ model: 'gpt-5.3-codex', reasoningEffort: 'medium' });
+		expect(ResponsesModelResolver.resolveModel('gpt-5.3-codex')).toEqual({ model: 'gpt-5.3-codex' });
 		expect(ResponsesModelResolver.resolveModel('gpt-5.4-high')).toEqual({ model: 'gpt-5.4', reasoningEffort: 'high' });
 		expect(ResponsesModelResolver.resolveModel('gpt-5.1-any')).toEqual({
-			model: 'gpt-5.1-codex-mini',
-			reasoningEffort: 'medium'
+			model: 'gpt-5.1-codex-mini'
 		});
 	});
 

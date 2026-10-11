@@ -1,4 +1,5 @@
 import { logger } from 'src/utils/logger';
+import { logReasoningSelection, resolveReasoningEffort } from 'src/utils/reasoning-effort';
 
 import type { AnthropicRequest, AnthropicMessage, ContentBlock } from '../types';
 import type { OpenAIContentPart, OpenAIChatRequest } from '../types/openai';
@@ -6,12 +7,12 @@ import type { ReasoningBudgetTier } from '@ungate/shared';
 
 // Legacy Cursor model names can include explicit budgets or the old "-thinking" suffix.
 // e.g. "claude-4.6-opus-high" → "claude-opus-4-6" with reasoningBudget="high"
-export function normalizeModelName(model: string): { model: string; reasoningBudget?: string } {
+export function normalizeModelName(model: string): { model: string; reasoningBudget?: ReasoningBudgetTier } {
 	const match46 = /^claude-4\.6-(opus|sonnet)(?:-(high|medium|low))?(?:-thinking)?$/.exec(model);
 	if (match46) {
 		return {
 			model: `claude-${match46[1]}-4-6`,
-			reasoningBudget: match46[2] || undefined
+			reasoningBudget: (match46[2] || undefined) as ReasoningBudgetTier | undefined
 		};
 	}
 
@@ -26,7 +27,7 @@ export function normalizeModelName(model: string): { model: string; reasoningBud
 			haiku: 'claude-haiku-4-5-20251001'
 		} as const;
 
-		return { model: modelMap[modelType], reasoningBudget: budget || undefined };
+		return { model: modelMap[modelType], reasoningBudget: (budget || undefined) as ReasoningBudgetTier | undefined };
 	}
 
 	return { model };
@@ -222,17 +223,10 @@ export function openaiToAnthropic(request: OpenAIChatRequest, override?: Anthrop
 		messages.unshift({ role: 'user', content: 'Continue.' });
 	}
 
-	let normalized: { model: string; reasoningBudget?: string };
-
-	if (override) {
-		normalized = { model: override.model };
-
-		if (override.reasoningBudget) {
-			normalized.reasoningBudget = override.reasoningBudget;
-		}
-	} else {
-		normalized = normalizeModelName(request.model);
-	}
+	const legacyModel = normalizeModelName(request.model);
+	const normalized = { model: override?.model ?? legacyModel.model };
+	const reasoning = resolveReasoningEffort(request, override?.reasoningBudget, legacyModel.reasoningBudget);
+	logReasoningSelection('claude', normalized.model, reasoning);
 
 	if (messages.at(-1)?.role === 'assistant' && !supportsAssistantPrefill(normalized.model)) {
 		messages.push({ role: 'user', content: 'Continue.' });
@@ -240,9 +234,7 @@ export function openaiToAnthropic(request: OpenAIChatRequest, override?: Anthrop
 
 	const maxTokens = request.max_tokens ?? request.max_completion_tokens ?? 4096;
 
-	logger.log(
-		`[OpenAI→Anthropic] "${request.model}" → "${normalized.model}"${normalized.reasoningBudget ? ` (reasoning_budget: ${normalized.reasoningBudget})` : ''} | max_tokens=${maxTokens}`
-	);
+	logger.log(`[OpenAI→Anthropic] "${request.model}" → "${normalized.model}" | max_tokens=${maxTokens}`);
 
 	const result: AnthropicRequest = {
 		model: normalized.model,
@@ -285,8 +277,10 @@ export function openaiToAnthropic(request: OpenAIChatRequest, override?: Anthrop
 		}
 	}
 
-	if (normalized.reasoningBudget) {
-		result.reasoning_budget = normalized.reasoningBudget;
+	if (reasoning.effort === 'none') {
+		result.thinking = { type: 'disabled' };
+	} else if (reasoning.effort !== undefined) {
+		result.reasoning_budget = reasoning.effort;
 	}
 
 	return result;

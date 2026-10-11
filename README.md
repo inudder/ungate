@@ -134,6 +134,27 @@ If Cursor turns `OpenAI API Key` off on its own, Ungate can turn it back on auto
 2. If you use MiniMax, add `MiniMax-M2.7` as a custom model in Cursor.
 3. Select one of your custom models in Cursor and start chatting.
 
+### Reasoning effort
+
+For `/v1/chat/completions` and `/v1/responses`, the client's reasoning effort takes
+priority over the model card's **Default reasoning effort**. If the client omits
+the level, Ungate uses the card's setting; **Model default** leaves it to the
+upstream model. Existing saved settings keep their values.
+
+Chat Completions accepts `reasoning_effort` or `reasoning.effort` (the nested field
+wins if both are present). Responses accepts `reasoning.effort`. Client levels are
+`none`, `low`, `medium`, `high`, `xhigh`, and `max`; Responses also accepts `minimal`
+as `low`. Missing/null levels inherit. Empty or unknown levels return HTTP 400.
+Recognized legacy model suffixes count as a client choice, below explicit fields.
+
+An explicit `none` requests disabled thinking and is never replaced by the card's
+default. If the model rejects that choice or another level, Ungate returns its
+error without choosing a different level. In the landing generator, **Off** omits
+the parameter and therefore inherits; it does not send an explicit `none`.
+Claude receives adaptive thinking plus effort for positive levels; MiniMax keeps
+its provider-specific adaptive/disabled switch, so positive levels do not select
+different numeric thinking budgets. This contract does not change `/v1/messages`.
+
 ## Quick verification
 
 After setup, then send one test message from Cursor using a custom model ID.

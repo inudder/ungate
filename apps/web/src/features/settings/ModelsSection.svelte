@@ -73,7 +73,7 @@ let reauthCodeInput = $state('');
 let reauthError = $state<string | null>(null);
 
 const reasoningOptions: { label: string; value: ModelMappingConfig['reasoningBudget'] }[] = [
-	{ label: 'None', value: null },
+	{ label: 'Model default', value: null },
 	{ label: 'Low', value: 'low' },
 	{ label: 'Medium', value: 'medium' },
 	{ label: 'High', value: 'high' },
@@ -608,7 +608,7 @@ $effect(() => {
 						</label>
 
 						<label class="label">
-							<span class="label-text text-xs">Reasoning Budget</span>
+							<span class="label-text text-xs">Default reasoning effort</span>
 							<select
 								class="select text-sm"
 								value={model.reasoningBudget ?? ''}
@@ -620,6 +620,8 @@ $effect(() => {
 									<option value={option.value ?? ''}>{option.label}</option>
 								{/each}
 							</select>
+							<span class="text-xs text-surface-400">
+								Used when the client omits its reasoning effort. Model default leaves the level to the provider.</span>
 						</label>
 					</div>
 				</div>

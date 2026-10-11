@@ -1,5 +1,6 @@
 import { ModelMappings } from 'src/database/model-mappings';
 import { CodexInputUtils } from 'src/proxy/codex-input-utils';
+import { normalizeReasoningEffort } from 'src/utils/reasoning-effort';
 
 import { flattenResponsesNamespaceTools } from './responses-namespace-tools';
 
@@ -8,13 +9,10 @@ import type {
 	OpenAIChatRequest,
 	OpenAIContentPart,
 	OpenAIMessage,
-	OpenAIResponseReasoningEffort,
 	OpenAIResponsesFunctionTool,
 	OpenAIResponsesRequest,
 	OpenAITool
 } from 'src/types/openai';
-
-type ChatReasoningEffort = NonNullable<OpenAIChatRequest['reasoning']>['effort'];
 
 const RESPONSES_COMPLETION_TOKEN_FLOOR = 8192;
 
@@ -54,18 +52,6 @@ function toText(value: unknown): string {
 	}
 
 	return JSON.stringify(value);
-}
-
-function normalizeReasoningEffort(effort: OpenAIResponseReasoningEffort | undefined): ChatReasoningEffort | undefined {
-	if (!effort) {
-		return undefined;
-	}
-
-	if (effort === 'minimal') {
-		return 'low';
-	}
-
-	return effort as ChatReasoningEffort;
 }
 
 function normalizeMaxCompletionTokens(maxOutputTokens: number | undefined): number {
@@ -381,7 +367,7 @@ export class ResponsesRequestNormalizer {
 
 		const resolvedModel = ModelMappings.resolveForChatCompletion(flattenedRequest.model);
 		const items = inputToItems(flattenedRequest.input);
-		const reasoningEffort = normalizeReasoningEffort(flattenedRequest.reasoning?.effort);
+		const reasoningEffort = normalizeReasoningEffort(flattenedRequest.reasoning?.effort, true);
 		const body: OpenAIChatRequest = {
 			model: flattenedRequest.model,
 			messages: itemsToChatMessages(items, flattenedRequest.instructions),
