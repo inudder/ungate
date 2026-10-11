@@ -28,15 +28,16 @@ export interface LauncherTransport {
 
 async function verifyServer(pid: number, ownerSid: string): Promise<void> {
 	if (!Number.isInteger(pid) || pid <= 0) throw new Error('Launcher agent identity is missing.');
+	const pidText = String(pid);
 	const script = [
-		'$process = Get-CimInstance -ClassName Win32_Process -Filter ("ProcessId=" + $args[0])',
+		`$process = Get-CimInstance -ClassName Win32_Process -Filter ('ProcessId=${pidText}')`,
 		'if (-not $process) { throw "missing process" }',
 		'$owner = Invoke-CimMethod -InputObject $process -MethodName GetOwner',
 		'$account = [System.Security.Principal.NTAccount]::new([string]$owner.Domain, [string]$owner.User)',
 		'$sid = $account.Translate([System.Security.Principal.SecurityIdentifier]).Value',
 		'[pscustomobject]@{ sid = $sid; executable = [string]$process.ExecutablePath } | ConvertTo-Json -Compress'
 	].join('; ');
-	const { stdout } = await execFileAsync('pwsh', ['-NoProfile', '-Command', script, String(pid)], { windowsHide: true });
+	const { stdout } = await execFileAsync('pwsh', ['-NoProfile', '-Command', script], { windowsHide: true });
 	const identity = JSON.parse(stdout) as { sid?: string; executable?: string };
 	const executable = (identity.executable ?? '').toLowerCase();
 	if (identity.sid !== ownerSid || !executable.endsWith('pwsh.exe')) {
@@ -66,7 +67,7 @@ export function createPipeTransport(pipeName: string, ownerSid: string): Launche
 					const frame = Buffer.alloc(4 + body.length);
 					frame.writeUInt32LE(body.length, 0);
 					body.copy(frame, 4);
-					socket.end(frame);
+					socket.write(frame);
 				});
 				socket.on('data', (chunk: Buffer) => {
 					chunks.push(chunk);

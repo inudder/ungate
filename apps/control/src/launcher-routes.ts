@@ -71,8 +71,10 @@ export function registerLauncherRoutes(
 			const response = await transport.request(action, forwarded, requestId);
 
 			return { status: response.status, body: response.body };
-		} catch {
-			return failure(503, 'agent_unavailable', 'Компонент управления не запущен');
+		} catch (error) {
+			const detail = error instanceof Error ? error.message.split('\n')[0] : 'unknown';
+
+			return failure(503, 'agent_unavailable', 'Компонент управления не запущен', { detail });
 		}
 	};
 

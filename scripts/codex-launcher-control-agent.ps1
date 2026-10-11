@@ -274,8 +274,13 @@ Write-JsonFile -Path (Join-Path $controlRoot 'agent.json') -Value @{ pid = $PID;
 
 try {
     while ($true) {
-        $pending = $pipe.WaitForConnectionAsync()
-        while (-not $pending.Wait(500)) { Update-Jobs }
+        try {
+            $pending = $pipe.WaitForConnectionAsync()
+            while (-not $pending.Wait(500)) { Update-Jobs }
+        } catch {
+            try { $pipe.Disconnect() } catch { }
+            continue
+        }
         try {
             $clientPid = 0
             [void][UngatePipeNative]::GetNamedPipeClientProcessId($pipe.SafePipeHandle.DangerousGetHandle(), [ref]$clientPid)
@@ -345,10 +350,10 @@ try {
                 Write-Frame $pipe (@{ version = 1; status = 422; body = @{ code = 'invalid_settings'; message = $_.Exception.Message } } | ConvertTo-Json -Compress -Depth 10)
             } catch { }
         } finally {
-            if ($pipe.IsConnected) {
-                Wait-PipeClientClose $pipe
+            try {
+                if ($pipe.IsConnected) { Wait-PipeClientClose $pipe }
                 $pipe.Disconnect()
-            }
+            } catch { }
         }
     }
 } finally {
