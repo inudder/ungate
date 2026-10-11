@@ -5,6 +5,8 @@ import Fastify, { type FastifyInstance } from 'fastify';
 
 import { ControlRuntime } from './control-runtime';
 import { EventHub } from './event-hub';
+import { createPipeTransport, type LauncherTransport } from './launcher-client';
+import { registerLauncherRoutes } from './launcher-routes';
 import { NssmClient } from './nssm-client';
 
 import type { ControlConfig } from './config';
@@ -37,6 +39,7 @@ const BACKEND_ROUTES = new Map<string, ReadonlySet<string>>([
 interface ServerDependencies {
 	nssm?: NssmClient;
 	fetcher?: typeof fetch;
+	launcherTransport?: LauncherTransport | null;
 }
 
 function allowedHost(host: string | undefined, port: number): boolean {
@@ -60,6 +63,7 @@ function allowedOrigin(origin: string | undefined, port: number): boolean {
 }
 
 function requiresCsrf(method: string, pathname: string): boolean {
+	if (pathname.startsWith('/api/control/launcher')) return true;
 	if (pathname.startsWith('/api/backend/')) return true;
 
 	return method !== 'GET' && method !== 'HEAD' && pathname.startsWith('/api/control/');
@@ -85,6 +89,12 @@ export async function buildServer(config: ControlConfig, dependencies: ServerDep
 	const nssm = dependencies.nssm ?? new NssmClient(config.nssmPath);
 	const runtime = new ControlRuntime(config, nssm, events, dependencies.fetcher);
 	const csrfToken = randomBytes(32).toString('base64url');
+	const launcherTransport =
+		dependencies.launcherTransport === undefined
+			? config.launcher
+				? createPipeTransport(config.launcher.pipeName, config.launcher.ownerSid)
+				: null
+			: dependencies.launcherTransport;
 
 	app.addHook('onRequest', async (request, reply) => {
 		const pathname = new URL(request.raw.url ?? '/', 'http://localhost').pathname;
@@ -96,6 +106,19 @@ export async function buildServer(config: ControlConfig, dependencies: ServerDep
 		if (requiresCsrf(request.method, pathname) && request.headers['x-ungate-csrf'] !== csrfToken) {
 			return reply.code(403).send({ error: 'Invalid CSRF token' });
 		}
+	});
+
+	app.setErrorHandler((error: unknown, request, reply) => {
+		const failure = error as { validation?: unknown; statusCode?: number; name?: string; message?: string };
+		const pathname = (request.raw.url ?? '/').split('?')[0] ?? '/';
+		if (pathname.startsWith('/api/control/launcher') && failure.validation) {
+			return reply.code(400).send({ code: 'malformed_request', message: 'Malformed request', fieldErrors: failure.validation });
+		}
+		const statusCode = failure.statusCode ?? 500;
+
+		return reply
+			.code(statusCode)
+			.send({ statusCode, error: failure.name ?? 'Error', message: failure.message ?? 'Request failed' });
 	});
 
 	app.get('/health', async (_request, reply) => {
@@ -158,6 +181,8 @@ export async function buildServer(config: ControlConfig, dependencies: ServerDep
 		const removeClient = events.add(reply.raw);
 		request.raw.once('close', removeClient);
 	});
+
+	registerLauncherRoutes(app, config, events, launcherTransport);
 
 	app.all('/api/backend/*', async (request, reply) => {
 		const incomingUrl = new URL(request.raw.url ?? '/', 'http://localhost');

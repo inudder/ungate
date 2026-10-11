@@ -1,6 +1,7 @@
 #requires -Version 7.4
 # Models: internal Desktop launcher module. No per-launch module state.
 Import-Module (Join-Path $PSScriptRoot 'ModelCapabilities.psm1') -DisableNameChecking -ErrorAction Stop
+Import-Module (Join-Path $PSScriptRoot 'LauncherLock.psm1') -DisableNameChecking -ErrorAction Stop
 
 
 function New-UngateModelSet {
@@ -509,6 +510,8 @@ function Write-UngateCustomModelDefinitions {
         [object[]]$BuiltInDefinitions
     )
     $ErrorActionPreference = 'Stop'
+    $lease = Enter-UngateProfileLock -HomePath (Split-Path -Parent ([System.IO.Path]::GetFullPath($RegistryPath)))
+    try {
 
     $normalizedDefinitions = [System.Collections.Generic.List[object]]::new()
     $seenSlugs = [System.Collections.Generic.HashSet[string]]::new(
@@ -596,6 +599,7 @@ function Write-UngateCustomModelDefinitions {
     }
 
     return $absoluteRegistryPath
+    } finally { Exit-UngateProfileLock -Lease $lease }
 }
 
 function ConvertTo-ContextWindowTokens {
@@ -717,6 +721,8 @@ function Set-UngateModelOverride {
         [hashtable]$Override
     )
     $ErrorActionPreference = 'Stop'
+    $lease = Enter-UngateProfileLock -HomePath (Split-Path -Parent ([System.IO.Path]::GetFullPath($OverridesPath)))
+    try {
 
     $current = Read-UngateModelOverrides -OverridesPath $OverridesPath
     $updated = [ordered]@{}
@@ -727,7 +733,10 @@ function Set-UngateModelOverride {
     if ($current.Contains($Slug)) { $merged = ConvertTo-CapabilityDictionary $current[$Slug] }
     foreach ($name in $Override.Keys) { $merged[$name] = $Override[$name] }
     $updated[$Slug] = $merged
-    return Write-UngateModelOverrides -OverridesPath $OverridesPath -Overrides $updated
+        return Write-UngateModelOverrides -OverridesPath $OverridesPath -Overrides $updated
+    } finally {
+        Exit-UngateProfileLock -Lease $lease
+    }
 }
 
 function Remove-UngateModelOverride {
@@ -739,6 +748,8 @@ function Remove-UngateModelOverride {
         [string[]]$Fields
     )
     $ErrorActionPreference = 'Stop'
+    $lease = Enter-UngateProfileLock -HomePath (Split-Path -Parent ([System.IO.Path]::GetFullPath($OverridesPath)))
+    try {
 
     $current = Read-UngateModelOverrides -OverridesPath $OverridesPath
     $updated = [ordered]@{}
@@ -757,7 +768,10 @@ function Remove-UngateModelOverride {
         }
         return $OverridesPath
     }
-    return Write-UngateModelOverrides -OverridesPath $OverridesPath -Overrides $updated
+        return Write-UngateModelOverrides -OverridesPath $OverridesPath -Overrides $updated
+    } finally {
+        Exit-UngateProfileLock -Lease $lease
+    }
 }
 
 function Apply-UngateModelOverrides {
@@ -908,6 +922,25 @@ function Get-UngateRequestModel {
     return $model
 }
 
+function Get-UngateDiagnosticRoute {
+    param([Parameter(Mandatory)][psobject]$Context, [Parameter(Mandatory)][object]$Definition)
+    $provider = if ($Definition.PSObject.Properties['ProviderName']) { [string]$Definition.ProviderName } else { '' }
+    $cliproxy = $provider -eq [string]$Context.CliProxyProviderName
+    $transport = if ($Definition.PSObject.Properties['Transport'] -and $Definition.Transport) {
+        [string]$Definition.Transport
+    } else { $provider }
+    return [pscustomobject][ordered]@{
+        RegistryId = [string]$Definition.Slug
+        RequestModel = Get-UngateRequestModel -Definition $Definition
+        Transport = $transport
+        ProviderName = $provider
+        UpstreamBaseUrl = if ($Definition.PSObject.Properties['ProxyBaseUrl']) { [string]$Definition.ProxyBaseUrl } else { '' }
+        ResponsesAdapter = if ($Definition.PSObject.Properties['ResponsesAdapter'] -and $Definition.ResponsesAdapter) { [string]$Definition.ResponsesAdapter } else { $null }
+        BridgeUpstreamUrl = if ($cliproxy) { [string]$Context.CliProxyUpstreamBaseUrl } else { $null }
+        BridgeRequired = [bool]$cliproxy
+    }
+}
+
 function Get-UngateModelContextWindow {
     param(
         [Parameter(Mandatory = $true)]
@@ -975,6 +1008,7 @@ Export-ModuleMember -Function @(
     'Write-UngateCustomModelDefinitions',
     'Get-UngateModelDefinitions',
     'Get-UngateRequestModel',
+    'Get-UngateDiagnosticRoute',
     'Get-UngateModelContextWindow',
     'New-UngateModelSet',
     'ConvertTo-ContextWindowTokens',

@@ -174,6 +174,7 @@ Describe 'Orchestration without production side effects' {
         Mock -ModuleName Launcher Start-CodexDesktopSession { param($Context) $script:events.Add("launch:$($Context.CustomCodexHome)") }
         Mock -ModuleName Launcher Write-Host {}
         Mock -ModuleName Launcher Write-CodexHistoryProfileDiagnostics {}
+        Mock -ModuleName Launcher Assert-OmniRouteDesktopContextLimit { [pscustomobject]@{ Status = 'ok' } }
     }
 
     It 'prepares without closing or launching Desktop and returns zero' {
@@ -213,6 +214,24 @@ Describe 'Orchestration without production side effects' {
         $one.Options.EnableProviderFallback | Should -BeFalse
         Test-Path -LiteralPath $one.CustomCodexHome | Should -BeFalse
         Test-Path -LiteralPath $two.CustomCodexHome | Should -BeFalse
+    }
+
+    It 'returns one and leaves the running Beta untouched when the OmniRoute context limit is smaller' {
+        Mock -ModuleName Launcher Assert-OmniRouteDesktopContextLimit { [pscustomobject]@{ Status = 'blocked' } }
+        Invoke-CodexDesktopLauncher -Context (New-TestContext @{Model='grok-4.7'}) | Should -Be 1
+        Should -Invoke -ModuleName Launcher Stop-CodexBeta -Times 0
+        Should -Invoke -ModuleName Launcher Initialize-CodexDesktopTransport -Times 0
+        Should -Invoke -ModuleName Launcher Initialize-CodexDesktopProfile -Times 0
+        Should -Invoke -ModuleName Launcher Start-CodexDesktopSession -Times 0
+    }
+
+    It 'returns one from PrepareOnly when the OmniRoute context limit is smaller' {
+        Mock -ModuleName Launcher Assert-OmniRouteDesktopContextLimit { [pscustomobject]@{ Status = 'blocked' } }
+        Invoke-CodexDesktopLauncher -Context (New-TestContext @{PrepareOnly=$true;Model='grok-4.7'}) | Should -Be 1
+        Should -Invoke -ModuleName Launcher Stop-CodexBeta -Times 0
+        Should -Invoke -ModuleName Launcher Initialize-CodexDesktopTransport -Times 0
+        Should -Invoke -ModuleName Launcher Initialize-CodexDesktopProfile -Times 0
+        Should -Invoke -ModuleName Launcher Start-CodexDesktopSession -Times 0
     }
 }
 
@@ -260,6 +279,7 @@ Describe 'Complete preparation on disposable profiles' {
         Mock -ModuleName Launcher Get-CodexBetaProcesses { @() }
         Mock -ModuleName Launcher Stop-CodexBeta { throw 'Must not stop Desktop' }
         Mock -ModuleName Launcher Start-CodexBetaDesktop { throw 'Must not launch Desktop' }
+        Mock -ModuleName Launcher Assert-OmniRouteDesktopContextLimit { [pscustomobject]@{ Status = 'ok' } }
         Mock -ModuleName Launcher Resolve-ModelApiKey { 'fixture-key' }
         Mock -ModuleName Launcher Ensure-CliProxyBridge {}
         Mock -ModuleName Launcher Ensure-CodexModelShellRouter {}
@@ -325,6 +345,20 @@ Describe 'Complete preparation on disposable profiles' {
         (Get-FileHash -LiteralPath $context.DefaultConfigPath).Hash | Should -Be $originalConfigHash
         Should -Invoke -ModuleName Launcher Stop-CodexBeta -Times 0
         Should -Invoke -ModuleName Launcher Start-CodexBetaDesktop -Times 0
+    }
+
+    It 'checks /v1/models only for the launched model provider' {
+        $context = New-TestContext @{PrepareOnly=$true;Model='grok-4.7'} 'models-probe'
+        $context.DefaultCodexHome = $script:sourceHome
+        $context.DefaultConfigPath = Join-Path $script:sourceHome 'config.toml'
+        $context.DefaultModelCachePath = Join-Path $script:sourceHome 'models_cache.json'
+        Invoke-CodexDesktopLauncher -Context $context | Should -Be 0
+
+        $selection = Get-TestSelection $context
+        Should -Invoke -ModuleName Catalog Invoke-RestMethod -Times 1 -Exactly -ParameterFilter { $Uri -like '*/v1/models' }
+        Should -Invoke -ModuleName Catalog Invoke-RestMethod -Times 1 -Exactly -ParameterFilter {
+            $Uri -eq "$($selection.SelectedModel.ProxyBaseUrl)/v1/models"
+        }
     }
 
     It 'rejects a <Problem> memory entry in the catalog loaded by Codex' -ForEach @(

@@ -148,5 +148,5 @@ test('rejects wrong structured output, function namespace and custom source', ()
 			}),
 		/invalid_custom_call/
 	);
-	assert.throws(() => verifyMemoryStage('continuation', { output: [message('wrong')] }), /invalid_continuation/);
+	assert.throws(() => verifyMemoryStage('continuation', { output: [message('  ')] }), /invalid_continuation/);
 });

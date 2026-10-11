@@ -9,6 +9,16 @@ and `ProxyRuntime.psm1` for transport startup and preflight. See
 model/provider matrix and external-directory map are maintained in
 `J:\Dev\ungate-local\docs\model-routing.md`.
 
+## PowerShell paths
+
+`$HOME` is the Windows user profile. PowerShell treats `$home`, `$Home`,
+`$script:Home`, and `$global:Home` as that same automatic variable. Do not
+assign it, use it as a parameter, or pass it to `Remove-Item`. Use a
+task-specific name such as `$launcherHome`. A recursive delete must resolve
+the path first and refuse the user profile, a drive root, or any path outside
+the temp directory it created. `scripts/test-codex-desktop-launcher.ps1`
+rejects an assignment to `home` and a delete through that variable.
+
 Bridge versus adapter, why Grok 4.7 has a hop, and where each model's tool
 compatibility lives: `docs/model-routing.md#bridges-vs-adapters`.
 

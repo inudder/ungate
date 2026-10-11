@@ -25,3 +25,8 @@ starts the service.
 
 The service is loopback-only. It does not expose the model proxy routes on port
 `47820`; `/v1/*` remains on `ungate-api:47821`.
+
+`/api/control/launcher/*` is also loopback-only. It talks to the user-session
+launcher control agent over a named pipe and does not read the Beta profile from
+the LocalSystem account. The owner SID, Beta home and pipe name are explicit
+service environment values.

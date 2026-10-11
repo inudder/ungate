@@ -16,7 +16,12 @@
     "UNGATE_API_SERVICE": "ungate-api",
     "UNGATE_TUNNEL_SERVICE": "frpc",
     "UNGATE_TUNNEL_HEALTH_URL": "https://ungate.ahref.cyou/health",
-    "NSSM_PATH": "C:\\Users\\kalvinclein\\scoop\\apps\\nssm\\current\\nssm.exe"
+    "NSSM_PATH": "C:\\Users\\kalvinclein\\scoop\\apps\\nssm\\current\\nssm.exe",
+    "UNGATE_LAUNCHER_OWNER_SID": "S-1-5-21-1291278068-251382271-1336519035-1001",
+    "UNGATE_LAUNCHER_BETA_HOME": "C:\\Users\\kalvinclein\\.codex-ungate",
+    "UNGATE_LAUNCHER_PIPE": "ungate-launcher-control-39fb0825167dfe838294e2d86508e144",
+    "UNGATE_LAUNCHER_ENTRY": "J:\\Dev\\ungate-local\\scripts\\start-codex-desktop-ungate.ps1",
+    "UNGATE_LAUNCHER_AGENT": "J:\\Dev\\ungate-local\\scripts\\start-codex-launcher-control.ps1"
   },
   "logs": "J:\\Dev\\ungate-local\\apps\\control\\ungate-dashboard.log",
   "logonMode": "localSystem",

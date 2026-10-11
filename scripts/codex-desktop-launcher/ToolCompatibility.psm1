@@ -78,12 +78,13 @@ function Invoke-CodexToolCompatibility {
         if ($LASTEXITCODE -ne 0) { return 2 }
         $models = @(
             foreach ($definition in $selected) {
+                $route = Get-UngateDiagnosticRoute -Context $Context -Definition $definition
                 $record = @{
-                    model = if ($definition.PSObject.Properties['UpstreamModel'] -and $definition.UpstreamModel) { $definition.UpstreamModel } else { $definition.Slug }
+                    model = $route.RequestModel
                     displayName = $definition.DisplayName
-                    upstreamBaseUrl = $definition.ProxyBaseUrl
-                    responsesAdapter = if ($definition.PSObject.Properties['ResponsesAdapter']) { $definition.ResponsesAdapter } else { $null }
-                    bridgeUpstreamUrl = if ($definition.ProviderName -eq $Context.CliProxyProviderName) { $Context.CliProxyUpstreamBaseUrl } else { $null }
+                    upstreamBaseUrl = $route.UpstreamBaseUrl
+                    responsesAdapter = $route.ResponsesAdapter
+                    bridgeUpstreamUrl = $route.BridgeUpstreamUrl
                 }
                 try {
                     $record.apiKey = Resolve-ModelApiKey -Context $Context -Definition $definition -ApiKey $Context.Options.ApiKey

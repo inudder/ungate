@@ -13,6 +13,7 @@ Import-Module (Join-Path $PSScriptRoot 'ToolCompatibility.psm1') -DisableNameChe
 Import-Module (Join-Path $PSScriptRoot 'Memories.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'Capabilities.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'codex-plugin-isolation.psm1') -DisableNameChecking -ErrorAction Stop
+Import-Module (Join-Path $PSScriptRoot 'OmniRouteContextLimit.psm1') -DisableNameChecking -ErrorAction Stop
 
 function Get-ActiveDesktopModelDefinitions {
     param(
@@ -445,6 +446,10 @@ function Invoke-CodexDesktopLauncher {
     $historyProfile = Get-CodexHistoryProfileInfo -HomePath $Context.CustomCodexHome -CanonicalHomePath $Context.CanonicalCodexHome -ModelSlug $selectedModelId -ProviderName $selection.SelectedModel.ProviderName
     Write-CodexHistoryProfileDiagnostics -Context $Context -Profile $historyProfile
 
+    $contextLimit = Assert-OmniRouteDesktopContextLimit -Context $Context -Selection $selection
+    if ($contextLimit.Status -eq 'blocked') {
+        return 1
+    }
     $codexBeta = Get-CodexBetaPackageInfo
     if (-not $Context.Options.PrepareOnly) {
         Stop-CodexBeta -ExecutablePath $codexBeta.ExecutablePath
@@ -458,6 +463,15 @@ function Invoke-CodexDesktopLauncher {
         }
         Write-Host '[ungate] Preparation passed. Desktop launch skipped.' -ForegroundColor Green
         return 0
+    }
+    # Start the control agent before the session: Start-CodexDesktopSession blocks while streaming logs.
+    try {
+        & (Join-Path $Context.ScriptsRoot 'start-codex-launcher-control.ps1') -BetaHome $Context.CustomCodexHome | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host '[ungate] Launcher control agent was not started.' -ForegroundColor Yellow
+        }
+    } catch {
+        Write-Host "[ungate] Launcher control agent was not started: $($_.Exception.Message)" -ForegroundColor Yellow
     }
     Start-CodexDesktopSession -Context $Context -Selection $selection -codexBeta $codexBeta -providerKeys $transport.ProviderKeys
     return 0

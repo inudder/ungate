@@ -375,6 +375,12 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
 				throw new Error('Invalid diagnostic configuration JSON.');
 			}
 			const result = await runCompatibility(config, { signal: controller.signal });
+			const ndjson = process.argv.includes('--format') && process.argv[process.argv.indexOf('--format') + 1] === 'ndjson';
+			if (ndjson) {
+				process.stdout.write(
+					JSON.stringify({ type: 'result', exitCode: result.exitCode, report: result.report }) + String.fromCharCode(10)
+				);
+			}
 			process.exitCode = result.exitCode;
 		}
 	} catch (error) {

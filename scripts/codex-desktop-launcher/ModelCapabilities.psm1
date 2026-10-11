@@ -136,4 +136,4 @@ function Apply-UngateModelCapabilities {
 }
 
 Export-ModuleMember -Function @('Get-UngateCapabilityNames', 'ConvertTo-CapabilityDictionary',
-    'Get-UngateModelCapabilities', 'Merge-UngateModelCapabilities', 'Apply-UngateModelCapabilities')
+    'Get-UngateCapabilityTemplate', 'Get-UngateModelCapabilities', 'Merge-UngateModelCapabilities', 'Apply-UngateModelCapabilities')

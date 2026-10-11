@@ -18,6 +18,8 @@ async function main(): Promise<void> {
 
 	try {
 		await app.listen({ host: config.host, port: config.port });
+		const address = app.server.address();
+		if (address && typeof address === 'object') config.port = address.port;
 		console.log(`[ungate-dashboard] listening on http://${config.host}:${config.port}`);
 	} catch (error) {
 		console.error('[ungate-dashboard] failed to start:', error);

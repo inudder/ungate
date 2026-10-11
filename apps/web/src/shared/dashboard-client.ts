@@ -1,4 +1,6 @@
 import type {
+	LauncherOperation,
+	LauncherState,
 	DashboardBootstrap,
 	DashboardEvent,
 	DashboardLogSource,
@@ -16,10 +18,28 @@ function sleep(milliseconds: number): Promise<void> {
 
 async function responseError(response: Response): Promise<Error> {
 	try {
-		const payload = (await response.json()) as { error?: string; detail?: string };
-		const detail = payload.detail ? `: ${payload.detail}` : '';
+		const payload = (await response.json()) as {
+			error?: string;
+			message?: string;
+			detail?: string;
+			startCommand?: string;
+			code?: string;
+			snapshot?: LauncherState;
+		};
+		const detail = payload.detail ? ': ' + payload.detail : '';
+		const message = payload.message ?? payload.error;
+		const error = new Error(message ? message + detail : 'Request failed: ' + response.status) as Error & {
+			startCommand?: string;
+			code?: string;
+			status?: number;
+			snapshot?: LauncherState;
+		};
+		error.startCommand = payload.startCommand;
+		error.code = payload.code;
+		error.status = response.status;
+		error.snapshot = payload.snapshot;
 
-		return new Error(payload.error ? `${payload.error}${detail}` : `Request failed: ${response.status}`);
+		return error;
 	} catch {
 		return new Error(`Request failed: ${response.status}`);
 	}
@@ -72,6 +92,22 @@ class DashboardClient {
 
 	async controlTunnel(action: DashboardServiceAction): Promise<DashboardOperation> {
 		return this.request(`/api/control/tunnel/${action}`, { method: 'POST' });
+	}
+
+	async launcherState(): Promise<LauncherState> {
+		return this.request('/api/control/launcher/state?profileId=default', {});
+	}
+
+	async launcherPost<T>(path: string, body: unknown): Promise<T> {
+		return this.request('/api/control/launcher/' + path, { method: 'POST', body: JSON.stringify(body) });
+	}
+
+	async launcherOperation(id: string): Promise<LauncherOperation> {
+		return this.request('/api/control/launcher/operations/' + encodeURIComponent(id), {});
+	}
+
+	async launcherReport(id: string): Promise<Record<string, unknown>> {
+		return this.request('/api/control/launcher/reports/' + encodeURIComponent(id), {});
 	}
 
 	async waitForOperation(id: string, timeoutMs = 45_000): Promise<DashboardOperation> {
@@ -136,7 +172,7 @@ class DashboardClient {
 		const source = new EventSource(url);
 		this.eventSource = source;
 
-		for (const type of ['status', 'log', 'operation'] as const) {
+		for (const type of ['status', 'log', 'operation', 'launcher-operation'] as const) {
 			source.addEventListener(type, (message) => {
 				try {
 					const event = {

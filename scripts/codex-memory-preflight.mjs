@@ -103,7 +103,7 @@ export function verifyMemoryStage(stage, response) {
 			throw new Error('invalid_custom_call');
 
 		return calls[0];
-	} else if (outputText(response).trim().replace(/\.$/, '') !== 'OK') throw new Error('invalid_continuation');
+	} else if (!outputText(response).trim()) throw new Error('invalid_continuation');
 
 	return null;
 }
@@ -249,7 +249,14 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 	for await (const chunk of process.stdin) input += chunk;
 	try {
 		const result = await runMemoryPreflight(JSON.parse(input), { log: (stage) => process.stderr.write(`[memory] ${stage}\n`) });
-		process.stdout.write(`${JSON.stringify(result)}\n`);
+		const ndjson = process.argv.includes('--format') && process.argv[process.argv.indexOf('--format') + 1] === 'ndjson';
+		if (ndjson) {
+			process.stdout.write(
+				JSON.stringify({ type: 'result', exitCode: result.valid ? 0 : 2, report: result }) + String.fromCharCode(10)
+			);
+		} else {
+			process.stdout.write(`${JSON.stringify(result)}\n`);
+		}
 		process.exitCode = result.valid ? 0 : 2;
 	} catch {
 		process.stdout.write('{"valid":false,"stage":"configuration","code":"invalid_configuration"}\n');

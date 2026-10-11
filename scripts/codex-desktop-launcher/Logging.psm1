@@ -1,6 +1,7 @@
 #requires -Version 7.4
 # Logging: internal Desktop launcher module. No per-launch module state.
 Import-Module (Join-Path $PSScriptRoot 'Desktop.psm1') -DisableNameChecking -ErrorAction Stop
+Import-Module (Join-Path $PSScriptRoot 'LauncherLock.psm1') -DisableNameChecking -ErrorAction Stop
 
 function Read-UngateLogSettings {
     param(
@@ -47,6 +48,8 @@ function Write-UngateLogSettings {
         [string]$LogLevel
     )
     $ErrorActionPreference = 'Stop'
+    $lease = Enter-UngateProfileLock -HomePath (Split-Path -Parent ([System.IO.Path]::GetFullPath($SettingsPath)))
+    try {
 
     $parent = [System.IO.Path]::GetDirectoryName($SettingsPath)
     if ($parent -and -not (Test-Path -LiteralPath $parent -PathType Container)) {
@@ -57,7 +60,17 @@ function Write-UngateLogSettings {
         LogLevel = $LogLevel
     }
     $json = $settings | ConvertTo-Json -Depth 5
-    [System.IO.File]::WriteAllText($SettingsPath, $json + "`r`n", [System.Text.UTF8Encoding]::new($false))
+    $absolute = [System.IO.Path]::GetFullPath($SettingsPath)
+    $transaction = [guid]::NewGuid().ToString('N')
+    $temporary = Join-Path $parent ".ungate-log-settings.$transaction.tmp"
+    $backup = Join-Path $parent ".ungate-log-settings.$transaction.bak"
+    [System.IO.File]::WriteAllText($temporary, $json + "`r`n", [System.Text.UTF8Encoding]::new($false))
+    if (Test-Path -LiteralPath $absolute -PathType Leaf) {
+        [System.IO.File]::Replace($temporary, $absolute, $backup, $true)
+    } else {
+        [System.IO.File]::Move($temporary, $absolute)
+    }
+    } finally { Exit-UngateProfileLock -Lease $lease }
 }
 
 function Invoke-UngateLoggingMenu {

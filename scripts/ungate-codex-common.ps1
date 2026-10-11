@@ -166,7 +166,8 @@ function Test-CliProxyResponsesInference {
 
     $body = [ordered]@{
         model = $Model
-        input = 'Reply with exactly OK.'
+        # Reasoning models (grok-4.7) may refuse "reply with exactly X" prompts, so any reply proves inference.
+        input = 'Say hello in one short sentence.'
         max_output_tokens = 16
         stream = $false
         store = $false
@@ -179,7 +180,7 @@ function Test-CliProxyResponsesInference {
             -Headers @{ Authorization = "Bearer $Key" } `
             -ContentType 'application/json' `
             -Body $body `
-            -TimeoutSec 15 `
+            -TimeoutSec 60 `
             -SkipHttpErrorCheck `
             -ErrorAction Stop
     }
@@ -210,8 +211,8 @@ function Test-CliProxyResponsesInference {
             Where-Object { $_.type -eq 'output_text' } |
             ForEach-Object { [string]$_.text }
     ) -join ''
-    if ($outputText.Trim().TrimEnd('.') -ne 'OK') {
-        throw "CLIProxyAPI /v1/responses returned unexpected preflight output for model '$Model'."
+    if ([string]::IsNullOrWhiteSpace($outputText)) {
+        throw "CLIProxyAPI /v1/responses returned no assistant text for model '$Model' (status: $($payload.status))."
     }
 
     Test-CliProxyResponsesToolCall `
@@ -268,7 +269,7 @@ function Test-CliProxyResponsesToolCall {
             -Headers @{ Authorization = "Bearer $Key" } `
             -ContentType 'application/json' `
             -Body $body `
-            -TimeoutSec 15 `
+            -TimeoutSec 60 `
             -SkipHttpErrorCheck `
             -ErrorAction Stop
     }

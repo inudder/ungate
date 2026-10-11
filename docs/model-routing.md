@@ -88,6 +88,15 @@ manually registered compatible-provider models; for explicitly qualified
 compatible providers the live Responses probe is authoritative. An upstream
 failure still fails preflight.
 
+Before that preflight, and before Codex Beta is stopped, the launcher compares
+the selected OmniRoute route's catalog context window with the limit OmniRoute
+enforces. The route is the qualified provider/model after overrides, not the
+registry id or shell slug. The check reads the listener process environment and
+the local OmniRoute database read-only; it does not call the management API,
+change OmniRoute settings, or send a large prompt. A smaller context window or
+`max_input_tokens` limit cancels the launch with exit code 1. If the limit
+cannot be confirmed, the launcher warns and continues to the existing preflight.
+
 Image input is independently configurable via **C / Возможности моделей**.
 The current v2.6 override enables image and leaves `original` disabled; the
 built-in v2.5 definition remains text-only. Do not infer original-detail support
@@ -355,3 +364,7 @@ keeps its existing adapter; direct Ungate and other OmniRoute routes keep their
 normal behavior. Working ports, profiles, and model selections are unchanged.
 See [tool diagnostics](desktop-launcher.md#tool-schema-compatibility-diagnostics)
 for first-run setup, result semantics and exit codes.
+
+Dashboard launcher settings are a separate registry from Ungate API model mappings.
+The Codex Beta tab reads and writes only the launcher JSON files through the
+user-session control agent. It does not change provider ports or the shell router.

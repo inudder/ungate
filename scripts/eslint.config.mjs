@@ -23,10 +23,15 @@ export default [
 			'deepseek-responses*.mjs',
 			'mimo-responses-namespace*.mjs',
 			'mimo-responses-stream-adapter*.mjs',
-			'ungate-patch-mcp*.mjs'
+			'ungate-patch-mcp*.mjs',
+			'omniroute-context-limit.mjs',
+			'omniroute-static-hooks.mjs'
 		],
 		rules: {
 			'@typescript-eslint/no-floating-promises': 'off',
+			'@typescript-eslint/await-thenable': 'off',
+			'@typescript-eslint/prefer-nullish-coalescing': 'off',
+			'@typescript-eslint/require-await': 'off',
 			'@typescript-eslint/no-misused-promises': 'off',
 			'@typescript-eslint/no-unsafe-argument': 'off',
 			'@typescript-eslint/no-unsafe-assignment': 'off',

@@ -1,6 +1,7 @@
 #requires -Version 7.4
 # Memory preferences and validation; importing this module has no side effects.
 Import-Module (Join-Path $PSScriptRoot 'Models.psm1') -DisableNameChecking -ErrorAction Stop
+Import-Module (Join-Path $PSScriptRoot 'LauncherLock.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'ProxyRuntime.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'Toml.psm1') -DisableNameChecking -ErrorAction Stop
 
@@ -35,6 +36,8 @@ function Read-UngateMemorySettings {
 function Write-UngateMemorySettings {
     param([Parameter(Mandatory)][psobject]$Context, [Parameter(Mandatory)][psobject]$Settings)
     $ErrorActionPreference = 'Stop'
+    $lease = Enter-UngateProfileLock -HomePath (Split-Path -Parent ([IO.Path]::GetFullPath($Context.MemorySettingsPath)))
+    try {
     Assert-UngateMemorySettings -Settings $Settings
     $path = [IO.Path]::GetFullPath($Context.MemorySettingsPath)
     $directory = [IO.Path]::GetDirectoryName($path)
@@ -46,6 +49,9 @@ function Write-UngateMemorySettings {
     [IO.File]::WriteAllText($temporary, ($record | ConvertTo-Json) + "`r`n", [Text.UTF8Encoding]::new($false))
     if (Test-Path -LiteralPath $path -PathType Leaf) { [IO.File]::Replace($temporary, $path, $backup) }
     else { [IO.File]::Move($temporary, $path) }
+    } finally {
+        Exit-UngateProfileLock -Lease $lease
+    }
 }
 
 function Get-UngateMemoryDefinition {
@@ -103,7 +109,7 @@ function Invoke-UngateMemoryValidation {
         $definition = Get-UngateMemoryDefinition -Context $Context -Settings $Settings
         $key = Resolve-ModelApiKey -Context $Context -Definition $definition
         $configuration = @{
-            model = $Settings.Model; apiKey = $key; upstreamBaseUrl = $definition.ProxyBaseUrl
+            model = Get-UngateRequestModel -Definition $definition; apiKey = $key; upstreamBaseUrl = $definition.ProxyBaseUrl
             responsesAdapter = $definition.ResponsesAdapter
             bridgeUpstreamUrl = if ($Settings.Provider -eq 'cliproxyapi') { $Context.CliProxyUpstreamBaseUrl } else { $null }
         }

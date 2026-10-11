@@ -1,21 +1,35 @@
 <script lang="ts">
+import { onMount } from 'svelte';
 import IconBarChart3 from 'virtual:icons/lucide/bar-chart-3';
+import IconBot from 'virtual:icons/lucide/bot';
 import IconSettings from 'virtual:icons/lucide/settings';
 import IconTerminal from 'virtual:icons/lucide/terminal';
 
 import AnalyticsPage from '$features/analytics/AnalyticsPage.svelte';
+import CodexBetaPage from '$features/codex-beta/CodexBetaPage.svelte';
 import LogsPage from '$features/logs/LogsPage.svelte';
 import SettingsPage from '$features/settings/SettingsPage.svelte';
 
-type Page = 'analytics' | 'settings' | 'logs';
+type Page = 'analytics' | 'settings' | 'logs' | 'codex-beta';
 
 let currentPage = $state<Page>('analytics');
 
 const tabs: { id: Page; label: string; icon: typeof IconBarChart3 }[] = [
 	{ id: 'analytics', label: 'Analytics', icon: IconBarChart3 },
 	{ id: 'settings', label: 'Settings', icon: IconSettings },
+	{ id: 'codex-beta', label: 'Codex Beta', icon: IconBot },
 	{ id: 'logs', label: 'Logs', icon: IconTerminal }
 ];
+
+onMount(() => {
+	const onPage = (event: Event) => {
+		const page = (event as CustomEvent<Page>).detail;
+		if (page === 'analytics' || page === 'settings' || page === 'logs' || page === 'codex-beta') currentPage = page;
+	};
+	window.addEventListener('ungate-dashboard-page', onPage);
+
+	return () => window.removeEventListener('ungate-dashboard-page', onPage);
+});
 </script>
 
 <div class="min-h-screen bg-surface-950 text-surface-50">
@@ -41,6 +55,8 @@ const tabs: { id: Page; label: string; icon: typeof IconBarChart3 }[] = [
 			<AnalyticsPage />
 		{:else if currentPage === 'settings'}
 			<SettingsPage />
+		{:else if currentPage === 'codex-beta'}
+			<CodexBetaPage />
 		{:else if currentPage === 'logs'}
 			<LogsPage />
 		{/if}

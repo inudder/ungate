@@ -486,11 +486,23 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
 			if (input.length > 1024 * 1024) throw new Error('Configuration exceeds 1 MiB.');
 		}
 		const config = JSON.parse(input);
+		if (process.argv.includes('--fingerprint')) {
+			const models = Array.isArray(config) ? config : [config];
+			process.stdout.write(
+				JSON.stringify(models.map((model) => ({ registryId: model.registryId, fingerprint: capabilityFingerprint(model) })))
+			);
+			process.exit(0);
+		}
+		const ndjson = process.argv.includes('--format') && process.argv[process.argv.indexOf('--format') + 1] === 'ndjson';
+		const emit = (event) => process.stdout.write(JSON.stringify(event) + String.fromCharCode(10));
+		const log = ndjson ? (message) => emit({ type: 'progress', message: String(message) }) : console.log;
 		if (process.argv.includes('--status')) {
 			const status = await reportStatus(config);
-			console.log(status);
+			if (ndjson) emit({ type: 'status', message: status });
+			else console.log(status);
 		} else {
-			const result = await runCapabilityDiagnostics(config, { signal: controller.signal });
+			const result = await runCapabilityDiagnostics(config, { signal: controller.signal, log });
+			if (ndjson) emit({ type: 'result', exitCode: result.exitCode ?? 0, report: result });
 			process.exitCode = result.exitCode;
 		}
 	} catch {

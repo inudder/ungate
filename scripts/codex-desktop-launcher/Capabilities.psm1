@@ -29,13 +29,14 @@ function Set-UngateModelCapabilities {
 
 function Get-CapabilityRunnerModel {
     param([Parameter(Mandatory)][object]$Context, [Parameter(Mandatory)][object]$Definition)
+    $route = Get-UngateDiagnosticRoute -Context $Context -Definition $Definition
     $record = @{
-        registryId = $Definition.Slug
-        model = Get-UngateRequestModel -Definition $Definition
+        registryId = $route.RegistryId
+        model = $route.RequestModel
         displayName = $Definition.DisplayName
-        upstreamBaseUrl = $Definition.ProxyBaseUrl
-        responsesAdapter = $Definition.ResponsesAdapter
-        bridgeUpstreamUrl = if ($Definition.ProviderName -eq $Context.CliProxyProviderName) { $Context.CliProxyUpstreamBaseUrl } else { $null }
+        upstreamBaseUrl = $route.UpstreamBaseUrl
+        responsesAdapter = $route.ResponsesAdapter
+        bridgeUpstreamUrl = $route.BridgeUpstreamUrl
         capabilities = Get-UngateModelCapabilities -Definition $Definition -Context $Context
     }
     if ($Definition.PSObject.Properties['ParallelToolCallsOverride']) { $record.parallelToolCalls = [bool]$Definition.ParallelToolCallsOverride }

@@ -1,3 +1,4 @@
+import type { LauncherOperation } from './launcher';
 import type { LogEntry } from './log';
 
 export type DashboardServiceTarget = 'api' | 'tunnel';
@@ -33,7 +34,8 @@ export interface DashboardOperation {
 export type DashboardEvent =
 	| { type: 'status'; data: DashboardStatus }
 	| { type: 'log'; data: { source: DashboardLogSource; entry: LogEntry } }
-	| { type: 'operation'; data: DashboardOperation };
+	| { type: 'operation'; data: DashboardOperation }
+	| { type: 'launcher-operation'; data: LauncherOperation };
 
 export interface DashboardBootstrap {
 	csrfToken: string;

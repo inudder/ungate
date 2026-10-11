@@ -346,13 +346,17 @@ function Assert-UngateCodexConfig {
         }
     }
 
+    # Only the launched model and the memory model are probed; other picker entries may sit on disabled providers.
+    $modelsToProbe = @($Selection.SelectedModel)
+    if ($Selection.MemoryEnabled -and $Selection.MemoryDefinition) { $modelsToProbe += $Selection.MemoryDefinition }
     foreach ($provider in (Get-ProviderDefinitions -Selection $Selection)) {
         $providerKey = $ProviderKeys[$provider.Name]
         if (-not $providerKey) {
             throw "Missing API key for provider '$($provider.Name)'."
         }
 
-        $providerModels = @($Selection.Definitions | Where-Object { $_.ProviderName -eq $provider.Name })
+        $providerModels = @($modelsToProbe | Where-Object { $_ -and $_.ProviderName -eq $provider.Name })
+        if ($providerModels.Count -eq 0) { continue }
         try {
             $availableModels = Invoke-RestMethod `
                 -Uri "$($provider.ProxyBaseUrl)/v1/models" `
@@ -366,7 +370,7 @@ function Assert-UngateCodexConfig {
                 } else {
                     $_.Slug
                 }
-            })
+            } | Select-Object -Unique)
             $missingModelIds = @($effectiveModels | Where-Object {
                 $m = $_
                 -not ($availableModelIds | Where-Object { $_ -eq $m -or $_ -like "*/$m" -or $m -like "*/$_" })

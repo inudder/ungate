@@ -4,19 +4,33 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const controlRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const port = 47819;
-const origin = `http://127.0.0.1:${port}`;
 const session = 'ungate-dashboard-qa';
 const pwshPath = process.env.PWSH_PATH ?? 'C:\\Program Files\\PowerShell\\7\\pwsh.exe';
 const browserPath =
 	process.env.AGENT_BROWSER_PATH ?? 'C:\\Users\\kalvinclein\\AppData\\Roaming\\npm\\agent-browser.ps1';
 const output = [];
+let origin = '';
+
+async function waitForAssignedOrigin() {
+	const deadline = Date.now() + 10_000;
+	while (Date.now() < deadline) {
+		const text = output.join('');
+		const marker = 'listening on http://127.0.0.1:';
+		const index = text.indexOf(marker);
+		if (index >= 0) {
+			const port = text.slice(index + marker.length).match(/^(\d+)/);
+			if (port) return 'http://127.0.0.1:' + port[1];
+		}
+		await new Promise((resolve) => setTimeout(resolve, 100));
+	}
+	throw new Error('Dashboard did not report an assigned port.');
+}
 
 const child = spawn(process.execPath, ['bundle/main.cjs'], {
 	cwd: controlRoot,
 	env: {
 		...process.env,
-		PORT: String(port),
+		PORT: '0',
 		NSSM_PATH:
 			process.env.NSSM_PATH ??
 			'C:\\Users\\kalvinclein\\scoop\\apps\\nssm\\current\\nssm.exe',
@@ -68,6 +82,7 @@ async function waitForHealth(attempts = 40) {
 }
 
 try {
+	origin = await waitForAssignedOrigin();
 	await waitForHealth();
 	browser('open', origin);
 	browser('wait', '--text', 'Ungate');

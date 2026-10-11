@@ -74,7 +74,8 @@ describe('dashboard control server', () => {
 			publicDir,
 			statusPollIntervalMs: 60_000,
 			logPollIntervalMs: 60_000,
-			operationTimeoutMs: 1000
+			operationTimeoutMs: 1000,
+			launcher: null
 		};
 		app = await buildServer(config, { nssm, fetcher });
 		await app.ready();

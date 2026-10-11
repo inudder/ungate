@@ -1,5 +1,6 @@
 BeforeAll {
     . (Join-Path $PSScriptRoot 'ungate-codex-common.ps1')
+    $originalJoinPathCommand = Get-Command Join-Path -CommandType Cmdlet
 }
 
 Describe 'Resolve-UngateApiKey' {
@@ -10,6 +11,7 @@ Describe 'Resolve-UngateApiKey' {
             Remove-Item -LiteralPath "Env:\$name" -ErrorAction SilentlyContinue
         }
         $script:testUngateDb = Join-Path $TestDrive "$([guid]::NewGuid()).db"
+        Mock Join-Path { & $originalJoinPathCommand -Path $Path -ChildPath $ChildPath }
         Mock Join-Path { $script:testUngateDb } -ParameterFilter { $ChildPath -eq '.ungate\data.db' }
     }
 
@@ -201,7 +203,7 @@ Describe 'Test-UngateResponsesBridge' {
 }
 
 Describe 'Test-CliProxyResponsesInference' {
-    It 'sends a minimal non-streaming inference request and accepts OK' {
+    It 'sends a minimal non-streaming inference request and accepts any assistant reply' {
         Mock Invoke-WebRequest {
             if ($Body -match 'cliproxy_preflight') {
                 return [pscustomobject]@{
@@ -212,7 +214,7 @@ Describe 'Test-CliProxyResponsesInference' {
 
             [pscustomobject]@{
                 StatusCode = 200
-                Content = '{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"OK"}]}]}'
+                Content = '{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"No. I will not output an exact forced phrase."}]}]}'
             }
         }
 
@@ -226,7 +228,7 @@ Describe 'Test-CliProxyResponsesInference' {
         Should -Invoke Invoke-WebRequest -Times 1 -Exactly -ParameterFilter {
             $Method -eq 'Post' -and
             $Uri -eq 'http://127.0.0.1:8318/v1/responses' -and
-            $TimeoutSec -eq 15 -and
+            $TimeoutSec -eq 60 -and
             $Body -match '"model":"grok-4.5"' -and
             $Body -match '"max_output_tokens":16' -and
             $Body -match '"stream":false' -and
@@ -294,7 +296,7 @@ Describe 'Test-CliProxyResponsesInference' {
                 -Key 'test-key' `
                 -Model 'grok-4.5' `
                 -ProxyOpenAiBaseUrl 'http://127.0.0.1:8318/v1'
-        } | Should -Throw '*unexpected preflight output*'
+        } | Should -Throw '*no assistant text*'
     }
 }
 

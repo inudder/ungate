@@ -3,6 +3,7 @@
 Import-Module (Join-Path $PSScriptRoot 'Memories.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'Logging.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'Models.psm1') -DisableNameChecking -ErrorAction Stop
+Import-Module (Join-Path $PSScriptRoot 'LauncherLock.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'Capabilities.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'ToolCompatibility.psm1') -DisableNameChecking -ErrorAction Stop
 
@@ -120,6 +121,8 @@ function Write-UngatePickerModelSelection {
         [int]$Capacity
     )
     $ErrorActionPreference = 'Stop'
+    $lease = Enter-UngateProfileLock -HomePath (Split-Path -Parent ([System.IO.Path]::GetFullPath($SettingsPath)))
+    try {
 
     if ($ModelSlugs.Count -eq 0) {
         throw 'Desktop picker must contain at least one model.'
@@ -194,12 +197,12 @@ function Write-UngatePickerModelSelection {
         if (Test-Path -LiteralPath $temporaryPath -PathType Leaf) {
             Remove-Item -LiteralPath $temporaryPath -Force
         }
-        if ($writeCompleted -and (Test-Path -LiteralPath $backupPath -PathType Leaf)) {
-            Remove-Item -LiteralPath $backupPath -Force
-        }
     }
 
-    return $absoluteSettingsPath
+        return $absoluteSettingsPath
+    } finally {
+        Exit-UngateProfileLock -Lease $lease
+    }
 }
 
 function Get-UngatePickerModelDefinitions {
@@ -884,6 +887,7 @@ function Select-UngateDesktopModel {
 }
 
 Export-ModuleMember -Function @(
+    'Get-DefaultUngatePickerModelSlugs',
     'Invoke-AddUngateModelMode',
     'Invoke-UngateModelVersionConfiguration',
     'Read-UngatePickerModelSelection',

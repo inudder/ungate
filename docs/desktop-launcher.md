@@ -75,15 +75,21 @@ existing common preflight behavior.
 ## Execution contract
 
 1. Handle standalone `TestTools` before Desktop/profile operations; otherwise validate launcher dependencies and handle standalone `AddModel`.
-2. Resolve registry/picker selection and launch model/provider; print history
-   diagnostics; discover the Beta package and close it unless `PrepareOnly`.
-3. Resolve provider keys, ensure required bridge/router, then preflight.
-   Normal preflight has two attempts; fallback has one. Preflight failure
-   remains a warning and does not skip profile preparation.
+2. Resolve registry/picker selection and launch model/provider, then print history
+   diagnostics. If the selected model uses OmniRoute, compare its catalog context
+   window with OmniRoute's enforced limit before stopping Beta, preparing the
+   profile, or changing the shared router. A smaller context window or
+   `max_input_tokens` limit exits `1` for a normal launch and for `PrepareOnly`.
+   An unconfirmed limit is a warning, not a passed check.
+3. Discover the Beta package and close it unless `PrepareOnly`. Resolve provider
+   keys, ensure the required bridge/router, then preflight. Normal preflight has
+   two attempts; fallback has one. Preflight failure remains a warning and does
+   not skip profile preparation.
 4. Initialize config, write the model catalog **before** MCP validation,
    synchronize MCP/skills/instructions/auth, prepare isolated plugins, verify
    the config, initialize sandbox and restore workspace roots.
-5. `PrepareOnly` returns `0` on success or `2` after a preflight warning.
+5. `PrepareOnly` returns `0` on success, `1` when the OmniRoute context limit is
+   smaller than the launcher window, or `2` after a preflight warning.
    Normal execution starts Desktop and optionally watches logs. `NoLogWatch`
    overrides log preferences; otherwise a nonempty explicit level overrides
    persisted preferences. `Off` starts Desktop without watching.
@@ -151,9 +157,9 @@ pnpm --filter @ungate/scripts run launcher:test
 ```
 
 The runner parses all launcher modules and related PowerShell sources, then
-runs Pester **5.8.0** over the original launcher scenarios, module/flow tests,
+runs Pester **5.0 or newer** over the original launcher scenarios, module/flow tests,
 common helper tests and plugin-isolation tests. It exits nonzero for syntax,
-discovery, container or test failures. Pester 5.8.0 must already be installed;
+discovery, container or test failures. A compatible Pester version must already be installed;
 the runner does not install dependencies or change the machine.
 
 Tests import actual modules, pass explicit contexts and use module-scoped
@@ -375,3 +381,12 @@ also retain the effective state, staging and backups, with `failure.json` in
 the backup directory after a commit failure. They do not restore automatically;
 inspect the recorded paths and perform a verified forward repair. Restore from
 backups only on explicit user instruction.
+
+## Dashboard settings
+
+The Ungate dashboard tab Codex Beta edits launcher settings through the user-session
+control agent `scripts/start-codex-launcher-control.ps1`. The dashboard service does
+not read the Beta profile or start Codex. Saving writes the existing JSON files and
+does not restart Beta; apply changes by running `scripts/start-codex-desktop-ungate.ps1`
+after active requests finish. Diagnostics use the same qualified request model as a
+normal launch, including an upstream prefix, and never return API keys to the browser.
