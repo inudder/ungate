@@ -26,6 +26,7 @@ let saved = $state(false);
 let restarting = $state(false);
 let statusMessage = $state<string | null>(null);
 let savedTimer: ReturnType<typeof setTimeout> | null = null;
+let saveChain: Promise<void> = Promise.resolve();
 
 function extractError(e: unknown): string {
 	if (e instanceof Error) {
@@ -49,6 +50,16 @@ async function load(): Promise<void> {
 }
 
 async function save(update: Partial<AppSettings>): Promise<void> {
+	const run = saveChain.then(() => writeSettings(update));
+	saveChain = run.then(
+		() => undefined,
+		() => undefined
+	);
+
+	return run;
+}
+
+async function writeSettings(update: Partial<AppSettings>): Promise<void> {
 	saving = true;
 	error = null;
 	statusMessage = null;

@@ -33,6 +33,7 @@ interface Props {
 	providerAuthLoading: boolean;
 	models: ModelMappingConfig[];
 	onModelsChange: (nextModels: ModelMappingConfig[]) => void;
+	onPersistModels: (nextModels: ModelMappingConfig[]) => void;
 	onSave: () => void;
 	saving: boolean;
 	saved: boolean;
@@ -45,6 +46,7 @@ let {
 	providerAuthLoading,
 	models,
 	onModelsChange,
+	onPersistModels,
 	onSave,
 	saving,
 	saved,
@@ -437,8 +439,9 @@ function confirmDelete() {
 		return;
 	}
 
-	commit(models.filter((_, modelIndex) => modelIndex !== confirmDeleteIndex));
+	const nextModels = models.filter((_, modelIndex) => modelIndex !== confirmDeleteIndex);
 	cancelDelete();
+	onPersistModels(nextModels);
 }
 
 $effect(() => {
@@ -635,7 +638,7 @@ $effect(() => {
 		<div class="card preset-tonal-surface border border-surface-700/30 w-full max-w-md p-5 space-y-4">
 			<p class="text-sm font-semibold">Remove model</p>
 			<p class="text-sm text-surface-400">
-				Confirm deletion for Model ID:
+				Remove this model and save the list now:
 				<code class="code text-surface-950-50">{confirmDeleteModelId}</code>
 			</p>
 			<div class="flex justify-end gap-2">
@@ -648,7 +651,7 @@ $effect(() => {
 				<button
 					class="btn btn-sm preset-outlined-error-500"
 					type="button"
-					disabled={confirmDeleteIndex === null}
+					disabled={confirmDeleteIndex === null || saving}
 					onclick={confirmDelete}>
 					<IconTrash2 class="size-4" />
 					Remove

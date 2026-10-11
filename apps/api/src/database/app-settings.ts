@@ -37,19 +37,27 @@ export class Settings {
 
 	static update(settings: Partial<AppSettings>): void {
 		const db = getDb();
+		const set: {
+			port?: number;
+			apiKey?: string | null;
+			quiet?: boolean;
+			extraInstruction?: string | null;
+		} = {};
 
-		db.insert(appSettings)
-			.values({ id: 1 })
-			.onConflictDoUpdate({
-				target: appSettings.id,
-				set: {
-					...(settings.port !== undefined && { port: settings.port }),
-					...(settings.apiKey !== undefined && { apiKey: settings.apiKey }),
-					...(settings.quiet !== undefined && { quiet: settings.quiet }),
-					...(settings.extraInstruction !== undefined && { extraInstruction: settings.extraInstruction })
-				}
-			})
-			.run();
+		if (settings.port !== undefined) set.port = settings.port;
+		if (settings.apiKey !== undefined) set.apiKey = settings.apiKey;
+		if (settings.quiet !== undefined) set.quiet = settings.quiet;
+		if (settings.extraInstruction !== undefined) set.extraInstruction = settings.extraInstruction;
+
+		if (Object.keys(set).length > 0) {
+			db.insert(appSettings)
+				.values({ id: 1, ...set })
+				.onConflictDoUpdate({
+					target: appSettings.id,
+					set
+				})
+				.run();
+		}
 
 		if (settings.models !== undefined) {
 			ModelMappings.replace(settings.models);

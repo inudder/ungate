@@ -58,7 +58,11 @@ function currentValues(): Partial<AppSettings> {
 }
 
 function validateBeforeSave(): string | null {
-	for (const model of models) {
+	return validateModels(models);
+}
+
+function validateModels(items: ModelMappingConfig[]): string | null {
+	for (const model of items) {
 		if (!model.id.trim()) {
 			return 'Every model must have a Model ID.';
 		}
@@ -99,15 +103,35 @@ function handleSaveWithoutRestart() {
 	void store.save(currentValues());
 }
 
+async function handlePersistModels(nextModels: ModelMappingConfig[]) {
+	const normalized = withSortOrder(nextModels);
+	validationError = validateModels(normalized);
+
+	if (validationError) {
+		return;
+	}
+
+	const previous = cloneModels(models);
+	models = normalized;
+	await store.save({ models: normalized });
+
+	if (store.error) {
+		models = previous;
+	}
+}
+
 $effect(() => {
 	void store.load();
 });
 
+let formReady = false;
+
 $effect(() => {
-	if (!store.settings) {
+	if (!store.settings || formReady) {
 		return;
 	}
 
+	formReady = true;
 	port = String(store.settings.port);
 	apiKey = store.settings.apiKey ?? '';
 	quiet = store.settings.quiet;
@@ -217,6 +241,9 @@ $effect(() => {
 				saving={store.saving}
 				saved={store.saved}
 				restarting={store.restarting}
+				onPersistModels={(nextModels) => {
+					void handlePersistModels(nextModels);
+				}}
 				onModelsChange={(nextModels) => {
 					models = withSortOrder(nextModels);
 				}} />
