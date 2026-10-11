@@ -183,6 +183,48 @@ Do not rebuild or restart `ungate-api` for changes limited to tests,
 documentation, graphify output, frontend code, or scripts that are not loaded
 by the API process.
 
+## ungate-dashboard NSSM service
+
+The `ungate-dashboard` NSSM service serves `http://127.0.0.1:47820` from
+`apps/control`. It runs `bundle\main.cjs` with that directory as its working
+directory. The page the browser shows is the copied snapshot
+`apps/control/bundle/public`, not `apps/web/dist` and not the Svelte source.
+
+`pnpm --filter @ungate/web build` updates `apps/web/dist` only. A control
+`tsc` check does not update `bundle\main.cjs`. Neither command changes what
+the running dashboard shows.
+
+After changing the dashboard UI or the control server bundled into it, rebuild
+and restart the local service before finishing:
+
+```powershell
+pnpm --filter @ungate/control build:bundle
+nssm restart ungate-dashboard
+```
+
+`build:bundle` builds `@ungate/web`, bundles `apps/control/src/main.ts` into
+`bundle\main.cjs`, and copies `apps/web/dist` to `apps/control/bundle/public`.
+Restart only after that command succeeds. A failed build or restart is an
+unresolved task.
+
+This applies to `apps/web/**` rendered by the dashboard, `apps/control/src/**`,
+and shared packages imported by those bundles. Confirm
+`http://127.0.0.1:47820/` returns 200 and its HTML references the new hashed
+asset under `bundle/public`. If an already open browser tab still shows the
+previous shell, reload it. Restarting the service does not clear the browser
+cache.
+
+Do not rebuild or restart `ungate-dashboard` for tests, documentation,
+graphify output, or launcher PowerShell and Node scripts that the dashboard
+process does not bundle. The launcher and the user-session control agent load
+those scripts on their next run. Do not restart `ungate-api` for a
+dashboard-only change.
+
+Editing `deploy/nssm/ungate-dashboard.service.json` does not change the
+running NSSM environment. A restart reloads the bundle and static files only.
+New environment variables still have to be applied to the service definition
+in NSSM.
+
 ## CLIProxy namespace bridge
 
 `scripts/cliproxy-namespace-bridge.mjs` is a local compatibility proxy for
