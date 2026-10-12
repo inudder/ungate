@@ -128,7 +128,7 @@ class DashboardClient {
 		throw new Error('Service operation timed out');
 	}
 
-	private async request<T>(path: string, init: RequestInit): Promise<T> {
+	private async request<T>(path: string, init: RequestInit, retried = false): Promise<T> {
 		const bootstrap = await this.ensureBootstrap();
 		const headers = new Headers(init.headers);
 		headers.set('X-Ungate-CSRF', bootstrap.csrfToken);
@@ -138,9 +138,26 @@ class DashboardClient {
 		}
 
 		const response = await fetch(path, { ...init, headers });
-		if (!response.ok) throw await responseError(response);
+		if (!response.ok) {
+			const error = (await responseError(response)) as Error & { code?: string };
+			// The control service mints a new token on every start, so a tab opened before a restart holds a
+			// stale one. The rejection happens before any handler runs, so one retry is side-effect free.
+			if (!retried && error.code === 'csrf_invalid') {
+				this.invalidateBootstrap(bootstrap);
+
+				return this.request<T>(path, init, true);
+			}
+			throw error;
+		}
 
 		return response.json() as Promise<T>;
+	}
+
+	private invalidateBootstrap(stale: DashboardBootstrap | null): void {
+		// Concurrent callers holding the same stale bootstrap share one refetch.
+		if (stale === null || this.bootstrapData !== stale) return;
+		this.bootstrapData = null;
+		this.bootstrapPromise = null;
 	}
 
 	private async ensureBootstrap(): Promise<DashboardBootstrap> {
@@ -171,6 +188,21 @@ class DashboardClient {
 
 		const source = new EventSource(url);
 		this.eventSource = source;
+
+		// EventSource reconnects on its own; a reconnect usually means the control service restarted
+		// and rotated its CSRF token, so refresh the bootstrap before the next request needs it.
+		let disconnected = false;
+		source.addEventListener('error', () => {
+			disconnected = true;
+		});
+		source.addEventListener('open', () => {
+			if (!disconnected) return;
+			disconnected = false;
+			this.invalidateBootstrap(this.bootstrapData);
+			void this.ensureBootstrap().catch(() => {
+				// The next request retries the bootstrap and surfaces the error.
+			});
+		});
 
 		for (const type of ['status', 'log', 'operation', 'launcher-operation'] as const) {
 			source.addEventListener(type, (message) => {

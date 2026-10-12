@@ -103,6 +103,8 @@ describe('dashboard control server', () => {
 			headers: { host: '127.0.0.1:47820' }
 		});
 		expect(denied.statusCode).toBe(403);
+		// The dashboard client re-bootstraps on this code after a control-service restart rotates the token.
+		expect(parseJson<{ code: string }>(denied.body).code).toBe('csrf_invalid');
 
 		const bootstrap = await app.inject({
 			method: 'GET',

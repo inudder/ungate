@@ -104,7 +104,7 @@ export async function buildServer(config: ControlConfig, dependencies: ServerDep
 		}
 
 		if (requiresCsrf(request.method, pathname) && request.headers['x-ungate-csrf'] !== csrfToken) {
-			return reply.code(403).send({ error: 'Invalid CSRF token' });
+			return reply.code(403).send({ error: 'Invalid CSRF token', code: 'csrf_invalid' });
 		}
 	});
 
