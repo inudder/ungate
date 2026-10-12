@@ -4,6 +4,58 @@ Import-Module (Join-Path $PSScriptRoot 'Routing.psm1') -DisableNameChecking -Err
 
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'ungate-codex-common.ps1')
 
+# Start-Process with redirection creates the child with handle inheritance, so a long-lived
+# helper would also inherit this script's stdin/stdout/stderr. When the caller captures the
+# launcher's output through a pipe, that pipe would then stay open until the helper exits and
+# the caller would hang after the launcher has finished. Keep the standard handles private
+# while the helper is started.
+function Start-DetachedHelperProcess {
+    param(
+        [Parameter(Mandatory)][hashtable]$StartParameters
+    )
+    $ErrorActionPreference = 'Stop'
+    if (-not ('Ungate.StdHandleInheritance' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+namespace Ungate {
+    public static class StdHandleInheritance {
+        const uint HandleFlagInherit = 0x1;
+        static readonly int[] StdHandleIds = { -10, -11, -12 };
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern IntPtr GetStdHandle(int id);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern bool GetHandleInformation(IntPtr handle, out uint flags);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern bool SetHandleInformation(IntPtr handle, uint mask, uint flags);
+        public static IntPtr[] ClearInheritable() {
+            var cleared = new System.Collections.Generic.List<IntPtr>();
+            foreach (int id in StdHandleIds) {
+                IntPtr handle = GetStdHandle(id);
+                uint flags;
+                if (handle == IntPtr.Zero || handle == new IntPtr(-1)) continue;
+                if (cleared.Contains(handle) || !GetHandleInformation(handle, out flags)) continue;
+                if ((flags & HandleFlagInherit) == 0) continue;
+                if (SetHandleInformation(handle, HandleFlagInherit, 0)) cleared.Add(handle);
+            }
+            return cleared.ToArray();
+        }
+        public static void Restore(IntPtr[] handles) {
+            foreach (IntPtr handle in handles) SetHandleInformation(handle, HandleFlagInherit, HandleFlagInherit);
+        }
+    }
+}
+'@
+    }
+    $cleared = [Ungate.StdHandleInheritance]::ClearInheritable()
+    try {
+        return Start-Process @StartParameters -PassThru
+    }
+    finally {
+        [Ungate.StdHandleInheritance]::Restore($cleared)
+    }
+}
+
 function Resolve-CliProxyApiKey {
     param(
         [Parameter(Mandatory)][psobject]$Context
@@ -195,15 +247,15 @@ function Ensure-CliProxyBridge {
             CLIPROXY_BRIDGE_MAX_BODY_BYTES = '134217728'
             CLIPROXY_BRIDGE_MAX_INPUT_TOKENS = '500000'
         }
-        $bridgeProcess = Start-Process `
-            -FilePath ([string]$nodeCommand.Source) `
-            -ArgumentList @("`"$($Context.CliProxyBridgePath)`"") `
-            -WorkingDirectory $Context.RepoRoot `
-            -WindowStyle Hidden `
-            -Environment $bridgeEnvironment `
-            -RedirectStandardOutput $stdoutPath `
-            -RedirectStandardError $stderrPath `
-            -PassThru
+        $bridgeProcess = Start-DetachedHelperProcess -StartParameters @{
+            FilePath = [string]$nodeCommand.Source
+            ArgumentList = @("`"$($Context.CliProxyBridgePath)`"")
+            WorkingDirectory = $Context.RepoRoot
+            WindowStyle = 'Hidden'
+            Environment = $bridgeEnvironment
+            RedirectStandardOutput = $stdoutPath
+            RedirectStandardError = $stderrPath
+        }
 
         $startDeadline = (Get-Date).AddSeconds(10)
         do {
@@ -371,15 +423,15 @@ function Ensure-CodexModelShellRouter {
     $stdoutPath = Join-Path $logDirectory 'codex-model-shell-router.out.log'
     $stderrPath = Join-Path $logDirectory 'codex-model-shell-router.err.log'
     Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
-    $routerProcess = Start-Process `
-        -FilePath ([string]$nodeCommand.Source) `
-        -ArgumentList @("`"$($Context.CodexModelShellRouterPath)`"") `
-        -WorkingDirectory $Context.RepoRoot `
-        -WindowStyle Hidden `
-        -Environment $routerEnvironment `
-        -RedirectStandardOutput $stdoutPath `
-        -RedirectStandardError $stderrPath `
-        -PassThru
+    $routerProcess = Start-DetachedHelperProcess -StartParameters @{
+        FilePath = [string]$nodeCommand.Source
+        ArgumentList = @("`"$($Context.CodexModelShellRouterPath)`"")
+        WorkingDirectory = $Context.RepoRoot
+        WindowStyle = 'Hidden'
+        Environment = $routerEnvironment
+        RedirectStandardOutput = $stdoutPath
+        RedirectStandardError = $stderrPath
+    }
 
     $startDeadline = (Get-Date).AddSeconds(10)
     do {

@@ -174,12 +174,18 @@ API), the agent must update the local service before finishing:
 pnpm --filter @ungate/api build
 pnpm --filter @ungate/api build:bundle
 nssm restart ungate-api
-pwsh .\scripts\start-codex-ungate.ps1 -PreflightOnly
+pwsh -NoProfile -NonInteractive -File .\scripts\start-codex-desktop-ungate.ps1 -PrepareOnly
 ```
 
 Run these commands sequentially. Restart the service only when both builds
 succeed. Treat a failed restart or preflight as an unresolved task and report
 it explicitly.
+
+`-PrepareOnly` refreshes the `~/.codex-ungate` profile and runs the proxy
+preflight (`/health`, `/v1/models`, `/v1/responses`) without stopping or
+launching Codex Beta. Without `-Model` it probes the launcher's default model,
+or the first Desktop picker model when that default was deleted. Exit code 0
+means the preflight passed; 2 means a preflight or memory warning.
 
 Do not rebuild or restart `ungate-api` for changes limited to tests,
 documentation, graphify output, frontend code, or scripts that are not loaded
