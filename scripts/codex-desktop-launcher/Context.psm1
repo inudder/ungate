@@ -114,6 +114,8 @@ function New-CodexDesktopLaunchContext {
     $CustomModelDefinitionsPath = Join-Path $CustomCodexHome 'ungate-model-definitions.json'
     $CustomModelOverridesPath = Join-Path $CustomCodexHome 'ungate-model-overrides.json'
     $PickerModelSelectionPath = Join-Path $CustomCodexHome 'ungate-picker-models.json'
+    $ModelRegistryPath = Join-Path $CustomCodexHome 'ungate-model-registry.json'
+    $ModelTemplatePath = Join-Path $PSScriptRoot 'models.default.json'
     $LogSettingsPath = Join-Path $CustomCodexHome 'ungate-log-settings.json'
     $CustomGlobalStatePath = Join-Path $CustomCodexHome '.codex-global-state.json'
     $ProxyBaseUrl = 'http://127.0.0.1:47821'
@@ -172,6 +174,8 @@ function New-CodexDesktopLaunchContext {
         CustomModelDefinitionsPath = $CustomModelDefinitionsPath
         CustomModelOverridesPath = $CustomModelOverridesPath
         PickerModelSelectionPath = $PickerModelSelectionPath
+        ModelRegistryPath = $ModelRegistryPath
+        ModelTemplatePath = $ModelTemplatePath
         LogSettingsPath = $LogSettingsPath
         MemorySettingsPath = Join-Path $CustomCodexHome 'ungate-memory-settings.json'
         BackgroundModelSettingsPath = Join-Path $CustomCodexHome 'ungate-background-model.json'

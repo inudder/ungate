@@ -115,4 +115,52 @@ describe('launcher routes', () => {
 		await app.close();
 		await rm(publicDir, { recursive: true, force: true });
 	});
+
+	it('forwards model removal and template copy and rejects unknown fields', async () => {
+		const calls: { action: string; payload: Record<string, unknown> }[] = [];
+		const transport: LauncherTransport = {
+			request(action, payload) {
+				calls.push({ action, payload });
+
+				return Promise.resolve({ status: 200, body: { ok: true } });
+			}
+		};
+		const publicDir = await mkdtemp(path.join(tmpdir(), 'ungate-launcher-'));
+		await writeFile(path.join(publicDir, 'index.html'), 'ok');
+		const app = await buildServer(
+			{ ...config, publicDir },
+			{ launcherTransport: transport, fetcher: () => Promise.resolve(Response.json({})) }
+		);
+		await app.ready();
+		const bootstrap = await app.inject({ method: 'GET', url: '/api/control/bootstrap', headers: { host: '127.0.0.1:47820' } });
+		const headers = {
+			host: '127.0.0.1:47820',
+			'x-ungate-csrf': readCsrfToken(bootstrap.body),
+			'content-type': 'application/json'
+		};
+		const body = { profileId: 'default', registryId: 'grok-4.7', expectedRevision: 'abc' };
+		const removed = await app.inject({ method: 'POST', url: '/api/control/launcher/models/remove', headers, payload: body });
+		const copied = await app.inject({ method: 'POST', url: '/api/control/launcher/models/add-template', headers, payload: body });
+		const malformed = await app.inject({
+			method: 'POST',
+			url: '/api/control/launcher/models/remove',
+			headers,
+			payload: { ...body, force: true }
+		});
+		const malformedCopy = await app.inject({
+			method: 'POST',
+			url: '/api/control/launcher/models/add-template',
+			headers,
+			payload: { ...body, force: true }
+		});
+		const restored = await app.inject({ method: 'POST', url: '/api/control/launcher/models/restore', headers, payload: body });
+		expect(removed.statusCode).toBe(200);
+		expect(copied.statusCode).toBe(200);
+		expect(malformed.statusCode).toBe(400);
+		expect(malformedCopy.statusCode).toBe(400);
+		expect(restored.statusCode).toBe(404);
+		expect(calls.map((call) => call.action)).toEqual(['models.remove', 'models.addTemplate']);
+		await app.close();
+		await rm(publicDir, { recursive: true, force: true });
+	});
 });

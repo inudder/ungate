@@ -114,9 +114,15 @@ Audio, video, прямой PDF, генерацию изображений и pro
 
 ### 5.3. Добавление модели
 
-Форма повторяет AddModel: уникальный registryId, название, upstream, transport ungate/cliproxyapi/omniroute, default reasoning, image и original отдельно. Original новой модели по умолчанию выключен. Использовать существующую нормализацию и валидацию реестра, сохранять version:1.
+Форма повторяет AddModel: уникальный registryId, название, upstream, контекстное окно, transport ungate/cliproxyapi/omniroute, default reasoning, image и original отдельно. Original новой модели по умолчанию выключен. Использовать существующую нормализацию и валидацию реестра, сохранять version:1.
 
-Встроенные модели не переписывать в custom registry. Удаление моделей, переименование stable ID и перенос существующих моделей между transport не входят в первую версию. Изменение версии и возможностей custom моделей выполняется через те же overrides, что и для builtins.
+Контекст принимает токены или 200k/1M (тот же parser, что и у версии). Пустое поле оставляет 200k. Заданное значение пишется в запись реестра как `contextWindow` (оно же max), а не в overrides, поэтому «Сбросить версию» возвращает к нему, а не к 200k. Интерактивный AddModel в launcher спрашивает то же значение.
+
+Кнопка добавления берёт текст из строки поиска: если поиск ничего не нашёл, кнопка называется «Добавить «…»», а форма заполняет пустые поля ID, названия и upstream этим текстом и прокручивается в видимую область.
+
+Перед записью models.add читает /v1/models выбранного transport тем же endpoint и ключом, что и launcher, и отклоняет модель с HTTP 422: `model_not_in_catalog`, если request model там нет (в ответе перечисляются похожие ID), или `catalog_unavailable`, если каталог не прочитан. Для omniroute действуют правила preflight (`Resolve-OmniRouteCatalogModel`): алиасы mimo/, deepseek/, ds/ и явные маршруты openai-compatible-*. Флаг `skipCatalogCheck: true` пропускает сверку для моделей, которые transport обслуживает, но не публикует в каталоге; live preflight при запуске остаётся решающим.
+
+Модели профиля хранятся в ungate-model-registry.json. Удаление убирает запись; модель из шаблона возвращается копией из models.default.json, а не текущими правками. Переименование stable ID и перенос существующих моделей между transport не входят в эту версию. Изменение версии и возможностей выполняется через те же overrides.
 
 ### 5.4. Picker
 
@@ -156,7 +162,8 @@ Enabled, transport и точный upstream model в ungate-memory-settings.json
 
 | Файл | Данные |
 | --- | --- |
-| ungate-model-definitions.json | Custom model registry |
+| ungate-model-registry.json | Единственный список активных моделей профиля; version:1. Создаётся из шаблона models.default.json, когда файла ещё нет |
+| ungate-model-definitions.json | Устаревший custom registry. Читается только при создании нового реестра и дальше не изменяется |
 | ungate-model-overrides.json | Версия, название, контекст, transport prefix, capability overrides; version:1 |
 | ungate-picker-models.json | Состав picker; version:1 |
 | ungate-memory-settings.json | Настройки памяти; Version:1 |
@@ -189,6 +196,8 @@ Patch contract: set с изменяемыми explicit полями и unset с 
 | POST /api/control/launcher/models/version | Patch версии/name/context для registryId |
 | POST /api/control/launcher/models/capabilities | Patch возможностей для registryId |
 | POST /api/control/launcher/models/reset | registryId и scope: version/capabilities/transport-prefix |
+| POST /api/control/launcher/models/remove | Удаление любой модели из реестра; модель убирается из picker, overrides и фоновой настройки |
+| POST /api/control/launcher/models/add-template | Копия записи шаблона в конец реестра |
 | POST /api/control/launcher/picker | Сохранение выбранных registry IDs |
 | POST /api/control/launcher/memories | Сохранение памяти с её правилами validation |
 | POST /api/control/launcher/logging | Сохранение LogLevel |

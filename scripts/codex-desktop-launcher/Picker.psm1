@@ -400,20 +400,11 @@ function Read-UngateYesNo {
 
 function Invoke-AddUngateModelMode {
     param(
-        [Parameter(Mandatory)][psobject]$Context,
-
-        [Parameter(Mandatory = $true)]
-        [string]$RegistryPath,
-        [Parameter(Mandatory = $true)]
-        [object[]]$BuiltInDefinitions
+        [Parameter(Mandatory)][psobject]$Context
     )
     $ErrorActionPreference = 'Stop'
 
-    $existingDefinitions = @(
-        Read-UngateCustomModelDefinitions -Context $Context `
-            -RegistryPath $RegistryPath `
-            -BuiltInDefinitions $BuiltInDefinitions
-    )
+    $existingDefinitions = @(Get-UngateModelDefinitions -Context $Context -SkipOverrides)
 
     Write-Host ''
     Write-Host 'Add a model to the Codex Beta launcher:' -ForegroundColor Cyan
@@ -444,6 +435,7 @@ function Invoke-AddUngateModelMode {
     $supportsImageInput = Read-UngateYesNo -Prompt 'Supports image input?' -Default $true
     $supportsOriginal = $false
     if ($supportsImageInput) { $supportsOriginal = Read-UngateYesNo -Prompt 'Supports original image detail?' -Default $false }
+    $contextInput = Read-Host 'Context window (e.g. 200k, 500k, 1M) [default: 200k]'
 
     $newRecord = [pscustomobject][ordered]@{
         Slug = $slug
@@ -454,10 +446,13 @@ function Invoke-AddUngateModelMode {
         SupportsImageInput = $supportsImageInput
         SupportsImageDetailOriginal = $supportsOriginal
     }
+    if (-not [string]::IsNullOrWhiteSpace($contextInput)) {
+        $newRecord | Add-Member -NotePropertyName ContextWindow -NotePropertyValue $contextInput.Trim()
+    }
     $candidate = ConvertTo-UngateModelDefinition -Context $Context `
         -Record $newRecord `
-        -Priority ($BuiltInDefinitions.Count + $existingDefinitions.Count)
-    $allSlugs = @($BuiltInDefinitions.Slug) + @($existingDefinitions.Slug)
+        -Priority $existingDefinitions.Count
+    $allSlugs = @($existingDefinitions.Slug)
     if ($candidate.Slug -in $allSlugs) {
         throw "Model ID '$($candidate.Slug)' already exists."
     }
@@ -469,7 +464,9 @@ function Invoke-AddUngateModelMode {
     Write-Host "  Upstream Model: $($candidate.UpstreamModel)"
     Write-Host "  Transport:      $($candidate.ProviderDisplayName)"
     Write-Host "  Reasoning:      $($candidate.DefaultReasoningLevel)"
-    Write-Host "  Image input:    $($candidate.SupportsImageInput)"
+    $imageLabel = @($candidate.InputModalities) -contains 'image'
+    Write-Host "  Image input:    $imageLabel"
+    Write-Host "  Context window: $((Get-UngateModelContextWindow -Definition $candidate).Label)"
     Write-Host ''
 
     if (-not (Read-UngateYesNo -Prompt 'Save this model?' -Default $true)) {
@@ -477,12 +474,8 @@ function Invoke-AddUngateModelMode {
         return
     }
 
-    $registryRecords = @($existingDefinitions) + @($newRecord)
-    $savedPath = Write-UngateCustomModelDefinitions -Context $Context `
-        -RegistryPath $RegistryPath `
-        -Records $registryRecords `
-        -BuiltInDefinitions $BuiltInDefinitions
-    Write-Host "[ungate] Model '$($candidate.Slug)' added: $savedPath" -ForegroundColor Green
+    $null = Add-UngateModelRegistryRecord -Context $Context -Record $newRecord
+    Write-Host "[ungate] Model '$($candidate.Slug)' added to the model registry." -ForegroundColor Green
     Write-Host '[ungate] Run the launcher normally to select the new model.' -ForegroundColor Green
     return $candidate.Slug
 }
@@ -693,16 +686,139 @@ function Invoke-UngateModelVersionConfiguration {
     return $true
 }
 
+# Removes any model from the registry, its overrides, the Desktop picker and the background setting.
+function Remove-UngateProfileModel {
+    param(
+        [Parameter(Mandatory)][psobject]$Context,
+        [Parameter(Mandatory = $true)][string]$Slug
+    )
+    $ErrorActionPreference = 'Stop'
+
+    $lease = Enter-UngateProfileLock -HomePath $Context.CustomCodexHome
+    try {
+        if ($Slug -eq 'ungate-memory') { throw 'ungate-memory is a service alias, not a launcher model.' }
+        $current = @(Get-UngateModelDefinitions -Context $Context -SkipOverrides)
+        $target = $current | Where-Object { [string]$_.Slug -eq $Slug } | Select-Object -First 1
+        if (-not $target) { throw "Model '$Slug' is not configured." }
+        $removedSlug = [string]$target.Slug
+
+        [void](Remove-UngateRegistryRecord -Context $Context -Slug $removedSlug)
+        if (Test-Path -LiteralPath $Context.CustomModelOverridesPath -PathType Leaf) {
+            [void](Remove-UngateModelOverride -OverridesPath $Context.CustomModelOverridesPath -Slug $removedSlug)
+        }
+
+        if (Test-Path -LiteralPath $Context.PickerModelSelectionPath -PathType Leaf) {
+            $picker = $null
+            try { $picker = Get-Content -LiteralPath $Context.PickerModelSelectionPath -Raw -Encoding utf8 | ConvertFrom-Json -Depth 20 -ErrorAction Stop }
+            catch { $picker = $null }
+            # A corrupt picker file is left for its own error; only a readable selection is rewritten.
+            if ($picker -and 'ModelSlugs' -in $picker.PSObject.Properties.Name -and @($picker.ModelSlugs) -contains $removedSlug) {
+                $selected = @($picker.ModelSlugs)
+                $after = @(Get-UngateModelDefinitions -Context $Context -OverridesPath $Context.CustomModelOverridesPath)
+                $kept = @($after | Where-Object { [string]$_.Slug -in $selected } | ForEach-Object { [string]$_.Slug } |
+                    Select-Object -First $Context.CodexDesktopPickerCapacity)
+                if ($kept.Count -eq 0) {
+                    Remove-Item -LiteralPath $Context.PickerModelSelectionPath -Force
+                }
+                else {
+                    [void](Write-UngatePickerModelSelection -SettingsPath $Context.PickerModelSelectionPath -ModelSlugs $kept -Definitions $after -Capacity $Context.CodexDesktopPickerCapacity)
+                }
+            }
+        }
+
+        $background = Read-UngateBackgroundModelSetting -Context $Context
+        if ($background -and $background -eq $removedSlug) {
+            Write-UngateBackgroundModelSetting -Context $Context -ModelSlug $null
+        }
+
+        return [pscustomobject]@{
+            Slug = $removedSlug
+            DisplayName = [string]$target.DisplayName
+            Action = 'deleted'
+        }
+    } finally {
+        Exit-UngateProfileLock -Lease $lease
+    }
+}
+
+function Invoke-UngateModelRemovalMenu {
+    param(
+        [Parameter(Mandatory)][psobject]$Context
+    )
+    $ErrorActionPreference = 'Stop'
+
+    while ($true) {
+        $definitions = @(Get-UngateModelDefinitions -Context $Context)
+        $templateDefinitions = @(Get-UngateTemplateModelDefinitions -Context $Context)
+        $templateSlugs = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        foreach ($templateDefinition in $templateDefinitions) { [void]$templateSlugs.Add([string]$templateDefinition.Slug) }
+        $present = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        foreach ($definition in $definitions) { [void]$present.Add([string]$definition.Slug) }
+        $available = @($templateDefinitions | Where-Object { -not $present.Contains([string]$_.Slug) })
+
+        Write-Host ''
+        Write-Host 'Удаление моделей из launcher:' -ForegroundColor Cyan
+        for ($index = 0; $index -lt $definitions.Count; $index++) {
+            $kind = if ($templateSlugs.Contains([string]$definitions[$index].Slug)) { 'из шаблона' } else { 'своя' }
+            Write-Host ("  {0,2}) {1}  [{2}]" -f ($index + 1), $definitions[$index].DisplayName, $kind)
+        }
+        if ($available.Count -gt 0) {
+            Write-Host 'Добавить из шаблонов:' -ForegroundColor DarkGray
+            for ($index = 0; $index -lt $available.Count; $index++) {
+                Write-Host ("  {0,2}) {1}" -f ($definitions.Count + $index + 1), $available[$index].DisplayName)
+            }
+        }
+        Write-Host '   B) Назад' -ForegroundColor DarkGray
+        $total = $definitions.Count + $available.Count
+        if ($total -eq 0) {
+            $null = Read-Host 'Нажмите Enter для возврата'
+            return $false
+        }
+        $choice = Read-Host "Номер [1-$total или B] (по умолчанию: B)"
+        if ([string]::IsNullOrWhiteSpace($choice) -or $choice.Trim().Equals('b', [System.StringComparison]::OrdinalIgnoreCase)) {
+            return $false
+        }
+
+        $number = 0
+        if (-not [int]::TryParse($choice.Trim(), [ref]$number) -or $number -lt 1 -or $number -gt $total) {
+            Write-Host "Введите число от 1 до $total или B." -ForegroundColor Yellow
+            continue
+        }
+
+        try {
+            if ($number -le $definitions.Count) {
+                $target = $definitions[$number - 1]
+                $prompt = if ($templateSlugs.Contains([string]$target.Slug)) {
+                    "Удалить '$($target.DisplayName)'? Модель можно вернуть из шаблонов. Вернётся запись шаблона, не текущие правки."
+                } else {
+                    "Удалить '$($target.DisplayName)'? Свою модель после удаления придётся ввести заново."
+                }
+                if (-not (Read-UngateYesNo -Prompt $prompt -Default $false)) {
+                    Write-Host '[ungate] Без изменений.' -ForegroundColor Yellow
+                    continue
+                }
+                $result = Remove-UngateProfileModel -Context $Context -Slug ([string]$target.Slug)
+                Write-Host "[ungate] Модель '$($result.DisplayName)' удалена из реестра и убрана из picker." -ForegroundColor Green
+            }
+            else {
+                $entry = $available[$number - $definitions.Count - 1]
+                $restoredSlug = Copy-UngateTemplateModelToRegistry -Context $Context -Slug ([string]$entry.Slug)
+                Write-Host "[ungate] Модель '$($entry.DisplayName)' ($restoredSlug) возвращена из шаблона. Включите её в picker вручную." -ForegroundColor Green
+            }
+            return $true
+        }
+        catch {
+            Write-Host "[ungate] $($_.Exception.Message)" -ForegroundColor Yellow
+        }
+    }
+}
+
 function Select-UngateDesktopModel {
     param(
         [Parameter(Mandatory)][psobject]$Context,
 
         [Parameter(Mandatory = $true)]
         [object[]]$Definitions,
-        [Parameter(Mandatory = $true)]
-        [object[]]$BuiltInDefinitions,
-        [Parameter(Mandatory = $true)]
-        [string]$RegistryPath,
         [Parameter(Mandatory = $true)]
         [string]$PickerSettingsPath,
         [Parameter(Mandatory = $true)]
@@ -770,10 +886,11 @@ function Select-UngateDesktopModel {
             if ($backgroundModel) { $backgroundModel.DisplayName } else { "$backgroundSlug (не найдена)" }
         }
         Write-Host "  [B] Фоновые задачи Desktop (заголовки, подсказки, auto-review) [Current: $backgroundLabel]" -ForegroundColor DarkCyan
+        Write-Host '  [R] Удалить модель из launcher и picker' -ForegroundColor DarkCyan
         Write-Host ''
 
         $fallbackHint = if ($IncludeProviderFallback) { ' or F' } else { '' }
-        $choicePrompt = "Mode [1-$capabilitiesMenuIndex$fallbackHint or V or L or M or TT or C or B] (default: 1)"
+        $choicePrompt = "Mode [1-$capabilitiesMenuIndex$fallbackHint or V or L or M or TT or C or B or R] (default: 1)"
         $choice = Read-Host $choicePrompt
         if ([string]::IsNullOrWhiteSpace($choice)) {
             return $pickerDefinitions[0].Slug
@@ -787,7 +904,7 @@ function Select-UngateDesktopModel {
         if ($choice.Trim() -match '^(c|capabilities)$' -or $choice.Trim() -eq [string]$capabilitiesMenuIndex) {
             $changed = Invoke-UngateCapabilitiesMenu -Context $Context -Definitions $Definitions
             if ($changed) {
-                $Definitions = @(Get-UngateModelDefinitions -Context $Context -BuiltInDefinitions $BuiltInDefinitions -RegistryPath $RegistryPath -OverridesPath $OverridesPath)
+                $Definitions = @(Get-UngateModelDefinitions -Context $Context -OverridesPath $OverridesPath)
             }
             continue
         }
@@ -799,10 +916,7 @@ function Select-UngateDesktopModel {
                 -OverridesPath $OverridesPath
             if ($changed) {
                 $Definitions = @(
-                    Get-UngateModelDefinitions -Context $Context `
-                        -BuiltInDefinitions $BuiltInDefinitions `
-                        -RegistryPath $RegistryPath `
-                        -OverridesPath $OverridesPath
+                    Get-UngateModelDefinitions -Context $Context -OverridesPath $OverridesPath
                 )
             }
             continue
@@ -825,6 +939,15 @@ function Select-UngateDesktopModel {
 
         if ($choice.Trim().Equals('b', [System.StringComparison]::OrdinalIgnoreCase)) {
             Invoke-UngateBackgroundModelMenu -Context $Context -Definitions $Definitions
+            continue
+        }
+
+        if ($choice.Trim().Equals('r', [System.StringComparison]::OrdinalIgnoreCase)) {
+            if (Invoke-UngateModelRemovalMenu -Context $Context) {
+                $Definitions = @(
+                    Get-UngateModelDefinitions -Context $Context -OverridesPath $OverridesPath
+                )
+            }
             continue
         }
 
@@ -852,15 +975,10 @@ function Select-UngateDesktopModel {
             }
 
             if ($selectedNumber -eq $addModelIndex) {
-                $addedModelSlug = Invoke-AddUngateModelMode -Context $Context `
-                    -RegistryPath $RegistryPath `
-                    -BuiltInDefinitions $BuiltInDefinitions
+                $addedModelSlug = Invoke-AddUngateModelMode -Context $Context
                 if ($addedModelSlug) {
                     $Definitions = @(
-                        Get-UngateModelDefinitions -Context $Context `
-                            -BuiltInDefinitions $BuiltInDefinitions `
-                            -RegistryPath $RegistryPath `
-                            -OverridesPath $OverridesPath
+                        Get-UngateModelDefinitions -Context $Context -OverridesPath $OverridesPath
                     )
                     $null = Invoke-UngatePickerConfiguration `
                         -Definitions $Definitions `
@@ -877,10 +995,7 @@ function Select-UngateDesktopModel {
                     -OverridesPath $OverridesPath
                 if ($changed) {
                     $Definitions = @(
-                        Get-UngateModelDefinitions -Context $Context `
-                            -BuiltInDefinitions $BuiltInDefinitions `
-                            -RegistryPath $RegistryPath `
-                            -OverridesPath $OverridesPath
+                        Get-UngateModelDefinitions -Context $Context -OverridesPath $OverridesPath
                     )
                 }
                 continue
@@ -896,7 +1011,7 @@ function Select-UngateDesktopModel {
             }
         }
 
-        Write-Host "Enter a number from 1 to $capabilitiesMenuIndex$fallbackHint or V or L or M or TT or C." -ForegroundColor Yellow
+        Write-Host "Enter a number from 1 to $capabilitiesMenuIndex$fallbackHint or V or L or M or TT or C or B or R." -ForegroundColor Yellow
     }
 }
 
@@ -908,5 +1023,7 @@ Export-ModuleMember -Function @(
     'Write-UngatePickerModelSelection',
     'Get-UngatePickerModelDefinitions',
     'Invoke-UngatePickerConfiguration',
+    'Remove-UngateProfileModel',
+    'Invoke-UngateModelRemovalMenu',
     'Select-UngateDesktopModel'
 )

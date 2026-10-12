@@ -12,7 +12,7 @@ Implementation lives in `scripts/codex-desktop-launcher/`.
 | Module | Responsibility | Module dependencies |
 | --- | --- | --- |
 | Context | Paths, endpoint defaults, launch options, history diagnostics | None |
-| Models | Builtins, identities, custom model registry, context windows | None |
+| Models | Template and profile registry, identities, context windows | None |
 | Toml | Pure TOML text transformations | None |
 | Desktop | CLI/AppX discovery, process lifecycle, MSIX fallback, sandbox, workspace roots | None |
 | Routing | Providers, shell IDs and route records, provider TOML | Toml |
@@ -31,7 +31,9 @@ mutable per-launch module or global state and no dependency cycle.
 
 `environment-instructions.txt` contains the unchanged instruction text used
 to build model identities. The context factory reads it explicitly. Builtin
-definitions are newly constructed on each call to `New-UngateModelSet`.
+definitions and the OmniRoute fallback are built on each call to `New-UngateModelSet`.
+The profile's active list is `ungate-model-registry.json`, created from
+`models.default.json` when the registry is missing.
 
 The `ungate_patch` MCP source editor has its own [patch authoring and
 diagnostic contract](patch-mcp.md), including JavaScript numeric coercion

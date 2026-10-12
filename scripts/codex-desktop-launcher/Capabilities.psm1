@@ -114,8 +114,7 @@ function Invoke-UngateCapabilitiesMenu {
                 }
                 'r' {
                     $null = Remove-UngateModelOverride -OverridesPath $Context.CustomModelOverridesPath -Slug $definition.Slug -Fields @(Get-UngateCapabilityNames)
-                    $builtins = (New-UngateModelSet -Context $Context).BuiltInDefinitions
-                    $all = @(Get-UngateModelDefinitions -Context $Context -BuiltInDefinitions $builtins -RegistryPath $Context.CustomModelDefinitionsPath)
+                    $all = @(Get-UngateModelDefinitions -Context $Context)
                     $definition = Resolve-CapabilityModel -Definitions $all -Model $definition.Slug
                     $draft = @{}
                     $changed = $true

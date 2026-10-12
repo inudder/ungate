@@ -1,0 +1,133 @@
+{
+  "version": 1,
+  "models": [
+    {
+      "slug": "ungate-opus-4-8",
+      "displayName": "Claude Opus 4.8 (Ungate)",
+      "description": "Claude Opus 4.8 through the local Ungate Responses proxy.",
+      "upstreamModel": "claude-opus-4-8",
+      "transport": "ungate",
+      "defaultReasoningLevel": "high",
+      "supportsImageInput": true
+    },
+    {
+      "slug": "ungate-fable-5",
+      "displayName": "Claude Fable 5 (Ungate)",
+      "description": "Claude Fable 5 through the local Ungate Responses proxy.",
+      "upstreamModel": "claude-fable-5",
+      "transport": "ungate",
+      "defaultReasoningLevel": "high",
+      "supportsImageInput": true
+    },
+    {
+      "slug": "miniMax-M3",
+      "displayName": "MiniMax M3 (Ungate)",
+      "description": "MiniMax M3 through the local Ungate Responses proxy with image input support.",
+      "upstreamModel": null,
+      "transport": "ungate",
+      "defaultReasoningLevel": "xhigh",
+      "supportsImageInput": true,
+      "contextWindow": 1000000,
+      "maxContextWindow": 1000000
+    },
+    {
+      "slug": "grok-4.7",
+      "displayName": "Grok 4.7 (CLIProxyAPI)",
+      "description": "Grok 4.7 through the local CLIProxyAPI compatibility bridge on port 8318.",
+      "upstreamModel": "grok-4.7",
+      "transport": "cliproxyapi",
+      "defaultReasoningLevel": "high",
+      "supportsImageInput": true,
+      "contextWindow": 500000,
+      "maxContextWindow": 500000
+    },
+    {
+      "slug": "apikey-fun/kimi-k3",
+      "displayName": "Kimi K3 (OmniRoute)",
+      "description": "Kimi K3 through the local OmniRoute proxy on port 20128.",
+      "upstreamModel": "apikey-fun/kimi-k3",
+      "transport": "omniroute",
+      "defaultReasoningLevel": "high",
+      "supportsImageInput": true
+    },
+    {
+      "slug": "apikey-fun/grok-4.5",
+      "displayName": "Grok 4.5 (apikey.fun)",
+      "description": "Grok 4.5 via apikey.fun through the local OmniRoute proxy on port 20128.",
+      "upstreamModel": "apikey-fun/grok-4.5",
+      "transport": "omniroute",
+      "defaultReasoningLevel": "high",
+      "supportsImageInput": true
+    },
+    {
+      "slug": "apikey-fun/claude-opus-5",
+      "displayName": "Claude Opus 5 (apikey.fun)",
+      "description": "Claude Opus 5 via apikey.fun through the local OmniRoute proxy on port 20128.",
+      "upstreamModel": "apikey-fun/claude-opus-5",
+      "transport": "omniroute",
+      "defaultReasoningLevel": "high",
+      "supportsImageInput": true
+    },
+    {
+      "slug": "mimo-v2.5-pro",
+      "displayName": "Mimo v2.5 Pro (OmniRoute)",
+      "description": "Mimo v2.5 Pro through the local OmniRoute proxy on port 20128.",
+      "upstreamModel": "mimo-v2.5-pro",
+      "transport": "omniroute",
+      "defaultReasoningLevel": "high",
+      "supportsImageInput": false,
+      "contextWindow": 1000000,
+      "maxContextWindow": 1000000,
+      "supportsReasoningSummaries": true,
+      "supportsParallelToolCalls": false,
+      "responsesAdapter": "mimo-textual-tools",
+      "truncationPolicy": { "mode": "bytes", "limit": 10000 },
+      "supportedReasoningLevels": [
+        { "effort": "none", "description": "Disable Thinking" },
+        { "effort": "high", "description": "Enabled Thinking" }
+      ]
+    },
+    {
+      "slug": "deepseek-v4-pro",
+      "displayName": "DeepSeek V4 Pro (OmniRoute)",
+      "description": "DeepSeek V4 Pro through the local OmniRoute proxy on port 20128.",
+      "upstreamModel": "deepseek/deepseek-v4-pro",
+      "aliases": ["deepseek-pro", "ds/deepseek-v4-pro"],
+      "transport": "omniroute",
+      "defaultReasoningLevel": "high",
+      "supportsImageInput": false,
+      "contextWindow": 1000000,
+      "maxContextWindow": 1000000,
+      "supportsReasoningSummaries": true,
+      "supportsParallelToolCalls": true,
+      "responsesAdapter": "deepseek-responses",
+      "supportedReasoningLevels": [
+        { "effort": "none", "description": "Disable Thinking" },
+        { "effort": "low", "description": "Low Thinking" },
+        { "effort": "high", "description": "High Thinking" },
+        { "effort": "max", "description": "Max Thinking" }
+      ]
+    },
+    {
+      "slug": "deepseek-v4-flash",
+      "displayName": "DeepSeek V4 Flash (OmniRoute)",
+      "description": "DeepSeek V4 Flash through the local OmniRoute proxy on port 20128.",
+      "upstreamModel": "deepseek/deepseek-v4-flash",
+      "aliases": ["deepseek-flash", "deepseek/deepseek-flash", "ds/deepseek-flash", "ds/deepseek-v4-flash"],
+      "transport": "omniroute",
+      "defaultReasoningLevel": "high",
+      "supportsImageInput": false,
+      "contextWindow": 1000000,
+      "maxContextWindow": 1000000,
+      "supportsReasoningSummaries": true,
+      "supportsParallelToolCalls": true,
+      "responsesAdapter": "deepseek-responses",
+      "supportedReasoningLevels": [
+        { "effort": "none", "description": "Disable Thinking" },
+        { "effort": "low", "description": "Low Thinking" },
+        { "effort": "high", "description": "High Thinking" },
+        { "effort": "max", "description": "Max Thinking" }
+      ]
+    }
+  ]
+}

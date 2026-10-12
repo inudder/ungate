@@ -34,6 +34,28 @@ function Get-ActiveDesktopModelDefinitions {
     return @(Set-CodexModelShellSlugs -Context $Context -Definitions $pickerDefinitions)
 }
 
+function Resolve-UngateUnspecifiedModel {
+    param(
+        [Parameter(Mandatory)][psobject]$Context,
+        [Parameter(Mandatory)][object[]]$Definitions,
+        [Parameter(Mandatory)][string]$Model
+    )
+    $ErrorActionPreference = 'Stop'
+    $known = @($Definitions) | Where-Object {
+        $_.Slug -eq $Model -or
+        ($_.PSObject.Properties['UpstreamModel'] -and $_.UpstreamModel -eq $Model) -or
+        ($_.PSObject.Properties['Aliases'] -and $_.Aliases -and $Model -in $_.Aliases)
+    } | Select-Object -First 1
+    if ($known) { return $Model }
+    $pickerDefinitions = @(Get-UngatePickerModelDefinitions `
+        -Definitions $Definitions `
+        -SettingsPath $Context.PickerModelSelectionPath `
+        -Capacity $Context.CodexDesktopPickerCapacity)
+    if ($pickerDefinitions.Count -gt 0) { return [string]$pickerDefinitions[0].Slug }
+    if (@($Definitions).Count -gt 0) { return [string]@($Definitions)[0].Slug }
+    return $Model
+}
+
 function Resolve-CodexDesktopSelection {
     param(
         [Parameter(Mandatory)][psobject]$Context,
@@ -55,11 +77,7 @@ function Resolve-CodexDesktopSelection {
         MemoryFailure = $null
         BackgroundDefinition = $null
     }
-    $AllUngateModelDefinitions = @(
-        Get-UngateModelDefinitions -Context $Context `
-            -BuiltInDefinitions $ModelSet.BuiltInDefinitions `
-            -RegistryPath $Context.CustomModelDefinitionsPath
-    )
+    $AllUngateModelDefinitions = @(Get-UngateModelDefinitions -Context $Context)
     if ($Selection.EnableProviderFallback) {
         if ($Context.BoundParameterNames.Contains('Model')) {
             throw '-EnableProviderFallback cannot be combined with -Model.'
@@ -67,13 +85,14 @@ function Resolve-CodexDesktopSelection {
 
         $Model = $Context.OmniRouteFallbackModel
     }
+    elseif (-not $Context.BoundParameterNames.Contains('Model')) {
+        $Model = Resolve-UngateUnspecifiedModel -Context $Context -Definitions $AllUngateModelDefinitions -Model $Model
+    }
     $Selection.Definitions = @(Get-ActiveDesktopModelDefinitions -Context $Context -Definitions $AllUngateModelDefinitions -Selection $Selection)
 
     if (-not $Selection.EnableProviderFallback -and -not $PrepareOnly -and -not $Context.BoundParameterNames.Contains('Model')) {
         $Model = Select-UngateDesktopModel -Context $Context `
             -Definitions $AllUngateModelDefinitions `
-            -BuiltInDefinitions $ModelSet.BuiltInDefinitions `
-            -RegistryPath $Context.CustomModelDefinitionsPath `
             -PickerSettingsPath $Context.PickerModelSelectionPath `
             -PickerCapacity $Context.CodexDesktopPickerCapacity `
             -LogSettingsPath $Context.LogSettingsPath `
@@ -85,12 +104,7 @@ function Resolve-CodexDesktopSelection {
             $Selection.EnableProviderFallback = $true
         }
         else {
-            $AllUngateModelDefinitions = @(
-                Get-UngateModelDefinitions -Context $Context `
-                    -BuiltInDefinitions $ModelSet.BuiltInDefinitions `
-                    -RegistryPath $Context.CustomModelDefinitionsPath `
-                    -OverridesPath $Context.CustomModelOverridesPath
-            )
+            $AllUngateModelDefinitions = @(Get-UngateModelDefinitions -Context $Context -OverridesPath $Context.CustomModelOverridesPath)
         }
         $Selection.Definitions = @(Get-ActiveDesktopModelDefinitions -Context $Context -Definitions $AllUngateModelDefinitions -Selection $Selection)
     }
@@ -401,7 +415,7 @@ function Invoke-CodexDesktopLauncher {
         if (-not $Context.Options.TestModelCapabilities -and $Context.BoundParameterNames.Contains('ApiKey')) { $conflicts += 'ApiKey' }
         if ($conflicts.Count -gt 0) { throw "Capability commands cannot be combined with: $($conflicts -join ', ')." }
         $set = New-UngateModelSet -Context $Context
-        $definitions = @(Get-UngateModelDefinitions -Context $Context -BuiltInDefinitions $set.BuiltInDefinitions -RegistryPath $Context.CustomModelDefinitionsPath)
+        $definitions = @(Get-UngateModelDefinitions -Context $Context)
         return Invoke-UngateCapabilitiesCommand -Context $Context -Definitions $definitions
     }
     if ($Context.Options.ConfigureMemories) {
@@ -415,7 +429,12 @@ function Invoke-CodexDesktopLauncher {
         $conflicts = @('AddModel', 'PrepareOnly', 'EnableProviderFallback') | Where-Object { $Context.BoundParameterNames.Contains($_) }
         if ($conflicts.Count -gt 0) { throw "-TestTools cannot be combined with: $($conflicts -join ', ')." }
         $toolModelSet = New-UngateModelSet -Context $Context
-        $toolDefinitions = @(Get-UngateModelDefinitions -Context $Context -BuiltInDefinitions $toolModelSet.BuiltInDefinitions -RegistryPath $Context.CustomModelDefinitionsPath)
+        $registryPath = [string]$Context.ModelRegistryPath
+        if ($registryPath -and (Test-Path -LiteralPath $registryPath -PathType Leaf)) {
+            $toolDefinitions = @(Get-UngateModelDefinitions -Context $Context)
+        } else {
+            $toolDefinitions = @(Get-UngateTemplateModelDefinitions -Context $Context)
+        }
         $toolModel = if ($Context.BoundParameterNames.Contains('Model')) { $Context.Options.Model } else { $null }
         return Invoke-CodexToolCompatibility -Context $Context -Definitions $toolDefinitions -Model $toolModel
     }
@@ -432,7 +451,7 @@ function Invoke-CodexDesktopLauncher {
         if ($conflictingParameters.Count -gt 0) {
             throw "-AddModel cannot be combined with: $($conflictingParameters -join ', ')."
         }
-        $null = Invoke-AddUngateModelMode -Context $Context -RegistryPath $Context.CustomModelDefinitionsPath -BuiltInDefinitions $modelSet.BuiltInDefinitions
+        $null = Invoke-AddUngateModelMode -Context $Context
         return 0
     }
 
@@ -443,7 +462,7 @@ function Invoke-CodexDesktopLauncher {
         if ($conflictingParameters.Count -gt 0) {
             throw "-ConfigureModel/-SetUpstreamModel cannot be combined with: $($conflictingParameters -join ', ')."
         }
-        $defs = @(Get-UngateModelDefinitions -Context $Context -BuiltInDefinitions $modelSet.BuiltInDefinitions -RegistryPath $Context.CustomModelDefinitionsPath -OverridesPath $Context.CustomModelOverridesPath)
+        $defs = @(Get-UngateModelDefinitions -Context $Context -OverridesPath $Context.CustomModelOverridesPath)
         $targetSlug = if ($Context.BoundParameterNames.Contains('Model')) { $Context.Options.Model } else { $null }
         $newUpstream = if ($Context.BoundParameterNames.Contains('SetUpstreamModel')) { $Context.Options.SetUpstreamModel } else { $null }
         $null = Invoke-UngateModelVersionConfiguration `

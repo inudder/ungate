@@ -168,7 +168,6 @@ Describe 'Memory menu' {
         Mock Write-Host {} -ModuleName Picker
         Mock Invoke-UngateMemoryMenu {} -ModuleName Picker
         $selection = Select-UngateDesktopModel -Context $context -Definitions $modelSet.BuiltInDefinitions `
-            -BuiltInDefinitions $modelSet.BuiltInDefinitions -RegistryPath $context.CustomModelDefinitionsPath `
             -PickerSettingsPath $context.PickerModelSelectionPath -PickerCapacity 7 -IncludeProviderFallback
         $selection | Should -Be $modelSet.BuiltInDefinitions[0].Slug
         Should -Invoke Invoke-UngateMemoryMenu -ModuleName Picker -Times 1

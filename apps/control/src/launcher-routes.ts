@@ -193,9 +193,23 @@ export function registerLauncherRoutes(
 			defaultReasoningLevel: { type: 'string' },
 			supportsImageInput: { type: 'boolean' },
 			supportsImageDetailOriginal: { type: 'boolean' },
+			contextWindow: { type: 'string', maxLength: 32 },
+			skipCatalogCheck: { type: 'boolean' },
 			expectedRevision: { type: 'string' }
 		}
 	});
+	const removalBody = {
+		type: 'object',
+		additionalProperties: false,
+		required: ['profileId', 'registryId', 'expectedRevision'],
+		properties: {
+			profileId: profile,
+			registryId: { type: 'string', minLength: 1 },
+			expectedRevision: { type: 'string', minLength: 1 }
+		}
+	};
+	post('/api/control/launcher/models/remove', 'models.remove', removalBody);
+	post('/api/control/launcher/models/add-template', 'models.addTemplate', removalBody);
 	post('/api/control/launcher/picker', 'picker.set', {
 		type: 'object',
 		additionalProperties: false,

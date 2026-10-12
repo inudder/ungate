@@ -228,67 +228,20 @@ Describe 'Custom launcher model registry' {
         $script:Context.CodexModelShellPool = @('gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna')
         $script:Context.CodexDesktopPickerCapacity = 3
         $script:Selection.EnableProviderFallback = $false
-        $script:builtInDefinitions = @(
-            [pscustomobject][ordered]@{
-                Slug = 'ungate-opus-4-8'
-                DisplayName = 'Claude Opus 4.8 (Ungate)'
-                Priority = 0
-            }
-            [pscustomobject][ordered]@{
-                Slug = 'grok-4.7'
-                DisplayName = 'Grok 4.7 (CLIProxyAPI)'
-                Priority = 1
-            }
-        )
-        $script:registryPath = Join-Path $TestDrive 'ungate-model-definitions.json'
         $script:pickerSettingsPath = Join-Path $TestDrive 'ungate-picker-models.json'
     }
 
-    It 'returns only built-in definitions when the registry does not exist' {
-        $definitions = @(
-            Get-UngateModelDefinitions -Context $script:Context `
-                -BuiltInDefinitions $script:builtInDefinitions `
-                -RegistryPath $script:registryPath
-        )
+    It 'creates the template registry when none exists' {
+        $definitions = @(Get-UngateModelDefinitions -Context $script:Context)
 
-        $definitions | Should -HaveCount 2
-        @($definitions.Slug) | Should -Be @('ungate-opus-4-8', 'grok-4.7')
+        $definitions | Should -HaveCount 10
+        $definitions[0].Slug | Should -BeExactly 'ungate-opus-4-8'
+        $definitions[-1].Slug | Should -BeExactly 'deepseek-v4-flash'
     }
 
-    It 'round-trips a versioned registry without losing persisted fields' {
-        $record = New-CustomModelTestRecord
-
-        $savedPath = Write-UngateCustomModelDefinitions -Context $script:Context `
-            -RegistryPath $script:registryPath `
-            -Records @($record) `
-            -BuiltInDefinitions $script:builtInDefinitions
-        $savedPath | Should -BeExactly ([System.IO.Path]::GetFullPath($script:registryPath))
-
-        $registry = Get-Content -LiteralPath $script:registryPath -Raw -Encoding utf8 |
-            ConvertFrom-Json -Depth 20
-        $registry.Version | Should -Be 1
-        @($registry.Models) | Should -HaveCount 1
-        $registry.Models[0].Slug | Should -BeExactly 'ungate-opus-5'
-        $registry.Models[0].DisplayName | Should -BeExactly 'Claude Opus 5 (Ungate)'
-        $registry.Models[0].UpstreamModel | Should -BeExactly 'claude-opus-5'
-        $registry.Models[0].Transport | Should -BeExactly 'ungate'
-        $registry.Models[0].DefaultReasoningLevel | Should -BeExactly 'high'
-        $registry.Models[0].SupportsImageInput | Should -BeTrue
-
-        $definitions = @(
-            Read-UngateCustomModelDefinitions -Context $script:Context `
-                -RegistryPath $script:registryPath `
-                -BuiltInDefinitions $script:builtInDefinitions
-        )
-        $definitions | Should -HaveCount 1
-        $definitions[0].UpstreamModel | Should -BeExactly 'claude-opus-5'
-        $definitions[0].Transport | Should -BeExactly 'ungate'
-        $definitions[0].SupportsImageInput | Should -BeTrue
-    }
-
-    It 'appends custom definitions after built-ins with sequential priorities' {
-        $records = @(
-            New-CustomModelTestRecord
+    It 'appends custom models after the template with the next priorities' {
+        $null = Add-UngateModelRegistryRecord -Context $script:Context -Record (New-CustomModelTestRecord)
+        $null = Add-UngateModelRegistryRecord -Context $script:Context -Record (
             New-CustomModelTestRecord `
                 -Slug 'custom-text-model' `
                 -DisplayName 'Custom Text Model' `
@@ -297,31 +250,22 @@ Describe 'Custom launcher model registry' {
                 -ReasoningLevel 'medium' `
                 -SupportsImageInput $false
         )
-        $null = Write-UngateCustomModelDefinitions -Context $script:Context `
-            -RegistryPath $script:registryPath `
-            -Records $records `
-            -BuiltInDefinitions $script:builtInDefinitions
 
-        $definitions = @(
-            Get-UngateModelDefinitions -Context $script:Context `
-                -BuiltInDefinitions $script:builtInDefinitions `
-                -RegistryPath $script:registryPath
-        )
+        $definitions = @(Get-UngateModelDefinitions -Context $script:Context -SkipOverrides)
 
-        $definitions | Should -HaveCount 4
-        @($definitions.Slug) | Should -Be @(
-            'ungate-opus-4-8',
-            'grok-4.7',
-            'ungate-opus-5',
-            'custom-text-model'
-        )
-        $definitions[2].Priority | Should -Be 2
-        $definitions[3].Priority | Should -Be 3
-        @($definitions[3].InputModalities) | Should -Be @('text')
-        $definitions[3].WebSearchToolType | Should -BeExactly 'text'
+        $definitions | Should -HaveCount 12
+        $definitions[10].Slug | Should -BeExactly 'ungate-opus-5'
+        $definitions[10].Priority | Should -Be 10
+        $definitions[11].Slug | Should -BeExactly 'custom-text-model'
+        $definitions[11].Priority | Should -Be 11
+        @($definitions[11].InputModalities) | Should -Be @('text')
+        $definitions[11].WebSearchToolType | Should -BeExactly 'text'
     }
 
-    It 'rejects empty, whitespace-containing, and duplicate model IDs' {
+    It 'rejects an existing, empty, or whitespace model ID' {
+        {
+            Add-UngateModelRegistryRecord -Context $script:Context -Record (New-CustomModelTestRecord -Slug 'ungate-opus-4-8')
+        } | Should -Throw '*already exists*'
         {
             ConvertTo-UngateModelDefinition -Context $script:Context `
                 -Record (New-CustomModelTestRecord -Slug '') `
@@ -332,14 +276,6 @@ Describe 'Custom launcher model registry' {
                 -Record (New-CustomModelTestRecord -Slug 'bad model') `
                 -Priority 2
         } | Should -Throw '*cannot contain whitespace*'
-        {
-            Write-UngateCustomModelDefinitions -Context $script:Context `
-                -RegistryPath $script:registryPath `
-                -Records @(
-                    New-CustomModelTestRecord -Slug 'UNGATE-OPUS-4-8'
-                ) `
-                -BuiltInDefinitions $script:builtInDefinitions
-        } | Should -Throw '*duplicates an existing model*'
     }
 
     It 'rejects unsupported transports and reasoning levels' {
@@ -355,46 +291,19 @@ Describe 'Custom launcher model registry' {
         } | Should -Throw '*unsupported reasoning level*'
     }
 
-    It 'preserves the existing registry and leaves no temporary file after validation fails' {
-        $null = Write-UngateCustomModelDefinitions -Context $script:Context `
-            -RegistryPath $script:registryPath `
-            -Records @((New-CustomModelTestRecord)) `
-            -BuiltInDefinitions $script:builtInDefinitions
-        $beforeHash = (Get-FileHash -LiteralPath $script:registryPath -Algorithm SHA256).Hash
+    It 'preserves the registry and leaves no temporary file after a duplicate write' {
+        $null = Get-UngateModelDefinitions -Context $script:Context
+        $records = @(Get-UngateModelRegistryRecords -Context $script:Context)
+        $beforeHash = (Get-FileHash -LiteralPath $script:Context.ModelRegistryPath -Algorithm SHA256).Hash
 
         {
-            Write-UngateCustomModelDefinitions -Context $script:Context `
-                -RegistryPath $script:registryPath `
-                -Records @(
-                    New-CustomModelTestRecord
-                    New-CustomModelTestRecord -Slug 'UNGATE-OPUS-5'
-                ) `
-                -BuiltInDefinitions $script:builtInDefinitions
-        } | Should -Throw '*duplicates an existing model*'
+            Write-UngateModelRegistry -Context $script:Context -Records @($records + $records[0])
+        } | Should -Throw '*duplicated*'
 
-        (Get-FileHash -LiteralPath $script:registryPath -Algorithm SHA256).Hash |
+        (Get-FileHash -LiteralPath $script:Context.ModelRegistryPath -Algorithm SHA256).Hash |
             Should -BeExactly $beforeHash
-        @(Get-ChildItem -LiteralPath $TestDrive -Filter '*.tmp' -File) | Should -HaveCount 0
-    }
-
-    It 'generates the expected Ungate launcher definition for Claude Opus 5' {
-        $definition = ConvertTo-UngateModelDefinition -Context $script:Context `
-            -Record (New-CustomModelTestRecord) `
-            -Priority 2
-
-        $definition.Slug | Should -BeExactly 'ungate-opus-5'
-        $definition.ProviderName | Should -BeExactly 'ungate_proxy'
-        $definition.ProxyBaseUrl | Should -BeExactly 'http://127.0.0.1:47821'
-        $definition.EnvKey | Should -BeExactly 'UNGATE_API_KEY'
-        $definition.RequiresUngate | Should -BeTrue
-        @($definition.InputModalities) | Should -Be @('text', 'image')
-        $definition.SupportsImageDetailOriginal | Should -BeTrue
-        $definition.WebSearchToolType | Should -BeExactly 'text_and_image'
-        $definition.Description | Should -Match 'claude-opus-5'
-        # Anthropic-prefixed models skip the Codex self-identification layer;
-        # Identity is just the shared environment instruction.
-        $definition.Identity | Should -Match 'environment instructions'
-        $definition.Identity | Should -Not -Match 'GPT model'
+        @(Get-ChildItem -LiteralPath $script:Context.CustomCodexHome -Force -File -Filter '*.tmp') |
+            Should -HaveCount 0
     }
 
     It 'generates the expected OmniRoute launcher definition for a custom model' {
@@ -429,20 +338,23 @@ Describe 'Custom launcher model registry' {
             '',
             '',
             '',
+            '',
+            '',
             ''
         )
 
         $output = @($answers | & $powerShellExecutable @arguments 2>&1)
 
         $LASTEXITCODE | Should -Be 0 -Because ($output -join "`n")
-        $registryPath = Join-Path $customHome 'ungate-model-definitions.json'
+        $registryPath = Join-Path $customHome 'ungate-model-registry.json'
         Test-Path -LiteralPath $registryPath -PathType Leaf | Should -BeTrue
         Test-Path -LiteralPath (Join-Path $customHome 'config.toml') | Should -BeFalse
         Test-Path -LiteralPath (Join-Path $customHome 'ungate-models.json') | Should -BeFalse
         $registry = Get-Content -LiteralPath $registryPath -Raw -Encoding utf8 |
             ConvertFrom-Json -Depth 20
-        $registry.Models[0].Slug | Should -BeExactly 'ungate-opus-5'
-        $registry.Models[0].UpstreamModel | Should -BeExactly 'claude-opus-5'
+        @($registry.models) | Should -HaveCount 11
+        @($registry.models)[-1].slug | Should -BeExactly 'ungate-opus-5'
+        @($registry.models)[-1].upstreamModel | Should -BeExactly 'claude-opus-5'
     }
 
     It 'includes the custom model in the generated Codex model catalog' {
@@ -599,8 +511,6 @@ env_key = "OMNIROUTE_API_KEY"
 
         $selected = Select-UngateDesktopModel -Context $script:Context `
             -Definitions $script:selectionDefinitions `
-            -BuiltInDefinitions $script:builtInDefinitions `
-            -RegistryPath $script:registryPath `
             -PickerSettingsPath $script:pickerSettingsPath `
             -PickerCapacity $script:Context.CodexDesktopPickerCapacity
 
@@ -619,8 +529,6 @@ env_key = "OMNIROUTE_API_KEY"
 
         $selected = Select-UngateDesktopModel -Context $script:Context `
             -Definitions $script:selectionDefinitions `
-            -BuiltInDefinitions $script:builtInDefinitions `
-            -RegistryPath $script:registryPath `
             -PickerSettingsPath $script:pickerSettingsPath `
             -PickerCapacity $script:Context.CodexDesktopPickerCapacity `
             -IncludeProviderFallback `
@@ -640,8 +548,6 @@ env_key = "OMNIROUTE_API_KEY"
 
         $selected = Select-UngateDesktopModel -Context $script:Context `
             -Definitions $script:selectionDefinitions `
-            -BuiltInDefinitions $script:builtInDefinitions `
-            -RegistryPath $script:registryPath `
             -PickerSettingsPath $script:pickerSettingsPath `
             -PickerCapacity $script:Context.CodexDesktopPickerCapacity
 
@@ -680,8 +586,6 @@ env_key = "OMNIROUTE_API_KEY"
 
         $selected = Select-UngateDesktopModel -Context $script:Context `
             -Definitions $definitions `
-            -BuiltInDefinitions $script:builtInDefinitions `
-            -RegistryPath $script:registryPath `
             -PickerSettingsPath $script:pickerSettingsPath `
             -PickerCapacity $script:Context.CodexDesktopPickerCapacity
 

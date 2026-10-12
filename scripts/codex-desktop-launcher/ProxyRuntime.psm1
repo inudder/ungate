@@ -444,6 +444,20 @@ function Resolve-ModelApiKey {
     return Resolve-CliProxyApiKey -Context $Context
 }
 
+# Returns the model ID OmniRoute preflight will send, or $null when discovery rules it out.
+function Resolve-OmniRouteCatalogModel {
+    param([Parameter(Mandatory = $true)][string]$Model, [string[]]$CatalogIds = @())
+    if ($Model -in $CatalogIds) { return $Model }
+    # Discovery advertises the native Xiaomi route, while the unprefixed
+    # name uses the working Codex-compatible provider route.
+    if ("mimo/$Model" -in $CatalogIds) { return $Model }
+    if ("deepseek/$Model" -in $CatalogIds) { return "deepseek/$Model" }
+    if ("ds/$Model" -in $CatalogIds) { return "ds/$Model" }
+    # Explicit gateway provider routes are absent from discovery; live inference decides.
+    if ($Model -match '^openai-compatible-(chat|responses)-[A-Za-z0-9._-]+/[^/]+$') { return $Model }
+    return $null
+}
+
 function Invoke-DesktopOmniRoutePreflight {
     param(
         [Parameter(Mandatory = $true)]
@@ -481,21 +495,12 @@ function Invoke-DesktopOmniRoutePreflight {
     }
 
     $ids = @($models.data | ForEach-Object { $_.id })
-    $effectiveModel = if ($Model -in $ids) {
-        $Model
-    } elseif ("mimo/$Model" -in $ids) {
-        # Discovery advertises the native Xiaomi route, while the unprefixed
-        # name uses the working Codex-compatible provider route.
-        $Model
-    } elseif ("deepseek/$Model" -in $ids) {
-        "deepseek/$Model"
-    } elseif ("ds/$Model" -in $ids) {
-        "ds/$Model"
-    } elseif ($Model -match '^openai-compatible-(chat|responses)-[A-Za-z0-9._-]+/[^/]+$') {
-        Write-Host '[ungate] Explicit gateway provider route is absent from discovery; validating live Responses inference.' -ForegroundColor DarkGray
-        $Model
-    } else {
+    $effectiveModel = Resolve-OmniRouteCatalogModel -Model $Model -CatalogIds $ids
+    if (-not $effectiveModel) {
         throw "OmniRoute model or combo '$Model' was not found in /v1/models. Configure the model before launching."
+    }
+    if ($effectiveModel -eq $Model -and $Model -notin $ids -and "mimo/$Model" -notin $ids) {
+        Write-Host '[ungate] Explicit gateway provider route is absent from discovery; validating live Responses inference.' -ForegroundColor DarkGray
     }
     if ($Model -in $ids) { Write-Host "[ungate] OmniRoute model or combo '$Model' available." -ForegroundColor Green }
 
@@ -546,6 +551,7 @@ Export-ModuleMember -Function @(
     'Ensure-CodexModelShellRouter',
     'Resolve-ModelApiKey',
     'Invoke-DesktopOmniRoutePreflight',
+    'Resolve-OmniRouteCatalogModel',
     'Invoke-UngatePreflight',
     'Invoke-CliProxyPreflight'
 )

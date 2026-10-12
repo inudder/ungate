@@ -109,9 +109,7 @@ function Copy-OverrideMap {
 
 function Get-DefinitionsWithoutCapabilityOverrides {
     param($Context, $Map, [string]$Slug)
-    $modelSet = New-UngateModelSet -Context $Context
-    $custom = @(Read-UngateCustomModelDefinitions -Context $Context -RegistryPath $Context.CustomModelDefinitionsPath -BuiltInDefinitions $modelSet.BuiltInDefinitions)
-    $definitions = @($modelSet.BuiltInDefinitions) + $custom
+    $definitions = @(Get-UngateModelDefinitions -Context $Context -SkipOverrides)
     $stripped = Copy-OverrideMap $Map
     if ($stripped.Contains($Slug)) {
         $fields = ConvertTo-LauncherDictionary $stripped[$Slug]
@@ -148,14 +146,26 @@ function Get-UngateLauncherState {
     param([Parameter(Mandatory)][string]$BetaHome)
     $context = Get-LauncherContext -BetaHome $BetaHome
     $overrideInfo = Get-OverrideMap -Context $context
-    $modelSet = New-UngateModelSet -Context $context
     $definitions = @()
+    $templateSlugs = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $templateModels = @()
     $definitionError = $null
     if ($overrideInfo.Document.Corrupt) {
         $definitionError = $overrideInfo.Document.Message
     } else {
         try {
-            $definitions = @(Get-UngateModelDefinitions -Context $context -BuiltInDefinitions $modelSet.BuiltInDefinitions -RegistryPath $context.CustomModelDefinitionsPath -OverridesPath $context.CustomModelOverridesPath | Where-Object { $_.Slug -ne 'ungate-memory' })
+            $definitions = @(Get-UngateModelDefinitions -Context $context -OverridesPath $context.CustomModelOverridesPath | Where-Object { $_.Slug -ne 'ungate-memory' })
+            $present = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+            foreach ($definition in $definitions) { [void]$present.Add([string]$definition.Slug) }
+            $missing = [System.Collections.Generic.List[object]]::new()
+            foreach ($templateDefinition in @(Get-UngateTemplateModelDefinitions -Context $context)) {
+                $templateSlug = [string]$templateDefinition.Slug
+                [void]$templateSlugs.Add($templateSlug)
+                if (-not $present.Contains($templateSlug)) {
+                    [void]$missing.Add([ordered]@{ registryId = $templateSlug; displayName = [string]$templateDefinition.DisplayName })
+                }
+            }
+            $templateModels = @($missing)
         } catch {
             $definitionError = $_.Exception.Message
         }
@@ -188,7 +198,10 @@ function Get-UngateLauncherState {
             $logLevel = [string]$parsedLog.LogLevel
         } catch { $logError = $_.Exception.Message }
     } else { $logLevel = 'Standard' }
-    $registryDocument = Read-StrictDocument -Path $context.CustomModelDefinitionsPath
+    $registryPath = [string]$context.ModelRegistryPath
+    $registryDocument = Read-StrictDocument -Path $registryPath
+    $registryRevision = Get-FileRevision $registryPath
+    $removeRevision = $registryRevision
     $credentials = @{}
     foreach ($definition in $definitions) {
         $providerName = [string]$definition.ProviderName
@@ -229,8 +242,9 @@ function Get-UngateLauncherState {
         $credential = $credentials[[string]$definition.ProviderName]
         [void]$models.Add([ordered]@{
             registryId = $slug
+            inTemplate = $templateSlugs.Contains($slug)
             displayName = [string]$definition.DisplayName
-            upstreamModel = [string]$definition.UpstreamModel
+            upstreamModel = $(if ($null -eq $definition.UpstreamModel) { $null } else { [string]$definition.UpstreamModel })
             nativeUpstream = $native
             requestModel = [string]$route.RequestModel
             transport = [string]$route.Transport
@@ -266,6 +280,7 @@ function Get-UngateLauncherState {
                 version = Get-UngateStableRevision (ConvertTo-RevisionToken $versionExplicit)
                 capabilities = Get-UngateStableRevision ((ConvertTo-RevisionToken $baseCaps) + '|' + $templateId + '|' + (ConvertTo-RevisionToken $capExplicit))
                 prefix = Get-UngateStableRevision $prefixExplicit
+                remove = $removeRevision
             }
         })
     }
@@ -281,6 +296,13 @@ function Get-UngateLauncherState {
     if ($memory) {
         $memorySaved = [ordered]@{ enabled = [bool]$memory.Enabled; provider = [string]$memory.Provider; model = [string]$memory.Model }
     }
+    $registryNotice = $null
+    if ($registryDocument.Present -and -not $registryDocument.Corrupt) {
+        $noticeProperty = $registryDocument.Data.PSObject.Properties['notice']
+        if ($noticeProperty -and -not [string]::IsNullOrWhiteSpace([string]$noticeProperty.Value)) {
+            $registryNotice = [string]$noticeProperty.Value
+        }
+    }
     return [ordered]@{
         profileId = 'default'
         betaHome = $context.CustomCodexHome
@@ -288,7 +310,8 @@ function Get-UngateLauncherState {
         picker = [ordered]@{ slugs = @($pickerSlugs); capacity = $context.CodexDesktopPickerCapacity; revision = (Get-FileRevision $context.PickerModelSelectionPath); corrupt = [bool]$pickerError; message = $pickerError; usingDefault = -not $pickerDocument.Present }
         memory = [ordered]@{ saved = $memorySaved; revision = (Get-FileRevision $context.MemorySettingsPath); corrupt = [bool]$memoryError; message = $memoryError; defaults = [ordered]@{ enabled = $false; provider = 'cliproxyapi'; model = 'gemini-3.8-flash-high' } }
         logging = [ordered]@{ level = $logLevel; revision = (Get-FileRevision $context.LogSettingsPath); corrupt = [bool]$logError; message = $logError; usingDefault = -not $logPresent }
-        registry = [ordered]@{ revision = (Get-FileRevision $context.CustomModelDefinitionsPath); corrupt = [bool]$registryDocument.Corrupt; message = $registryDocument.Message }
+        registry = [ordered]@{ revision = $registryRevision; corrupt = [bool]$registryDocument.Corrupt; message = $registryDocument.Message; notice = $registryNotice }
+        templates = [ordered]@{ revision = $registryRevision; models = @($templateModels) }
         overrides = [ordered]@{ corrupt = [bool]$overrideInfo.Document.Corrupt; message = $overrideInfo.Document.Message }
         models = @($models)
         launch = [ordered]@{ entryPoint = (Join-Path $context.ScriptsRoot 'start-codex-desktop-ungate.ps1'); agentScript = (Join-Path $context.ScriptsRoot 'start-codex-launcher-control.ps1'); fallbackModel = $context.OmniRouteFallbackModel; logLevels = @(Get-LauncherLogLevels); reasoningLevels = @(Get-LauncherReasoningLevels) }
@@ -463,28 +486,78 @@ function Add-UngateLauncherModel {
     if ($image -isnot [bool] -or ($Payload.ContainsKey('supportsImageDetailOriginal') -and $Payload.supportsImageDetailOriginal -isnot [bool])) {
         Stop-LauncherRequest -Status 422 -Code 'invalid_settings' -Message 'Image flags must be booleans.'
     }
+    $upstreamModel = $Payload.upstreamModel
+    if ($null -eq $upstreamModel -or [string]::IsNullOrWhiteSpace([string]$upstreamModel)) { $upstreamModel = $null }
+    else { $upstreamModel = ([string]$upstreamModel).Trim() }
     $record = [pscustomobject][ordered]@{
         Slug = [string]$Payload.registryId
         DisplayName = [string]$Payload.displayName
-        UpstreamModel = [string]$Payload.upstreamModel
+        UpstreamModel = $upstreamModel
         Transport = [string]$Payload.transport
         DefaultReasoningLevel = [string]$Payload.defaultReasoningLevel
         SupportsImageInput = [bool]$image
         supportsImageDetailOriginal = [bool]$original
     }
+    if ($Payload.ContainsKey('contextWindow') -and -not [string]::IsNullOrWhiteSpace([string]$Payload.contextWindow)) {
+        $record | Add-Member -NotePropertyName ContextWindow -NotePropertyValue ([string]$Payload.contextWindow)
+    }
+    if ($Payload.ContainsKey('skipCatalogCheck') -and $Payload.skipCatalogCheck -isnot [bool]) {
+        Stop-LauncherRequest -Status 422 -Code 'invalid_settings' -Message 'skipCatalogCheck must be a boolean.'
+    }
+    if (-not $Payload.skipCatalogCheck) {
+        # Network call stays outside the profile lock; the write below re-validates everything else.
+        $checkContext = Get-LauncherContext -BetaHome $BetaHome
+        try { $candidate = ConvertTo-UngateModelDefinition -Context $checkContext -Record $record -Priority 0 }
+        catch { Stop-LauncherRequest -Status 422 -Code 'invalid_settings' -Message $_.Exception.Message }
+        Assert-UngateTransportServesModel -Context $checkContext -Definition $candidate
+    }
     $lease = Enter-UngateProfileLock -HomePath $BetaHome
     try {
         $context = Get-LauncherContext -BetaHome $BetaHome
-        $registry = Read-StrictDocument -Path $context.CustomModelDefinitionsPath
+        $registryPath = [string]$context.ModelRegistryPath
+        $registry = Read-StrictDocument -Path $registryPath
         if ($registry.Corrupt) { Stop-LauncherRequest -Status 422 -Code 'corrupt_settings' -Message $registry.Message }
-        Assert-Revision -Expected ([string]$Payload.expectedRevision) -Actual (Get-FileRevision $context.CustomModelDefinitionsPath) -Snapshot (Get-UngateLauncherState -BetaHome $BetaHome)
-        $modelSet = New-UngateModelSet -Context $context
-        $existing = @(Read-UngateCustomModelDefinitions -Context $context -RegistryPath $context.CustomModelDefinitionsPath -BuiltInDefinitions $modelSet.BuiltInDefinitions)
-        try { [void](ConvertTo-UngateModelDefinition -Context $context -Record $record -Priority ($modelSet.BuiltInDefinitions.Count + $existing.Count)) }
+        Assert-Revision -Expected ([string]$Payload.expectedRevision) -Actual (Get-FileRevision $registryPath) -Snapshot (Get-UngateLauncherState -BetaHome $BetaHome)
+        try { [void](Add-UngateModelRegistryRecord -Context $context -Record $record) }
         catch { Stop-LauncherRequest -Status 422 -Code 'invalid_settings' -Message $_.Exception.Message }
-        $known = @($modelSet.BuiltInDefinitions.Slug) + @($existing.Slug)
-        if ($record.Slug -in $known) { Stop-LauncherRequest -Status 422 -Code 'invalid_settings' -Message "Model ID '$($record.Slug)' already exists." }
-        [void](Write-UngateCustomModelDefinitions -Context $context -RegistryPath $context.CustomModelDefinitionsPath -Records (@($existing) + @($record)) -BuiltInDefinitions $modelSet.BuiltInDefinitions)
+        return New-LauncherResult -Body (Get-UngateLauncherState -BetaHome $BetaHome)
+    } finally { Exit-UngateProfileLock -Lease $lease }
+}
+
+function Remove-UngateLauncherModel {
+    param([Parameter(Mandatory)][string]$BetaHome, [Parameter(Mandatory)][hashtable]$Payload)
+    $registryId = [string]$Payload.registryId
+    $lease = Enter-UngateProfileLock -HomePath $BetaHome
+    try {
+        $context = Get-LauncherContext -BetaHome $BetaHome
+        $state = Get-UngateLauncherState -BetaHome $BetaHome
+        if ($state.definitionError) { Stop-LauncherRequest -Status 422 -Code 'corrupt_settings' -Message $state.definitionError }
+        $model = Get-ModelSnapshot -State $state -RegistryId $registryId
+        Assert-Revision -Expected ([string]$Payload.expectedRevision) -Actual ([string]$model.revisions.remove) -Snapshot $state
+        try { [void](Remove-UngateProfileModel -Context $context -Slug $registryId) }
+        catch { Stop-LauncherRequest -Status 422 -Code 'invalid_settings' -Message $_.Exception.Message }
+        return New-LauncherResult -Body (Get-UngateLauncherState -BetaHome $BetaHome)
+    } finally { Exit-UngateProfileLock -Lease $lease }
+}
+
+function Add-UngateTemplateModel {
+    param([Parameter(Mandatory)][string]$BetaHome, [Parameter(Mandatory)][hashtable]$Payload)
+    $registryId = [string]$Payload.registryId
+    $lease = Enter-UngateProfileLock -HomePath $BetaHome
+    try {
+        $context = Get-LauncherContext -BetaHome $BetaHome
+        $state = Get-UngateLauncherState -BetaHome $BetaHome
+        if ($state.definitionError) { Stop-LauncherRequest -Status 422 -Code 'corrupt_settings' -Message $state.definitionError }
+        $match = $null
+        foreach ($templateDefinition in @(Get-UngateTemplateModelDefinitions -Context $context)) {
+            if ([string]$templateDefinition.Slug -eq $registryId) { $match = [string]$templateDefinition.Slug; break }
+        }
+        if (-not $match) {
+            Stop-LauncherRequest -Status 404 -Code 'unknown_model' -Message "Model '$registryId' is not in the template."
+        }
+        Assert-Revision -Expected ([string]$Payload.expectedRevision) -Actual ([string]$state.registry.revision) -Snapshot $state
+        try { [void](Copy-UngateTemplateModelToRegistry -Context $context -Slug $match) }
+        catch { Stop-LauncherRequest -Status 422 -Code 'invalid_settings' -Message $_.Exception.Message }
         return New-LauncherResult -Body (Get-UngateLauncherState -BetaHome $BetaHome)
     } finally { Exit-UngateProfileLock -Lease $lease }
 }
@@ -500,8 +573,7 @@ function Set-UngateLauncherPicker {
         if ($document.Corrupt) { Stop-LauncherRequest -Status 422 -Code 'corrupt_settings' -Message $document.Message }
         $state = Get-UngateLauncherState -BetaHome $BetaHome
         Assert-Revision -Expected ([string]$Payload.expectedRevision) -Actual ([string]$state.picker.revision) -Snapshot $state
-        $modelSet = New-UngateModelSet -Context $context
-        $definitions = @(Get-UngateModelDefinitions -Context $context -BuiltInDefinitions $modelSet.BuiltInDefinitions -RegistryPath $context.CustomModelDefinitionsPath -OverridesPath $context.CustomModelOverridesPath)
+        $definitions = @(Get-UngateModelDefinitions -Context $context -OverridesPath $context.CustomModelOverridesPath)
         try { [void](Write-UngatePickerModelSelection -SettingsPath $context.PickerModelSelectionPath -ModelSlugs $ids -Definitions $definitions -Capacity $context.CodexDesktopPickerCapacity) }
         catch { Stop-LauncherRequest -Status 422 -Code 'invalid_settings' -Message $_.Exception.Message }
         return New-LauncherResult -Body (Get-UngateLauncherState -BetaHome $BetaHome)
@@ -541,8 +613,7 @@ function Set-UngateLauncherMemory {
 function New-UngateRunnerConfiguration {
     param([Parameter(Mandatory)][string]$BetaHome, [Parameter(Mandatory)][string]$Kind, [string[]]$RegistryIds)
     $context = Get-LauncherContext -BetaHome $BetaHome
-    $modelSet = New-UngateModelSet -Context $context
-    $definitions = @(Get-UngateModelDefinitions -Context $context -BuiltInDefinitions $modelSet.BuiltInDefinitions -RegistryPath $context.CustomModelDefinitionsPath -OverridesPath $context.CustomModelOverridesPath)
+    $definitions = @(Get-UngateModelDefinitions -Context $context -OverridesPath $context.CustomModelOverridesPath)
     if ($Kind -eq 'memory') {
         $settings = Read-UngateMemorySettings -Context $context
         $definition = Get-UngateMemoryDefinition -Context $context -Settings $settings
@@ -596,6 +667,51 @@ function Remove-SensitiveValue {
     return [string]$Value
 }
 
+# Reads the transport's /v1/models through the endpoint and key the given definition would use.
+function Read-UngateTransportCatalog {
+    param([Parameter(Mandatory)][psobject]$Context, [Parameter(Mandatory)][object]$Definition)
+    $route = Get-UngateDiagnosticRoute -Context $Context -Definition $Definition
+    $baseUrl = [string]$route.UpstreamBaseUrl
+    if ([string]::IsNullOrWhiteSpace($baseUrl)) {
+        return [ordered]@{ available = $false; models = @(); message = 'Transport has no catalog endpoint.' }
+    }
+    try { $key = Resolve-ModelApiKey -Context $Context -Definition $Definition }
+    catch { return [ordered]@{ available = $false; models = @(); message = 'Provider credentials are unavailable.' } }
+    try {
+        $headers = @{ Authorization = 'Bearer ' + $key }
+        $catalog = Invoke-RestMethod -Uri ($baseUrl.TrimEnd('/') + '/v1/models') -Headers $headers -NoProxy -TimeoutSec 10
+        $ids = @($catalog.data | ForEach-Object { [string]$_.id } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Sort-Object -Unique)
+        return [ordered]@{ available = $true; models = @($ids); message = $null }
+    } catch {
+        return [ordered]@{ available = $false; models = @(); message = "Catalog is unavailable ($baseUrl/v1/models). Enter an upstream ID manually." }
+    }
+}
+
+# Rejects a new model whose upstream ID the chosen transport does not serve.
+function Assert-UngateTransportServesModel {
+    param([Parameter(Mandatory)][psobject]$Context, [Parameter(Mandatory)][object]$Definition)
+    $transport = Get-UngateModelTransport -Definition $Definition
+    $catalog = Read-UngateTransportCatalog -Context $Context -Definition $Definition
+    if (-not $catalog.available) {
+        Stop-LauncherRequest -Status 422 -Code 'catalog_unavailable' -Message ("Transport '$transport' could not confirm the model: $($catalog.message) " +
+            'Fix the transport, or save with the catalog check disabled.')
+    }
+    $requestModel = [string](Get-UngateDiagnosticRoute -Context $Context -Definition $Definition).RequestModel
+    # Same acceptance rule the launcher preflight applies, so a saved model is one the launcher will start.
+    $served = if ($transport -eq 'omniroute') {
+        [bool](Resolve-OmniRouteCatalogModel -Model $requestModel -CatalogIds @($catalog.models))
+    } else { $requestModel -in $catalog.models }
+    if ($served) { return }
+    $needle = ([string]$Definition.UpstreamModel).ToLowerInvariant()
+    $similar = @($catalog.models | Where-Object {
+            $tail = ($_ -split '/')[-1].ToLowerInvariant()
+            $_.ToLowerInvariant().Contains($needle) -or ($tail.Length -ge 6 -and $needle.Contains($tail))
+        } | Select-Object -First 5)
+    $hint = if ($similar.Count -gt 0) { ' Similar IDs: ' + ($similar -join ', ') + '.' } else { " The catalog lists $(@($catalog.models).Count) models; none match." }
+    Stop-LauncherRequest -Status 422 -Code 'model_not_in_catalog' -Message ("Transport '$transport' does not serve '$requestModel'.$hint " +
+        'Pick another transport or upstream ID, or save with the catalog check disabled.')
+}
+
 function Get-UngateLauncherCatalog {
     param([Parameter(Mandatory)][string]$BetaHome, [Parameter(Mandatory)][hashtable]$Payload)
     $transport = [string]$Payload.transport
@@ -603,29 +719,13 @@ function Get-UngateLauncherCatalog {
         Stop-LauncherRequest -Status 422 -Code 'invalid_settings' -Message 'Unknown transport.'
     }
     $context = Get-LauncherContext -BetaHome $BetaHome
-    $modelSet = New-UngateModelSet -Context $context
-    $definitions = @(Get-UngateModelDefinitions -Context $context -BuiltInDefinitions $modelSet.BuiltInDefinitions -RegistryPath $context.CustomModelDefinitionsPath -OverridesPath $context.CustomModelOverridesPath)
-    $sample = $definitions | Where-Object { [string]$_.Transport -eq $transport -and [string]$_.Slug -ne 'ungate-memory' } | Select-Object -First 1
+    $definitions = @(Get-UngateModelDefinitions -Context $context -OverridesPath $context.CustomModelOverridesPath)
+    $sample = $definitions | Where-Object { (Get-UngateModelTransport -Definition $_) -eq $transport -and [string]$_.Slug -ne 'ungate-memory' } | Select-Object -First 1
     if (-not $sample) {
         return New-LauncherResult -Body ([ordered]@{ transport = $transport; available = $false; models = @(); message = 'No registry model uses this transport.' })
     }
-    $route = Get-UngateDiagnosticRoute -Context $context -Definition $sample
-    $baseUrl = [string]$route.UpstreamBaseUrl
-    if ([string]::IsNullOrWhiteSpace($baseUrl)) {
-        return New-LauncherResult -Body ([ordered]@{ transport = $transport; available = $false; models = @(); message = 'Transport has no catalog endpoint.' })
-    }
-    try { $key = Resolve-ModelApiKey -Context $context -Definition $sample }
-    catch {
-        return New-LauncherResult -Body ([ordered]@{ transport = $transport; available = $false; models = @(); message = 'Provider credentials are unavailable.' })
-    }
-    try {
-        $headers = @{ Authorization = 'Bearer ' + $key }
-        $catalog = Invoke-RestMethod -Uri ($baseUrl.TrimEnd('/') + '/v1/models') -Headers $headers -NoProxy -TimeoutSec 10
-        $ids = @($catalog.data | ForEach-Object { [string]$_.id } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Sort-Object -Unique)
-        return New-LauncherResult -Body ([ordered]@{ transport = $transport; available = $true; models = @($ids); message = $null })
-    } catch {
-        return New-LauncherResult -Body ([ordered]@{ transport = $transport; available = $false; models = @(); message = 'Catalog is unavailable. Enter an upstream ID manually.' })
-    }
+    $catalog = Read-UngateTransportCatalog -Context $context -Definition $sample
+    return New-LauncherResult -Body ([ordered]@{ transport = $transport; available = $catalog.available; models = @($catalog.models); message = $catalog.message })
 }
 
 function Get-UngateLauncherReport {
@@ -651,6 +751,8 @@ function Invoke-UngateLauncherRequest {
             'models.capabilities' { return Update-UngateLauncherCapabilities -BetaHome $BetaHome -Payload $Payload }
             'models.reset' { return Reset-UngateLauncherModel -BetaHome $BetaHome -Payload $Payload }
             'models.add' { return Add-UngateLauncherModel -BetaHome $BetaHome -Payload $Payload }
+            'models.remove' { return Remove-UngateLauncherModel -BetaHome $BetaHome -Payload $Payload }
+            'models.addTemplate' { return Add-UngateTemplateModel -BetaHome $BetaHome -Payload $Payload }
             'picker.set' { return Set-UngateLauncherPicker -BetaHome $BetaHome -Payload $Payload }
             'logging.set' { return Set-UngateLauncherLogging -BetaHome $BetaHome -Payload $Payload }
             'memories.set' { return Set-UngateLauncherMemory -BetaHome $BetaHome -Payload $Payload }

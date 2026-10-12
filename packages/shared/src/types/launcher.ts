@@ -12,8 +12,9 @@ export interface LauncherFieldPatch {
 
 export interface LauncherModelState {
 	registryId: string;
+	inTemplate: boolean;
 	displayName: string;
-	upstreamModel: string;
+	upstreamModel: string | null;
 	nativeUpstream: string;
 	requestModel: string;
 	transport: string;
@@ -33,7 +34,7 @@ export interface LauncherModelState {
 	capabilities: Record<string, unknown>;
 	explicit: Record<string, unknown>;
 	provenance: Record<string, string>;
-	revisions: { version: string; capabilities: string; prefix: string };
+	revisions: { version: string; capabilities: string; prefix: string; remove: string };
 }
 
 export interface LauncherState {
@@ -56,7 +57,8 @@ export interface LauncherState {
 		defaults: { enabled: boolean; provider: string; model: string };
 	};
 	logging: { level: LauncherLogLevel | null; revision: string; corrupt: boolean; message: string | null; usingDefault: boolean };
-	registry: { revision: string; corrupt: boolean; message: string | null };
+	registry: { revision: string; corrupt: boolean; message: string | null; notice: string | null };
+	templates: { revision: string; models: { registryId: string; displayName: string }[] };
 	overrides: { corrupt: boolean; message: string | null };
 	models: LauncherModelState[];
 	launch: {

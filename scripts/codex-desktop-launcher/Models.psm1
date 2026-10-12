@@ -8,268 +8,8 @@ function New-UngateModelSet {
     param([Parameter(Mandatory)][psobject]$Context)
     $ErrorActionPreference = 'Stop'
 
-    $BuiltInUngateModelDefinitions = @(
-        [pscustomobject][ordered]@{
-            Slug = 'ungate-opus-4-8'
-            DisplayName = 'Claude Opus 4.8 (Ungate)'
-            Description = 'Claude Opus 4.8 through the local Ungate Responses proxy.'
-            UpstreamModel = 'claude-opus-4-8'
-            TransportDescription = 'the local Ungate Responses proxy'
-            DefaultReasoningLevel = 'high'
-            Priority = 0
-            InputModalities = @('text', 'image')
-            SupportsImageDetailOriginal = $true
-            WebSearchToolType = 'text_and_image'
-            ProviderName = $Context.ProviderName
-            ProviderDisplayName = 'Ungate Proxy'
-            ProxyBaseUrl = $Context.ProxyBaseUrl
-            EnvKey = 'UNGATE_API_KEY'
-            RequiresUngate = $true
-        }
-        [pscustomobject][ordered]@{
-            Slug = 'ungate-fable-5'
-            DisplayName = 'Claude Fable 5 (Ungate)'
-            Description = 'Claude Fable 5 through the local Ungate Responses proxy.'
-            UpstreamModel = 'claude-fable-5'
-            TransportDescription = 'the local Ungate Responses proxy'
-            DefaultReasoningLevel = 'high'
-            Priority = 1
-            InputModalities = @('text', 'image')
-            SupportsImageDetailOriginal = $true
-            WebSearchToolType = 'text_and_image'
-            ProviderName = $Context.ProviderName
-            ProviderDisplayName = 'Ungate Proxy'
-            ProxyBaseUrl = $Context.ProxyBaseUrl
-            EnvKey = 'UNGATE_API_KEY'
-            RequiresUngate = $true
-        }
-        [pscustomobject][ordered]@{
-            Slug = 'miniMax-M3'
-            DisplayName = 'MiniMax M3 (Ungate)'
-            Description = 'MiniMax M3 through the local Ungate Responses proxy with image input support.'
-            ContextWindow = 1000000
-            MaxContextWindow = 1000000
-            # UpstreamModel intentionally left blank: MiniMax provider normalises
-            # the model id from Codex's request body itself, so the launcher does
-            # not need to know the literal id to put it in the identity string.
-            TransportDescription = 'the local Ungate Responses proxy'
-            DefaultReasoningLevel = 'xhigh'
-            Priority = 2
-            InputModalities = @('text', 'image')
-            SupportsImageDetailOriginal = $true
-            WebSearchToolType = 'text_and_image'
-            ProviderName = $Context.ProviderName
-            ProviderDisplayName = 'Ungate Proxy'
-            ProxyBaseUrl = $Context.ProxyBaseUrl
-            EnvKey = 'UNGATE_API_KEY'
-            RequiresUngate = $true
-        }
-        [pscustomobject][ordered]@{
-            # Upstream id accepted by CLIProxyAPI; its dynamic catalog can omit usable models.
-            Slug = 'grok-4.7'
-            DisplayName = 'Grok 4.7 (CLIProxyAPI)'
-            Description = 'Grok 4.7 through the local CLIProxyAPI compatibility bridge on port 8318.'
-            ContextWindow = 500000
-            MaxContextWindow = 500000
-            UpstreamModel = 'grok-4.7'
-            TransportDescription = 'the local CLIProxyAPI compatibility bridge'
-            DefaultReasoningLevel = 'high'
-            Priority = 3
-            InputModalities = @('text', 'image')
-            SupportsImageDetailOriginal = $true
-            WebSearchToolType = 'text_and_image'
-            ProviderName = $Context.CliProxyProviderName
-            ProviderDisplayName = 'CLIProxyAPI'
-            ProxyBaseUrl = $Context.CliProxyBaseUrl
-            EnvKey = 'CLIPROXYAPI_API_KEY'
-            RequiresUngate = $false
-        }
-        [pscustomobject][ordered]@{
-            Slug = 'apikey-fun/kimi-k3'
-            DisplayName = 'Kimi K3 (OmniRoute)'
-            Description = 'Kimi K3 through the local OmniRoute proxy on port 20128.'
-            UpstreamModel = 'apikey-fun/kimi-k3'
-            TransportDescription = 'the local OmniRoute proxy'
-            DefaultReasoningLevel = 'high'
-            Priority = 4
-            InputModalities = @('text', 'image')
-            SupportsImageDetailOriginal = $true
-            WebSearchToolType = 'text_and_image'
-            ProviderName = $Context.OmniRouteProviderName
-            ProviderDisplayName = 'OmniRoute'
-            ProxyBaseUrl = $Context.OmniRouteBaseUrl
-            EnvKey = 'OMNIROUTE_API_KEY'
-            RequiresUngate = $false
-        }
-        [pscustomobject][ordered]@{
-            Slug = 'apikey-fun/grok-4.5'
-            DisplayName = 'Grok 4.5 (apikey.fun)'
-            Description = 'Grok 4.5 via apikey.fun through the local OmniRoute proxy on port 20128.'
-            UpstreamModel = 'apikey-fun/grok-4.5'
-            TransportDescription = 'the local OmniRoute proxy'
-            DefaultReasoningLevel = 'high'
-            Priority = 5
-            InputModalities = @('text', 'image')
-            SupportsImageDetailOriginal = $true
-            WebSearchToolType = 'text_and_image'
-            ProviderName = $Context.OmniRouteProviderName
-            ProviderDisplayName = 'OmniRoute'
-            ProxyBaseUrl = $Context.OmniRouteBaseUrl
-            EnvKey = 'OMNIROUTE_API_KEY'
-            RequiresUngate = $false
-        }
-        [pscustomobject][ordered]@{
-            Slug = 'apikey-fun/claude-opus-5'
-            DisplayName = 'Claude Opus 5 (apikey.fun)'
-            Description = 'Claude Opus 5 via apikey.fun through the local OmniRoute proxy on port 20128.'
-            UpstreamModel = 'apikey-fun/claude-opus-5'
-            TransportDescription = 'the local OmniRoute proxy'
-            DefaultReasoningLevel = 'high'
-            Priority = 6
-            InputModalities = @('text', 'image')
-            SupportsImageDetailOriginal = $true
-            WebSearchToolType = 'text_and_image'
-            ProviderName = $Context.OmniRouteProviderName
-            ProviderDisplayName = 'OmniRoute'
-            ProxyBaseUrl = $Context.OmniRouteBaseUrl
-            EnvKey = 'OMNIROUTE_API_KEY'
-            RequiresUngate = $false
-        }
-        [pscustomobject][ordered]@{
-            Slug = 'mimo-v2.5-pro'
-            DisplayName = 'Mimo v2.5 Pro (OmniRoute)'
-            Description = 'Mimo v2.5 Pro through the local OmniRoute proxy on port 20128.'
-            UpstreamModel = 'mimo-v2.5-pro'
-            TransportDescription = 'the local OmniRoute proxy'
-            DefaultReasoningLevel = 'high'
-            Priority = 7
-            InputModalities = @('text')
-            SupportsImageDetailOriginal = $false
-            WebSearchToolType = 'text'
-            ProviderName = $Context.OmniRouteProviderName
-            ProviderDisplayName = 'OmniRoute'
-            ProxyBaseUrl = $Context.OmniRouteBaseUrl
-            EnvKey = 'OMNIROUTE_API_KEY'
-            RequiresUngate = $false
-            ContextWindow = 1000000
-            MaxContextWindow = 1000000
-            SupportsReasoningSummaries = $true
-            SupportsParallelToolCalls = $false
-            ResponsesAdapter = 'mimo-textual-tools'
-            TruncationPolicy = @{ mode = 'bytes'; limit = 10000 }
-            SupportedReasoningLevels = @(
-                @{ effort = 'none'; description = 'Disable Thinking' },
-                @{ effort = 'high'; description = 'Enabled Thinking' }
-            )
-        }
-        [pscustomobject][ordered]@{
-            Slug = 'deepseek-v4-pro'
-            DisplayName = 'DeepSeek V4 Pro (OmniRoute)'
-            Description = 'DeepSeek V4 Pro through the local OmniRoute proxy on port 20128.'
-            UpstreamModel = 'deepseek/deepseek-v4-pro'
-            ResponsesAdapter = 'deepseek-responses'
-            Aliases = @('deepseek-pro', 'ds/deepseek-v4-pro')
-            TransportDescription = 'the local OmniRoute proxy'
-            DefaultReasoningLevel = 'high'
-            Priority = 8
-            InputModalities = @('text')
-            SupportsImageDetailOriginal = $false
-            WebSearchToolType = 'text'
-            ProviderName = $Context.OmniRouteProviderName
-            ProviderDisplayName = 'OmniRoute'
-            ProxyBaseUrl = $Context.OmniRouteBaseUrl
-            EnvKey = 'OMNIROUTE_API_KEY'
-            RequiresUngate = $false
-            ContextWindow = 1000000
-            MaxContextWindow = 1000000
-            SupportsReasoningSummaries = $true
-            SupportsParallelToolCalls = $true
-            SupportedReasoningLevels = @(
-                @{ effort = 'none'; description = 'Disable Thinking' },
-                @{ effort = 'low'; description = 'Low Thinking' },
-                @{ effort = 'high'; description = 'High Thinking' },
-                @{ effort = 'max'; description = 'Max Thinking' }
-            )
-        }
-        [pscustomobject][ordered]@{
-            Slug = 'deepseek-v4-flash'
-            DisplayName = 'DeepSeek V4 Flash (OmniRoute)'
-            Description = 'DeepSeek V4 Flash through the local OmniRoute proxy on port 20128.'
-            UpstreamModel = 'deepseek/deepseek-v4-flash'
-            ResponsesAdapter = 'deepseek-responses'
-            Aliases = @('deepseek-flash', 'deepseek/deepseek-flash', 'ds/deepseek-flash', 'ds/deepseek-v4-flash')
-            TransportDescription = 'the local OmniRoute proxy'
-            DefaultReasoningLevel = 'high'
-            Priority = 9
-            InputModalities = @('text')
-            SupportsImageDetailOriginal = $false
-            WebSearchToolType = 'text'
-            ProviderName = $Context.OmniRouteProviderName
-            ProviderDisplayName = 'OmniRoute'
-            ProxyBaseUrl = $Context.OmniRouteBaseUrl
-            EnvKey = 'OMNIROUTE_API_KEY'
-            RequiresUngate = $false
-            ContextWindow = 1000000
-            MaxContextWindow = 1000000
-            SupportsReasoningSummaries = $true
-            SupportsParallelToolCalls = $true
-            SupportedReasoningLevels = @(
-                @{ effort = 'none'; description = 'Disable Thinking' },
-                @{ effort = 'low'; description = 'Low Thinking' },
-                @{ effort = 'high'; description = 'High Thinking' },
-                @{ effort = 'max'; description = 'Max Thinking' }
-            )
-        }
-    )
-
-    # Populate Identity uniformly through Get-UngateModelIdentity so built-ins and
-    # the registry path share the same format. The helper drops the Codex
-    # self-identification layer for Anthropic-prefixed models and keeps it for
-    # everything else.
-    $BuiltInUngateModelDefinitions = @(
-        foreach ($def in $BuiltInUngateModelDefinitions) {
-            $upstreamModelValue = $null
-            if ($def.PSObject.Properties['UpstreamModel'] -and $def.UpstreamModel) {
-                $upstreamModelValue = [string]$def.UpstreamModel
-            }
-
-            $identity = Get-UngateModelIdentity -Context $Context `
-                -DisplayName ([string]$def.DisplayName) `
-                -UpstreamModel $upstreamModelValue `
-                -ProviderDisplayName ([string]$def.ProviderDisplayName) `
-                -TransportDescription ([string]$def.TransportDescription)
-
-            [pscustomobject][ordered]@{
-                Slug = $def.Slug
-                DisplayName = $def.DisplayName
-                Description = $def.Description
-                UpstreamModel = $upstreamModelValue
-                Aliases = if ($def.PSObject.Properties['Aliases']) { $def.Aliases } else { $null }
-                TransportDescription = $def.TransportDescription
-                Identity = $identity
-                DefaultReasoningLevel = $def.DefaultReasoningLevel
-                Priority = $def.Priority
-                InputModalities = $def.InputModalities
-                SupportsImageDetailOriginal = $def.SupportsImageDetailOriginal
-                WebSearchToolType = $def.WebSearchToolType
-                ProviderName = $def.ProviderName
-                ProviderDisplayName = $def.ProviderDisplayName
-                ProxyBaseUrl = $def.ProxyBaseUrl
-                EnvKey = $def.EnvKey
-                RequiresUngate = $def.RequiresUngate
-                ContextWindow = $def.ContextWindow
-                MaxContextWindow = $def.MaxContextWindow
-                EffectiveContextWindowPercent = $def.EffectiveContextWindowPercent
-                SupportsReasoningSummaries = $def.SupportsReasoningSummaries
-                SupportsParallelToolCalls = $def.SupportsParallelToolCalls
-                ResponsesAdapter = if ($def.PSObject.Properties['ResponsesAdapter']) { [string]$def.ResponsesAdapter } else { $null }
-                TruncationPolicy = $def.TruncationPolicy
-                SupportedReasoningLevels = $def.SupportedReasoningLevels
-            }
-        }
-    )
-
-    $OmniRouteFallbackModelDefinition = [pscustomobject][ordered]@{
+    $templateDefinitions = @(Get-UngateTemplateModelDefinitions -Context $Context)
+$OmniRouteFallbackModelDefinition = [pscustomobject][ordered]@{
         Slug = $Context.OmniRouteFallbackModel
         DisplayName = 'Codex Provider Fallback (OmniRoute)'
         Description = 'Opt-in provider fallback through OmniRoute: Claude, Grok, MiniMax, then Gemini.'
@@ -286,9 +26,8 @@ function New-UngateModelSet {
         RequiresUngate = $false
     }
 
-    return [pscustomobject]@{ BuiltInDefinitions = @($BuiltInUngateModelDefinitions); FallbackDefinition = $OmniRouteFallbackModelDefinition }
+    return [pscustomobject]@{ BuiltInDefinitions = @($templateDefinitions); FallbackDefinition = $OmniRouteFallbackModelDefinition }
 }
-
 function Get-UngateModelIdentity {
     [CmdletBinding()]
     param(
@@ -325,6 +64,694 @@ function Get-UngateModelIdentity {
     )
 }
 
+function Get-UngateRecordProperty {
+    param(
+        [Parameter(Mandatory)][object]$Record,
+        [Parameter(Mandatory)][string]$Name
+    )
+    foreach ($property in @($Record.PSObject.Properties)) {
+        if ($property.Name -eq $Name) { return $property }
+    }
+    return $null
+}
+
+function Get-UngateTransportProfile {
+    param(
+        [Parameter(Mandatory)][psobject]$Context,
+        [Parameter(Mandatory)][string]$Transport
+    )
+    $ErrorActionPreference = 'Stop'
+    switch ($Transport) {
+        'ungate' {
+            return [pscustomobject]@{
+                ProviderName = $Context.ProviderName
+                ProviderDisplayName = 'Ungate Proxy'
+                ProxyBaseUrl = $Context.ProxyBaseUrl
+                EnvKey = 'UNGATE_API_KEY'
+                RequiresUngate = $true
+                TransportDescription = 'the local Ungate Responses proxy'
+            }
+        }
+        'cliproxyapi' {
+            return [pscustomobject]@{
+                ProviderName = $Context.CliProxyProviderName
+                ProviderDisplayName = 'CLIProxyAPI'
+                ProxyBaseUrl = $Context.CliProxyBaseUrl
+                EnvKey = 'CLIPROXYAPI_API_KEY'
+                RequiresUngate = $false
+                TransportDescription = 'the local CLIProxyAPI compatibility bridge'
+            }
+        }
+        'omniroute' {
+            return [pscustomobject]@{
+                ProviderName = $Context.OmniRouteProviderName
+                ProviderDisplayName = 'OmniRoute'
+                ProxyBaseUrl = $Context.OmniRouteBaseUrl
+                EnvKey = 'OMNIROUTE_API_KEY'
+                RequiresUngate = $false
+                TransportDescription = 'the local OmniRoute proxy'
+            }
+        }
+        default { return $null }
+    }
+}
+
+function Get-UngateModelTransport {
+    param([Parameter(Mandatory)][object]$Definition)
+    switch ([string]$Definition.EnvKey) {
+        'UNGATE_API_KEY' { return 'ungate' }
+        'CLIPROXYAPI_API_KEY' { return 'cliproxyapi' }
+        'OMNIROUTE_API_KEY' { return 'omniroute' }
+        default { return '' }
+    }
+}
+
+function Get-UngateModelTemplatePath {
+    param([Parameter(Mandatory)][psobject]$Context)
+    if ($Context.PSObject.Properties['ModelTemplatePath'] -and $Context.ModelTemplatePath) {
+        return [string]$Context.ModelTemplatePath
+    }
+    return (Join-Path $PSScriptRoot 'models.default.json')
+}
+
+function Get-UngateModelRegistryPath {
+    param([Parameter(Mandatory)][psobject]$Context)
+    if ($Context.PSObject.Properties['ModelRegistryPath'] -and $Context.ModelRegistryPath) {
+        return [string]$Context.ModelRegistryPath
+    }
+    if ($Context.PSObject.Properties['CustomCodexHome'] -and $Context.CustomCodexHome) {
+        return (Join-Path ([string]$Context.CustomCodexHome) 'ungate-model-registry.json')
+    }
+    throw 'Model registry path is not configured.'
+}
+
+function Read-UngateJsonDocument {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$Label
+    )
+    $ErrorActionPreference = 'Stop'
+    if (-not (Test-Path -LiteralPath $Path)) { throw "$Label was not found: $Path" }
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "$Label is not a file: $Path" }
+    try {
+        return (Get-Content -LiteralPath $Path -Raw -Encoding utf8 | ConvertFrom-Json -Depth 100 -ErrorAction Stop)
+    }
+    catch {
+        throw "Failed to parse $Label at $Path : $($_.Exception.Message)"
+    }
+}
+
+function Test-UngateModelToken {
+    param([Parameter(Mandatory)][string]$Value)
+    if ([string]::IsNullOrWhiteSpace($Value)) { return $false }
+    if ($Value.IndexOfAny([char[]]@(32, 9, 10, 13, 34, 39)) -ge 0) { return $false }
+    return $true
+}
+
+function ConvertTo-UngateOptionalWindow {
+    param($Record, [string]$Name, [string]$Slug)
+    $property = Get-UngateRecordProperty -Record $Record -Name $Name
+    if (-not $property -or $null -eq $property.Value) { return $null }
+    if ($property.Value -is [string] -and [string]::IsNullOrWhiteSpace($property.Value)) { return $null }
+    try {
+        $number = if ($property.Value -is [string]) {
+            ConvertTo-ContextWindowTokens -Value ([string]$property.Value)
+        } else {
+            [int]$property.Value
+        }
+    }
+    catch { throw "Model '$Slug': $($_.Exception.Message)" }
+    if ($number -le 0) { throw "Model '$Slug' has an invalid $Name." }
+    return $number
+}
+
+function ConvertTo-UngateOptionalBool {
+    param($Record, [string]$Name, [string]$Slug)
+    $property = Get-UngateRecordProperty -Record $Record -Name $Name
+    if (-not $property -or $null -eq $property.Value) { return $null }
+    if ($property.Value -isnot [bool]) { throw "Model '$Slug' property $Name must be true or false." }
+    return [bool]$property.Value
+}
+
+function ConvertTo-UngateAliases {
+    param($Record, [string]$Slug)
+    $property = Get-UngateRecordProperty -Record $Record -Name 'aliases'
+    if (-not $property -or $null -eq $property.Value) { return $null }
+    $aliases = [System.Collections.Generic.List[string]]::new()
+    foreach ($alias in @($property.Value)) {
+        if ($alias -isnot [string] -or -not (Test-UngateModelToken -Value $alias.Trim())) {
+            throw "Model '$Slug' has an invalid alias."
+        }
+        [void]$aliases.Add($alias.Trim())
+    }
+    if ($aliases.Count -eq 0) { return $null }
+    return ,$aliases.ToArray()
+}
+
+function ConvertTo-UngateReasoningLevels {
+    param($Value, [string]$Slug)
+    if ($null -eq $Value) { return $null }
+    $levels = [System.Collections.Generic.List[object]]::new()
+    foreach ($level in @($Value)) {
+        if ($null -eq $level) { continue }
+        if ($level -is [string]) {
+            $effort = $level.Trim().ToLowerInvariant()
+            if (-not $effort) { throw "Model '$Slug' has an empty reasoning level." }
+            [void]$levels.Add(@{ effort = $effort; description = "Reasoning: $effort" })
+        }
+        else {
+            $effortProperty = Get-UngateRecordProperty -Record $level -Name 'effort'
+            $descriptionProperty = Get-UngateRecordProperty -Record $level -Name 'description'
+            if (-not $effortProperty -or [string]::IsNullOrWhiteSpace([string]$effortProperty.Value)) {
+                throw "Model '$Slug' has a reasoning level without an effort."
+            }
+            $effort = ([string]$effortProperty.Value).Trim().ToLowerInvariant()
+            $description = if ($descriptionProperty -and -not [string]::IsNullOrWhiteSpace([string]$descriptionProperty.Value)) {
+                [string]$descriptionProperty.Value
+            } else {
+                "Reasoning: $effort"
+            }
+            [void]$levels.Add(@{ effort = $effort; description = $description })
+        }
+    }
+    if ($levels.Count -eq 0) { return $null }
+    return ,$levels.ToArray()
+}
+
+function ConvertTo-UngateTruncationPolicy {
+    param($Value, [string]$Slug)
+    if ($null -eq $Value) { return $null }
+    $modeProperty = Get-UngateRecordProperty -Record $Value -Name 'mode'
+    $limitProperty = Get-UngateRecordProperty -Record $Value -Name 'limit'
+    if (-not $modeProperty -or -not $limitProperty -or [string]::IsNullOrWhiteSpace([string]$modeProperty.Value)) {
+        throw "Model '$Slug' truncationPolicy must include mode and limit."
+    }
+    return @{ mode = [string]$modeProperty.Value; limit = [int]$limitProperty.Value }
+}
+
+function ConvertTo-UngateRegistryDefinition {
+    param(
+        [Parameter(Mandatory)][psobject]$Context,
+        [Parameter(Mandatory)][object]$Record,
+        [Parameter(Mandatory)][int]$Priority
+    )
+    $ErrorActionPreference = 'Stop'
+    foreach ($propertyName in @('slug', 'displayName', 'upstreamModel', 'transport', 'defaultReasoningLevel', 'supportsImageInput')) {
+        if (-not (Get-UngateRecordProperty -Record $Record -Name $propertyName)) {
+            throw "Model record is missing required property '$propertyName'."
+        }
+    }
+    $slug = ([string]$Record.slug).Trim()
+    $displayName = ([string]$Record.displayName).Trim()
+    $transport = ([string]$Record.transport).Trim().ToLowerInvariant()
+    $reasoningLevel = ([string]$Record.defaultReasoningLevel).Trim().ToLowerInvariant()
+    if (-not $slug) { throw 'Model ID cannot be empty.' }
+    if (-not (Test-UngateModelToken -Value $slug)) { throw "Model ID '$slug' cannot contain whitespace or quotes." }
+    if (-not $displayName) { throw "Model '$slug' must have a display name." }
+    $profile = Get-UngateTransportProfile -Context $Context -Transport $transport
+    if (-not $profile) { throw "Model '$slug' has unsupported transport '$transport'." }
+    $upstreamProperty = Get-UngateRecordProperty -Record $Record -Name 'upstreamModel'
+    $upstreamModel = $null
+    if ($null -ne $upstreamProperty.Value) {
+        $upstreamModel = ([string]$upstreamProperty.Value).Trim()
+        if (-not $upstreamModel) { throw "Model '$slug' must have an upstream model ID." }
+        if (-not (Test-UngateModelToken -Value $upstreamModel)) {
+            throw "Upstream model ID '$upstreamModel' cannot contain whitespace or quotes."
+        }
+    }
+    elseif ($transport -ne 'ungate') {
+        throw "Model '$slug' must have an upstream model ID."
+    }
+    if ($reasoningLevel -notin @('none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra')) {
+        throw "Model '$slug' has unsupported reasoning level '$reasoningLevel'."
+    }
+    $imageProperty = Get-UngateRecordProperty -Record $Record -Name 'supportsImageInput'
+    if ($imageProperty.Value -isnot [bool]) { throw "Model '$slug' property supportsImageInput must be true or false." }
+    $supportsImageInput = [bool]$imageProperty.Value
+    $detail = ConvertTo-UngateOptionalBool -Record $Record -Name 'supportsImageDetailOriginal' -Slug $slug
+    if ($null -eq $detail) { $detail = $supportsImageInput }
+    if (-not $supportsImageInput -and $detail) { throw "Model '$slug' original image detail requires image input." }
+    $contextWindow = ConvertTo-UngateOptionalWindow -Record $Record -Name 'contextWindow' -Slug $slug
+    $maxContextWindow = ConvertTo-UngateOptionalWindow -Record $Record -Name 'maxContextWindow' -Slug $slug
+    if ($null -ne $contextWindow -and $null -eq $maxContextWindow) { $maxContextWindow = $contextWindow }
+    $effectivePercent = ConvertTo-UngateOptionalWindow -Record $Record -Name 'effectiveContextWindowPercent' -Slug $slug
+    $summaries = ConvertTo-UngateOptionalBool -Record $Record -Name 'supportsReasoningSummaries' -Slug $slug
+    $parallel = ConvertTo-UngateOptionalBool -Record $Record -Name 'supportsParallelToolCalls' -Slug $slug
+    $adapterProperty = Get-UngateRecordProperty -Record $Record -Name 'responsesAdapter'
+    $responsesAdapter = $null
+    if ($adapterProperty -and -not [string]::IsNullOrWhiteSpace([string]$adapterProperty.Value)) {
+        $responsesAdapter = [string]$adapterProperty.Value
+    }
+    $policyProperty = Get-UngateRecordProperty -Record $Record -Name 'truncationPolicy'
+    $truncationPolicy = $null
+    if ($policyProperty -and $null -ne $policyProperty.Value) {
+        $truncationPolicy = ConvertTo-UngateTruncationPolicy -Value $policyProperty.Value -Slug $slug
+    }
+    $levelsProperty = Get-UngateRecordProperty -Record $Record -Name 'supportedReasoningLevels'
+    $reasoningLevels = $null
+    if ($levelsProperty -and $null -ne $levelsProperty.Value) {
+        $reasoningLevels = ConvertTo-UngateReasoningLevels -Value $levelsProperty.Value -Slug $slug
+    }
+    $descriptionProperty = Get-UngateRecordProperty -Record $Record -Name 'description'
+    if ($descriptionProperty -and -not [string]::IsNullOrWhiteSpace([string]$descriptionProperty.Value)) {
+        $description = [string]$descriptionProperty.Value
+    }
+    elseif ($upstreamModel) {
+        $description = "$displayName maps to upstream model '$upstreamModel' through $($profile.TransportDescription)."
+    }
+    else {
+        $description = "$displayName maps through $($profile.TransportDescription)."
+    }
+    $identity = Get-UngateModelIdentity -Context $Context -DisplayName $displayName -UpstreamModel $upstreamModel -ProviderDisplayName $profile.ProviderDisplayName -TransportDescription $profile.TransportDescription
+    $webSearch = if ($supportsImageInput) { 'text_and_image' } else { 'text' }
+    $definition = [pscustomobject][ordered]@{
+        Slug = $slug
+        DisplayName = $displayName
+        Description = $description
+        UpstreamModel = $upstreamModel
+        Aliases = (ConvertTo-UngateAliases -Record $Record -Slug $slug)
+        TransportDescription = [string]$profile.TransportDescription
+        Identity = $identity
+        DefaultReasoningLevel = $reasoningLevel
+        Priority = $Priority
+        SupportsImageDetailOriginal = [bool]$detail
+        WebSearchToolType = $webSearch
+        ProviderName = $profile.ProviderName
+        ProviderDisplayName = [string]$profile.ProviderDisplayName
+        ProxyBaseUrl = $profile.ProxyBaseUrl
+        EnvKey = [string]$profile.EnvKey
+        RequiresUngate = [bool]$profile.RequiresUngate
+        ContextWindow = $contextWindow
+        MaxContextWindow = $maxContextWindow
+        EffectiveContextWindowPercent = $effectivePercent
+        SupportsReasoningSummaries = $summaries
+        SupportsParallelToolCalls = $parallel
+        ResponsesAdapter = $responsesAdapter
+        TruncationPolicy = $truncationPolicy
+        SupportedReasoningLevels = $reasoningLevels
+    }
+    if ($supportsImageInput) {
+        Add-Member -InputObject $definition -NotePropertyName InputModalities -NotePropertyValue @('text', 'image')
+    }
+    else {
+        Add-Member -InputObject $definition -NotePropertyName InputModalities -NotePropertyValue @('text')
+    }
+    $summaryProperty = Get-UngateRecordProperty -Record $Record -Name 'defaultReasoningSummary'
+    if ($summaryProperty -and -not [string]::IsNullOrWhiteSpace([string]$summaryProperty.Value)) {
+        Add-Member -InputObject $definition -NotePropertyName DefaultReasoningSummary -NotePropertyValue ([string]$summaryProperty.Value)
+    }
+    $verbositySupport = ConvertTo-UngateOptionalBool -Record $Record -Name 'supportVerbosity' -Slug $slug
+    if ($null -ne $verbositySupport) {
+        Add-Member -InputObject $definition -NotePropertyName SupportVerbosity -NotePropertyValue ([bool]$verbositySupport)
+    }
+    $verbosityProperty = Get-UngateRecordProperty -Record $Record -Name 'defaultVerbosity'
+    if ($verbosityProperty -and $null -ne $verbosityProperty.Value -and -not [string]::IsNullOrWhiteSpace([string]$verbosityProperty.Value)) {
+        Add-Member -InputObject $definition -NotePropertyName DefaultVerbosity -NotePropertyValue ([string]$verbosityProperty.Value)
+    }
+    return $definition
+}
+
+function ConvertTo-UngateRegistryDefinitions {
+    param(
+        [Parameter(Mandatory)][psobject]$Context,
+        [AllowEmptyCollection()][object[]]$Records
+    )
+    $ErrorActionPreference = 'Stop'
+    $definitions = [System.Collections.Generic.List[object]]::new()
+    $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $priority = 0
+    foreach ($record in @($Records)) {
+        if ($null -eq $record) { continue }
+        $definition = ConvertTo-UngateRegistryDefinition -Context $Context -Record $record -Priority $priority
+        if ([string]$definition.Slug -eq 'ungate-memory') { throw 'ungate-memory is a service alias, not a launcher model.' }
+        if (-not $seen.Add([string]$definition.Slug)) { throw "Model ID '$($definition.Slug)' is duplicated." }
+        [void]$definitions.Add($definition)
+        $priority++
+    }
+    return @($definitions.ToArray())
+}
+
+function Get-UngateTemplateModelDefinitions {
+    param([Parameter(Mandatory)][psobject]$Context)
+    $ErrorActionPreference = 'Stop'
+    $path = Get-UngateModelTemplatePath -Context $Context
+    $document = Read-UngateJsonDocument -Path $path -Label 'Model template'
+    $version = Get-UngateRecordProperty -Record $document -Name 'version'
+    if (-not $version -or [int]$version.Value -ne 1) { throw "Model template at $path has an unsupported or missing version." }
+    $models = Get-UngateRecordProperty -Record $document -Name 'models'
+    if (-not $models) { throw "Model template at $path is missing the models array." }
+    $records = @()
+    if ($null -ne $models.Value) { $records = @($models.Value) }
+    return @(ConvertTo-UngateRegistryDefinitions -Context $Context -Records $records)
+}
+function Get-UngateProfileHomePath {
+    param([Parameter(Mandatory)][psobject]$Context)
+    if ($Context.PSObject.Properties['CustomCodexHome'] -and $Context.CustomCodexHome) {
+        return [string]$Context.CustomCodexHome
+    }
+    return (Split-Path -Parent (Get-UngateModelRegistryPath -Context $Context))
+}
+
+function Get-UngateLegacyDefinitionsPath {
+    param([Parameter(Mandatory)][psobject]$Context)
+    if ($Context.PSObject.Properties['CustomModelDefinitionsPath'] -and $Context.CustomModelDefinitionsPath) {
+        return [string]$Context.CustomModelDefinitionsPath
+    }
+    return (Join-Path (Get-UngateProfileHomePath -Context $Context) 'ungate-model-definitions.json')
+}
+
+function Get-UngateLegacyHiddenPath {
+    param([Parameter(Mandatory)][psobject]$Context)
+    return (Join-Path (Get-UngateProfileHomePath -Context $Context) 'ungate-hidden-models.json')
+}
+
+function Read-UngateModelRegistryDocument {
+    param([Parameter(Mandatory)][psobject]$Context)
+    $path = Get-UngateModelRegistryPath -Context $Context
+    $document = Read-UngateJsonDocument -Path $path -Label 'Model registry'
+    $version = Get-UngateRecordProperty -Record $document -Name 'version'
+    if (-not $version -or [int]$version.Value -ne 1) { throw "Model registry at $path has an unsupported or missing version." }
+    if (-not (Get-UngateRecordProperty -Record $document -Name 'models')) {
+        throw "Model registry at $path is missing the models array."
+    }
+    return $document
+}
+
+function Get-UngateModelRegistryNotice {
+    param([Parameter(Mandatory)][object]$Document)
+    $property = Get-UngateRecordProperty -Record $Document -Name 'notice'
+    if ($property -and -not [string]::IsNullOrWhiteSpace([string]$property.Value)) { return [string]$property.Value }
+    return $null
+}
+
+function Get-UngateModelRegistryRecords {
+    param([Parameter(Mandatory)][psobject]$Context)
+    $document = Read-UngateModelRegistryDocument -Context $Context
+    $models = Get-UngateRecordProperty -Record $document -Name 'models'
+    if ($null -eq $models.Value) { return @() }
+    return @($models.Value)
+}
+
+function Write-UngateModelRegistry {
+    param(
+        [Parameter(Mandatory)][psobject]$Context,
+        [AllowEmptyCollection()][Parameter(Mandatory)][object[]]$Records,
+        [AllowNull()][string]$Notice,
+        [switch]$SetNotice
+    )
+    $ErrorActionPreference = 'Stop'
+    [void](ConvertTo-UngateRegistryDefinitions -Context $Context -Records $Records)
+    $path = Get-UngateModelRegistryPath -Context $Context
+    $absolutePath = [System.IO.Path]::GetFullPath($path)
+    $profileHome = Get-UngateProfileHomePath -Context $Context
+    $lease = Enter-UngateProfileLock -HomePath $profileHome
+    try {
+        if ((Test-Path -LiteralPath $absolutePath) -and -not (Test-Path -LiteralPath $absolutePath -PathType Leaf)) {
+            throw "Model registry target is not a file: $absolutePath"
+        }
+        $storedNotice = $null
+        if ($SetNotice) {
+            if (-not [string]::IsNullOrWhiteSpace([string]$Notice)) { $storedNotice = [string]$Notice }
+        }
+        elseif (Test-Path -LiteralPath $absolutePath -PathType Leaf) {
+            $storedNotice = Get-UngateModelRegistryNotice -Document (Read-UngateModelRegistryDocument -Context $Context)
+        }
+        $document = [ordered]@{ version = 1 }
+        if ($storedNotice) { $document.notice = $storedNotice }
+        $modelList = [System.Collections.Generic.List[object]]::new()
+        foreach ($registryRecord in @($Records)) {
+            if ($null -ne $registryRecord) { [void]$modelList.Add($registryRecord) }
+        }
+        $document.models = $modelList
+        $json = $document | ConvertTo-Json -Depth 20
+        $directory = Split-Path -Parent $absolutePath
+        New-Item -ItemType Directory -Path $directory -Force | Out-Null
+        $transactionId = [guid]::NewGuid().ToString('N')
+        $temporaryPath = Join-Path $directory (".ungate-model-registry." + $transactionId + '.tmp')
+        $backupPath = Join-Path $directory (".ungate-model-registry." + $transactionId + '.bak')
+        $writeCompleted = $false
+        try {
+            $newline = [string]([char]13) + [string]([char]10)
+            [System.IO.File]::WriteAllText($temporaryPath, $json + $newline, [System.Text.UTF8Encoding]::new($false))
+            if (Test-Path -LiteralPath $absolutePath -PathType Leaf) {
+                [System.IO.File]::Replace($temporaryPath, $absolutePath, $backupPath, $true)
+            }
+            else {
+                [System.IO.File]::Move($temporaryPath, $absolutePath)
+            }
+            $writeCompleted = $true
+        }
+        finally {
+            if ($writeCompleted -and (Test-Path -LiteralPath $temporaryPath -PathType Leaf)) {
+                Remove-Item -LiteralPath $temporaryPath -Force
+            }
+        }
+        return $absolutePath
+    }
+    finally { Exit-UngateProfileLock -Lease $lease }
+}
+
+function Initialize-UngateModelRegistry {
+    param([Parameter(Mandatory)][psobject]$Context)
+    $ErrorActionPreference = 'Stop'
+    $path = Get-UngateModelRegistryPath -Context $Context
+    if (Test-Path -LiteralPath $path -PathType Leaf) { return $false }
+    if ((Test-Path -LiteralPath $path) -and -not (Test-Path -LiteralPath $path -PathType Leaf)) {
+        throw "Model registry target is not a file: $path"
+    }
+    $lease = Enter-UngateProfileLock -HomePath (Get-UngateProfileHomePath -Context $Context)
+    try {
+        if (Test-Path -LiteralPath $path -PathType Leaf) { return $false }
+        $templatePath = Get-UngateModelTemplatePath -Context $Context
+        $templateDocument = Read-UngateJsonDocument -Path $templatePath -Label 'Model template'
+        $templateVersion = Get-UngateRecordProperty -Record $templateDocument -Name 'version'
+        if (-not $templateVersion -or [int]$templateVersion.Value -ne 1) {
+            throw "Model template at $templatePath has an unsupported or missing version."
+        }
+        $templateModels = Get-UngateRecordProperty -Record $templateDocument -Name 'models'
+        if (-not $templateModels) { throw "Model template at $templatePath is missing the models array." }
+        $templateRecords = @()
+        if ($null -ne $templateModels.Value) { $templateRecords = @($templateModels.Value) }
+        [void](ConvertTo-UngateRegistryDefinitions -Context $Context -Records $templateRecords)
+
+        $hidden = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        $hiddenPath = Get-UngateLegacyHiddenPath -Context $Context
+        if (Test-Path -LiteralPath $hiddenPath) {
+            foreach ($hiddenSlug in @(Read-UngateHiddenModelSlugs -HiddenModelsPath $hiddenPath)) {
+                [void]$hidden.Add([string]$hiddenSlug)
+            }
+        }
+
+        $customRecords = @()
+        $legacyPath = Get-UngateLegacyDefinitionsPath -Context $Context
+        if (Test-Path -LiteralPath $legacyPath) {
+            $legacy = Read-UngateJsonDocument -Path $legacyPath -Label 'Custom model registry'
+            $legacyVersion = Get-UngateRecordProperty -Record $legacy -Name 'version'
+            if (-not $legacyVersion -or [int]$legacyVersion.Value -ne 1) {
+                throw "Custom model registry at $legacyPath has an unsupported or missing version."
+            }
+            $legacyModels = Get-UngateRecordProperty -Record $legacy -Name 'models'
+            if (-not $legacyModels) { throw "Custom model registry at $legacyPath is missing the models array." }
+            if ($null -ne $legacyModels.Value) { $customRecords = @($legacyModels.Value) }
+            [void](ConvertTo-UngateRegistryDefinitions -Context $Context -Records $customRecords)
+        }
+
+        $selected = [System.Collections.Generic.List[object]]::new()
+        $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        foreach ($record in $templateRecords) {
+            $slugProperty = Get-UngateRecordProperty -Record $record -Name 'slug'
+            $slug = [string]$slugProperty.Value
+            if ($hidden.Contains($slug)) { continue }
+            if (-not $seen.Add($slug)) { throw "Model ID '$slug' is duplicated." }
+            [void]$selected.Add($record)
+        }
+        foreach ($record in $customRecords) {
+            $slugProperty = Get-UngateRecordProperty -Record $record -Name 'slug'
+            $slug = [string]$slugProperty.Value
+            if (-not $seen.Add($slug)) { throw "Model ID '$slug' is duplicated." }
+            [void]$selected.Add($record)
+        }
+        $notice = 'Created the model registry and moved ' + $selected.Count + ' models.'
+        [void](Write-UngateModelRegistry -Context $Context -Records @($selected.ToArray()) -Notice $notice -SetNotice)
+        Write-Host ('[ungate] ' + $notice) -ForegroundColor Green
+        return $true
+    }
+    finally { Exit-UngateProfileLock -Lease $lease }
+}
+
+function Test-UngateRegistrySlugTaken {
+    param([Parameter(Mandatory)][object[]]$Records, [Parameter(Mandatory)][string]$Slug)
+    foreach ($record in @($Records)) {
+        $property = Get-UngateRecordProperty -Record $record -Name 'slug'
+        if ($property -and ([string]$property.Value).Equals($Slug, [System.StringComparison]::OrdinalIgnoreCase)) { return $true }
+    }
+    return $false
+}
+
+function ConvertTo-UngatePersistentModelRecord {
+    param(
+        [Parameter(Mandatory)][object]$Definition,
+        [Parameter(Mandatory)][object]$Camel
+    )
+    $supportsImage = @($Definition.InputModalities) -contains 'image'
+    $transportProperty = Get-UngateRecordProperty -Record $Camel -Name 'transport'
+    $persistent = [ordered]@{
+        slug = [string]$Definition.Slug
+        displayName = [string]$Definition.DisplayName
+        upstreamModel = $Definition.UpstreamModel
+        transport = $(if ($transportProperty) { [string]$transportProperty.Value } else { '' })
+        defaultReasoningLevel = [string]$Definition.DefaultReasoningLevel
+        supportsImageInput = [bool]$supportsImage
+    }
+    if ($null -ne $Definition.ContextWindow) { $persistent.contextWindow = [int]$Definition.ContextWindow }
+    foreach ($name in @(
+        'maxContextWindow', 'effectiveContextWindowPercent', 'supportsImageDetailOriginal', 'description',
+        'aliases', 'responsesAdapter', 'truncationPolicy', 'supportedReasoningLevels',
+        'supportsReasoningSummaries', 'supportsParallelToolCalls', 'defaultReasoningSummary',
+        'supportVerbosity', 'defaultVerbosity'
+    )) {
+        $property = Get-UngateRecordProperty -Record $Camel -Name $name
+        if ($property -and $null -ne $property.Value) { $persistent[$name] = $property.Value }
+    }
+    if ($persistent.Contains('maxContextWindow') -and $null -ne $Definition.MaxContextWindow) {
+        $persistent.maxContextWindow = [int]$Definition.MaxContextWindow
+    }
+    if ($persistent.Contains('effectiveContextWindowPercent') -and $null -ne $Definition.EffectiveContextWindowPercent) {
+        $persistent.effectiveContextWindowPercent = [int]$Definition.EffectiveContextWindowPercent
+    }
+    return [pscustomobject]$persistent
+}
+
+function Add-UngateModelRegistryRecord {
+    param(
+        [Parameter(Mandatory)][psobject]$Context,
+        [Parameter(Mandatory)][object]$Record
+    )
+    $ErrorActionPreference = 'Stop'
+    [void](Initialize-UngateModelRegistry -Context $Context)
+    $normalized = ConvertTo-UngateCamelModelRecord -Record $Record
+    $definition = ConvertTo-UngateRegistryDefinition -Context $Context -Record $normalized -Priority 0
+    if ([string]$definition.Slug -eq 'ungate-memory') { throw 'ungate-memory is a service alias, not a launcher model.' }
+    $existing = @(Get-UngateModelRegistryRecords -Context $Context)
+    if (Test-UngateRegistrySlugTaken -Records $existing -Slug ([string]$definition.Slug)) {
+        throw "Model ID '$($definition.Slug)' already exists."
+    }
+    $persistent = ConvertTo-UngatePersistentModelRecord -Definition $definition -Camel $normalized
+    $records = [System.Collections.Generic.List[object]]::new()
+    foreach ($item in $existing) { [void]$records.Add($item) }
+    [void]$records.Add($persistent)
+    [void](Write-UngateModelRegistry -Context $Context -Records @($records.ToArray()))
+    return $definition
+}
+
+function Remove-UngateRegistryRecord {
+    param(
+        [Parameter(Mandatory)][psobject]$Context,
+        [Parameter(Mandatory)][string]$Slug
+    )
+    $ErrorActionPreference = 'Stop'
+    if ($Slug -eq 'ungate-memory') { throw 'ungate-memory is a service alias, not a launcher model.' }
+    [void](Initialize-UngateModelRegistry -Context $Context)
+    $existing = @(Get-UngateModelRegistryRecords -Context $Context)
+    $kept = [System.Collections.Generic.List[object]]::new()
+    $found = $false
+    foreach ($record in $existing) {
+        $property = Get-UngateRecordProperty -Record $record -Name 'slug'
+        $recordSlug = if ($property) { [string]$property.Value } else { '' }
+        if ($recordSlug.Equals($Slug, [System.StringComparison]::OrdinalIgnoreCase)) {
+            $found = $true
+            continue
+        }
+        [void]$kept.Add($record)
+    }
+    if (-not $found) { throw "Model '$Slug' is not configured." }
+    if ($kept.Count -eq 0) { throw 'The last model cannot be removed. Add another model first.' }
+    [void](Write-UngateModelRegistry -Context $Context -Records @($kept.ToArray()))
+    return $Slug
+}
+
+function Copy-UngateTemplateModelToRegistry {
+    param(
+        [Parameter(Mandatory)][psobject]$Context,
+        [Parameter(Mandatory)][string]$Slug
+    )
+    $ErrorActionPreference = 'Stop'
+    [void](Initialize-UngateModelRegistry -Context $Context)
+    $templatePath = Get-UngateModelTemplatePath -Context $Context
+    $document = Read-UngateJsonDocument -Path $templatePath -Label 'Model template'
+    $models = Get-UngateRecordProperty -Record $document -Name 'models'
+    $match = $null
+    if ($models -and $null -ne $models.Value) {
+        foreach ($record in @($models.Value)) {
+            $property = Get-UngateRecordProperty -Record $record -Name 'slug'
+            if ($property -and ([string]$property.Value).Equals($Slug, [System.StringComparison]::OrdinalIgnoreCase)) {
+                $match = $record
+                break
+            }
+        }
+    }
+    if (-not $match) { throw "Model '$Slug' is not in the template." }
+    [void](ConvertTo-UngateRegistryDefinition -Context $Context -Record $match -Priority 0)
+    $existing = @(Get-UngateModelRegistryRecords -Context $Context)
+    $matchProperty = Get-UngateRecordProperty -Record $match -Name 'slug'
+    $matchSlug = [string]$matchProperty.Value
+    if (Test-UngateRegistrySlugTaken -Records $existing -Slug $matchSlug) {
+        throw "Model ID '$matchSlug' already exists."
+    }
+    $records = [System.Collections.Generic.List[object]]::new()
+    foreach ($item in $existing) { [void]$records.Add($item) }
+    [void]$records.Add($match)
+    [void](Write-UngateModelRegistry -Context $Context -Records @($records.ToArray()))
+    return $matchSlug
+}
+
+function ConvertTo-UngateCamelModelRecord {
+    param([Parameter(Mandatory)][object]$Record)
+    if (Get-UngateRecordProperty -Record $Record -Name 'slug') { return $Record }
+    $upstreamProperty = Get-UngateRecordProperty -Record $Record -Name 'UpstreamModel'
+    $upstreamValue = $null
+    if ($upstreamProperty) { $upstreamValue = $upstreamProperty.Value }
+    if ($null -ne $upstreamValue -and [string]::IsNullOrWhiteSpace([string]$upstreamValue)) { $upstreamValue = $null }
+    elseif ($null -ne $upstreamValue) { $upstreamValue = ([string]$upstreamValue).Trim() }
+    $slugProperty = Get-UngateRecordProperty -Record $Record -Name 'Slug'
+    $displayProperty = Get-UngateRecordProperty -Record $Record -Name 'DisplayName'
+    $transportProperty = Get-UngateRecordProperty -Record $Record -Name 'Transport'
+    $reasoningProperty = Get-UngateRecordProperty -Record $Record -Name 'DefaultReasoningLevel'
+    $imageProperty = Get-UngateRecordProperty -Record $Record -Name 'SupportsImageInput'
+    $camel = [ordered]@{
+        slug = $(if ($slugProperty) { ([string]$slugProperty.Value).Trim() } else { '' })
+        displayName = $(if ($displayProperty) { ([string]$displayProperty.Value).Trim() } else { '' })
+        upstreamModel = $upstreamValue
+        transport = $(if ($transportProperty) { ([string]$transportProperty.Value).Trim() } else { '' })
+        defaultReasoningLevel = $(if ($reasoningProperty) { ([string]$reasoningProperty.Value).Trim() } else { '' })
+        supportsImageInput = $(if ($imageProperty) { $imageProperty.Value } else { $null })
+    }
+    $optional = @{
+        ContextWindow = 'contextWindow'
+        MaxContextWindow = 'maxContextWindow'
+        EffectiveContextWindowPercent = 'effectiveContextWindowPercent'
+        SupportsImageDetailOriginal = 'supportsImageDetailOriginal'
+        Description = 'description'
+        Aliases = 'aliases'
+        ResponsesAdapter = 'responsesAdapter'
+        TruncationPolicy = 'truncationPolicy'
+        SupportedReasoningLevels = 'supportedReasoningLevels'
+        SupportsReasoningSummaries = 'supportsReasoningSummaries'
+        SupportsParallelToolCalls = 'supportsParallelToolCalls'
+        DefaultReasoningSummary = 'defaultReasoningSummary'
+        SupportVerbosity = 'supportVerbosity'
+        DefaultVerbosity = 'defaultVerbosity'
+    }
+    foreach ($name in @($optional.Keys)) {
+        $property = Get-UngateRecordProperty -Record $Record -Name $name
+        if ($property -and $null -ne $property.Value) { $camel[$optional[$name]] = $property.Value }
+    }
+    if (-not $camel.Contains('supportsImageDetailOriginal')) {
+        $detailProperty = Get-UngateRecordProperty -Record $Record -Name 'supportsImageDetailOriginal'
+        if ($detailProperty -and $null -ne $detailProperty.Value) { $camel.supportsImageDetailOriginal = $detailProperty.Value }
+    }
+    return [pscustomobject]$camel
+}
 function ConvertTo-UngateModelDefinition {
     param(
         [Parameter(Mandatory)][psobject]$Context,
@@ -335,271 +762,37 @@ function ConvertTo-UngateModelDefinition {
         [int]$Priority
     )
     $ErrorActionPreference = 'Stop'
-
-    $requiredProperties = @(
-        'Slug',
-        'DisplayName',
-        'UpstreamModel',
-        'Transport',
-        'DefaultReasoningLevel',
-        'SupportsImageInput'
-    )
-    foreach ($propertyName in $requiredProperties) {
-        if ($propertyName -notin $Record.PSObject.Properties.Name) {
-            throw "Custom model record is missing required property '$propertyName'."
-        }
-    }
-
-    $slug = ([string]$Record.Slug).Trim()
-    $displayName = ([string]$Record.DisplayName).Trim()
-    $upstreamModel = ([string]$Record.UpstreamModel).Trim()
-    $transport = ([string]$Record.Transport).Trim().ToLowerInvariant()
-    $reasoningLevel = ([string]$Record.DefaultReasoningLevel).Trim().ToLowerInvariant()
-
-    if (-not $slug) {
-        throw 'Custom model ID cannot be empty.'
-    }
-    if ($slug -match '\s|["'']') {
-        throw "Custom model ID '$slug' cannot contain whitespace or quotes."
-    }
-    if (-not $displayName) {
-        throw "Custom model '$slug' must have a display name."
-    }
-    if (-not $upstreamModel) {
-        throw "Custom model '$slug' must have an upstream model ID."
-    }
-    if ($upstreamModel -match '\s|["'']') {
-        throw "Upstream model ID '$upstreamModel' cannot contain whitespace or quotes."
-    }
-    if ($transport -notin @('ungate', 'cliproxyapi', 'omniroute')) {
-        throw "Custom model '$slug' has unsupported transport '$transport'."
-    }
-    if ($reasoningLevel -notin @('none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra')) {
-        throw "Custom model '$slug' has unsupported reasoning level '$reasoningLevel'."
-    }
-    if ($Record.SupportsImageInput -isnot [bool]) {
-        throw "Custom model '$slug' property SupportsImageInput must be true or false."
-    }
-
-    if ($transport -eq 'ungate') {
-        $providerNameForModel = $Context.ProviderName
-        $providerDisplayName = 'Ungate Proxy'
-        $proxyBaseUrlForModel = $Context.ProxyBaseUrl
-        $environmentKey = 'UNGATE_API_KEY'
-        $requiresUngate = $true
-        $transportDescription = 'the local Ungate Responses proxy'
-    }
-    elseif ($transport -eq 'cliproxyapi') {
-        $providerNameForModel = $Context.CliProxyProviderName
-        $providerDisplayName = 'CLIProxyAPI'
-        $proxyBaseUrlForModel = $Context.CliProxyBaseUrl
-        $environmentKey = 'CLIPROXYAPI_API_KEY'
-        $requiresUngate = $false
-        $transportDescription = 'the local CLIProxyAPI compatibility bridge'
-    }
-    else {
-        $providerNameForModel = $Context.OmniRouteProviderName
-        $providerDisplayName = 'OmniRoute'
-        $proxyBaseUrlForModel = $Context.OmniRouteBaseUrl
-        $environmentKey = 'OMNIROUTE_API_KEY'
-        $requiresUngate = $false
-        $transportDescription = 'the local OmniRoute proxy'
-    }
-
-    $supportsImageInput = [bool]$Record.SupportsImageInput
-    $inputModalities = if ($supportsImageInput) { @('text', 'image') } else { @('text') }
-    $webSearchToolType = if ($supportsImageInput) { 'text_and_image' } else { 'text' }
-    $description = "$displayName maps to upstream model '$upstreamModel' through $transportDescription."
-    $identity = Get-UngateModelIdentity -Context $Context `
-        -DisplayName $displayName `
-        -UpstreamModel $upstreamModel `
-        -ProviderDisplayName $providerDisplayName `
-        -TransportDescription $transportDescription
-
-    $definition = [pscustomobject][ordered]@{
-        Slug = $slug
-        DisplayName = $displayName
-        UpstreamModel = $upstreamModel
-        Transport = $transport
-        Description = $description
-        Identity = $identity
-        DefaultReasoningLevel = $reasoningLevel
-        Priority = $Priority
-        InputModalities = $inputModalities
-        SupportsImageInput = $supportsImageInput
-        SupportsImageDetailOriginal = $supportsImageInput
-        WebSearchToolType = $webSearchToolType
-        ProviderName = $providerNameForModel
-        ProviderDisplayName = $providerDisplayName
-        ProxyBaseUrl = $proxyBaseUrlForModel
-        EnvKey = $environmentKey
-        RequiresUngate = $requiresUngate
-    }
-    $capabilities = @{}
-    foreach ($name in @(Get-UngateCapabilityNames)) {
-        if ($name -ne 'defaultReasoningLevel' -and $name -in $Record.PSObject.Properties.Name) { $capabilities[$name] = $Record.$name }
-    }
-    return Apply-UngateModelCapabilities -Definition $definition -Context $Context -Values $capabilities
+    return ConvertTo-UngateRegistryDefinition -Context $Context -Record (ConvertTo-UngateCamelModelRecord -Record $Record) -Priority $Priority
 }
 
-function Read-UngateCustomModelDefinitions {
-    param(
-        [Parameter(Mandatory)][psobject]$Context,
-
-        [Parameter(Mandatory = $true)]
-        [string]$RegistryPath,
-        [Parameter(Mandatory = $true)]
-        [object[]]$BuiltInDefinitions
-    )
+function Read-UngateHiddenModelSlugs {
+    param([Parameter(Mandatory = $true)][string]$HiddenModelsPath)
     $ErrorActionPreference = 'Stop'
 
-    if (-not (Test-Path -LiteralPath $RegistryPath)) {
-        return @()
+    if (-not (Test-Path -LiteralPath $HiddenModelsPath)) { return @() }
+    if (-not (Test-Path -LiteralPath $HiddenModelsPath -PathType Leaf)) {
+        throw "Hidden models target is not a file: $HiddenModelsPath"
     }
-    if (-not (Test-Path -LiteralPath $RegistryPath -PathType Leaf)) {
-        throw "Custom model registry is not a file: $RegistryPath"
-    }
-
     try {
-        $registry = Get-Content -LiteralPath $RegistryPath -Raw -Encoding utf8 |
-            ConvertFrom-Json -Depth 100 -ErrorAction Stop
+        $data = Get-Content -LiteralPath $HiddenModelsPath -Raw -Encoding utf8 | ConvertFrom-Json -Depth 20 -ErrorAction Stop
     }
     catch {
-        throw "Failed to parse custom model registry at $RegistryPath : $($_.Exception.Message)"
+        throw "Failed to parse hidden models at $HiddenModelsPath : $($_.Exception.Message)"
     }
-
-    if ('Version' -notin $registry.PSObject.Properties.Name -or [int]$registry.Version -ne 1) {
-        throw "Custom model registry at $RegistryPath has an unsupported or missing version."
+    if ('Version' -notin $data.PSObject.Properties.Name -or [int]$data.Version -ne 1) {
+        throw "Hidden models at $HiddenModelsPath have an unsupported or missing version."
     }
-    if ('Models' -notin $registry.PSObject.Properties.Name) {
-        throw "Custom model registry at $RegistryPath is missing the models array."
+    if ('ModelSlugs' -notin $data.PSObject.Properties.Name) {
+        throw "Hidden models at $HiddenModelsPath are missing the modelSlugs array."
     }
-
-    $seenSlugs = [System.Collections.Generic.HashSet[string]]::new(
-        [System.StringComparer]::OrdinalIgnoreCase
-    )
-    foreach ($definition in $BuiltInDefinitions) {
-        if (-not $seenSlugs.Add([string]$definition.Slug)) {
-            throw "Built-in model ID '$($definition.Slug)' is duplicated."
+    $slugs = [System.Collections.Generic.List[string]]::new()
+    foreach ($slug in @($data.ModelSlugs)) {
+        if ($slug -isnot [string] -or [string]::IsNullOrWhiteSpace($slug)) {
+            throw "Hidden models at $HiddenModelsPath contain an invalid model ID."
         }
+        if ($slug -notin $slugs) { [void]$slugs.Add($slug) }
     }
-
-    $definitions = [System.Collections.Generic.List[object]]::new()
-    $priority = $BuiltInDefinitions.Count
-    foreach ($record in @($registry.Models)) {
-        $definition = ConvertTo-UngateModelDefinition -Context $Context -Record $record -Priority $priority
-        if (-not $seenSlugs.Add($definition.Slug)) {
-            throw "Custom model ID '$($definition.Slug)' duplicates an existing model."
-        }
-        [void]$definitions.Add($definition)
-        $priority++
-    }
-
-    return @($definitions)
-}
-
-function Write-UngateCustomModelDefinitions {
-    param(
-        [Parameter(Mandatory)][psobject]$Context,
-
-        [Parameter(Mandatory = $true)]
-        [string]$RegistryPath,
-        [Parameter(Mandatory = $true)]
-        [object[]]$Records,
-        [Parameter(Mandatory = $true)]
-        [object[]]$BuiltInDefinitions
-    )
-    $ErrorActionPreference = 'Stop'
-    $lease = Enter-UngateProfileLock -HomePath (Split-Path -Parent ([System.IO.Path]::GetFullPath($RegistryPath)))
-    try {
-
-    $normalizedDefinitions = [System.Collections.Generic.List[object]]::new()
-    $seenSlugs = [System.Collections.Generic.HashSet[string]]::new(
-        [System.StringComparer]::OrdinalIgnoreCase
-    )
-    foreach ($definition in $BuiltInDefinitions) {
-        if (-not $seenSlugs.Add([string]$definition.Slug)) {
-            throw "Built-in model ID '$($definition.Slug)' is duplicated."
-        }
-    }
-
-    $priority = $BuiltInDefinitions.Count
-    foreach ($record in $Records) {
-        $definition = ConvertTo-UngateModelDefinition -Context $Context -Record $record -Priority $priority
-        if (-not $seenSlugs.Add($definition.Slug)) {
-            throw "Custom model ID '$($definition.Slug)' duplicates an existing model."
-        }
-        [void]$normalizedDefinitions.Add($definition)
-        $priority++
-    }
-
-    $persistentRecords = @(
-        foreach ($definition in $normalizedDefinitions) {
-            $persistent = [ordered]@{
-                slug = $definition.Slug
-                displayName = $definition.DisplayName
-                upstreamModel = $definition.UpstreamModel
-                transport = $definition.Transport
-                defaultReasoningLevel = $definition.DefaultReasoningLevel
-                supportsImageInput = $definition.SupportsImageInput
-            }
-            foreach ($name in @(Get-UngateCapabilityNames)) {
-                if ($name -in @('supportsImageInput', 'defaultReasoningLevel')) { continue }
-                if ($name -eq 'supportedReasoningLevels' -and $definition.PSObject.Properties['SupportedReasoningLevels']) {
-                    $persistent[$name] = @($definition.SupportedReasoningLevels.effort)
-                } elseif ($definition.PSObject.Properties[$name]) { $persistent[$name] = $definition.$name }
-            }
-            $persistent
-        }
-    )
-    $json = [ordered]@{
-        version = 1
-        models = $persistentRecords
-    } | ConvertTo-Json -Depth 20
-
-    $absoluteRegistryPath = [System.IO.Path]::GetFullPath($RegistryPath)
-    if (
-        (Test-Path -LiteralPath $absoluteRegistryPath) -and
-        -not (Test-Path -LiteralPath $absoluteRegistryPath -PathType Leaf)
-    ) {
-        throw "Custom model registry target is not a file: $absoluteRegistryPath"
-    }
-
-    $registryDirectory = Split-Path -Parent $absoluteRegistryPath
-    New-Item -ItemType Directory -Path $registryDirectory -Force | Out-Null
-    $transactionId = [guid]::NewGuid().ToString('N')
-    $temporaryPath = Join-Path $registryDirectory ".ungate-model-definitions.$transactionId.tmp"
-    $backupPath = Join-Path $registryDirectory ".ungate-model-definitions.$transactionId.bak"
-    $writeCompleted = $false
-
-    try {
-        [System.IO.File]::WriteAllText(
-            $temporaryPath,
-            $json + "`r`n",
-            [System.Text.UTF8Encoding]::new($false)
-        )
-        if (Test-Path -LiteralPath $absoluteRegistryPath -PathType Leaf) {
-            [System.IO.File]::Replace(
-                $temporaryPath,
-                $absoluteRegistryPath,
-                $backupPath,
-                $true
-            )
-        }
-        else {
-            [System.IO.File]::Move($temporaryPath, $absoluteRegistryPath)
-        }
-        $writeCompleted = $true
-    }
-    finally {
-        if ($writeCompleted -and (Test-Path -LiteralPath $temporaryPath -PathType Leaf)) {
-            Remove-Item -LiteralPath $temporaryPath -Force
-        }
-        # Retain the backup as a manual recovery path; never restore automatically.
-    }
-
-    return $absoluteRegistryPath
-    } finally { Exit-UngateProfileLock -Lease $lease }
+    return @($slugs)
 }
 
 function ConvertTo-ContextWindowTokens {
@@ -884,28 +1077,23 @@ function Get-UngateModelDefinitions {
     param(
         [Parameter(Mandatory)][psobject]$Context,
 
-        [Parameter(Mandatory = $true)]
-        [object[]]$BuiltInDefinitions,
-        [Parameter(Mandatory = $true)]
-        [string]$RegistryPath,
-        [Parameter()][string]$OverridesPath
+        [Parameter()][string]$OverridesPath,
+        [switch]$SkipOverrides
     )
     $ErrorActionPreference = 'Stop'
 
+    [void](Get-UngateTemplateModelDefinitions -Context $Context)
+    [void](Initialize-UngateModelRegistry -Context $Context)
+    $records = @(Get-UngateModelRegistryRecords -Context $Context)
+    $all = @(ConvertTo-UngateRegistryDefinitions -Context $Context -Records $records)
+    if ($SkipOverrides) { return $all }
     if (-not $OverridesPath -and $Context.PSObject.Properties['CustomModelOverridesPath']) {
         $OverridesPath = $Context.CustomModelOverridesPath
     }
-
-    $customDefinitions = @(
-        Read-UngateCustomModelDefinitions -Context $Context `
-            -RegistryPath $RegistryPath `
-            -BuiltInDefinitions $BuiltInDefinitions
-    )
-    $all = @($BuiltInDefinitions) + $customDefinitions
     if ($OverridesPath) {
         $overrides = Read-UngateModelOverrides -OverridesPath $OverridesPath
         if ($overrides -and $overrides.Count -gt 0) {
-            return @(Apply-UngateModelOverrides -Context $Context -Definitions $all -Overrides $overrides)
+            $all = @(Apply-UngateModelOverrides -Context $Context -Definitions $all -Overrides $overrides)
         }
     }
     return $all
@@ -925,10 +1113,12 @@ function Get-UngateRequestModel {
 function Get-UngateDiagnosticRoute {
     param([Parameter(Mandatory)][psobject]$Context, [Parameter(Mandatory)][object]$Definition)
     $provider = if ($Definition.PSObject.Properties['ProviderName']) { [string]$Definition.ProviderName } else { '' }
-    $cliproxy = $provider -eq [string]$Context.CliProxyProviderName
-    $transport = if ($Definition.PSObject.Properties['Transport'] -and $Definition.Transport) {
-        [string]$Definition.Transport
-    } else { $provider }
+    $transport = Get-UngateModelTransport -Definition $Definition
+    if (-not $transport) {
+        if ($Definition.PSObject.Properties['Transport'] -and $Definition.Transport) { $transport = [string]$Definition.Transport }
+        else { $transport = $provider }
+    }
+    $cliproxy = $transport -eq 'cliproxyapi'
     return [pscustomobject][ordered]@{
         RegistryId = [string]$Definition.Slug
         RequestModel = Get-UngateRequestModel -Definition $Definition
@@ -1004,8 +1194,6 @@ function Get-UngateModelContextWindow {
 Export-ModuleMember -Function @(
     'Get-UngateModelIdentity',
     'ConvertTo-UngateModelDefinition',
-    'Read-UngateCustomModelDefinitions',
-    'Write-UngateCustomModelDefinitions',
     'Get-UngateModelDefinitions',
     'Get-UngateRequestModel',
     'Get-UngateDiagnosticRoute',
@@ -1017,4 +1205,14 @@ Export-ModuleMember -Function @(
     'Set-UngateModelOverride',
     'Remove-UngateModelOverride',
     'Apply-UngateModelOverrides'
+    'Get-UngateTemplateModelDefinitions',
+    'Get-UngateModelTransport',
+    'Get-UngateTransportProfile',
+    'Write-UngateModelRegistry',
+    'Initialize-UngateModelRegistry',
+    'Get-UngateModelRegistryRecords',
+    'Get-UngateModelRegistryNotice',
+    'Add-UngateModelRegistryRecord',
+    'Copy-UngateTemplateModelToRegistry',
+    'Remove-UngateRegistryRecord'
 )

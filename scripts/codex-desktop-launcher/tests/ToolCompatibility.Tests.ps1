@@ -84,7 +84,7 @@ Describe 'TT menu returns to normal selection' {
         Mock -ModuleName Picker Read-Host { $answers.Dequeue() }
         Mock -ModuleName Picker Invoke-CodexToolCompatibility { 1 }
         Mock -ModuleName Picker Write-UngatePickerModelSelection { throw 'Must not write picker' }
-        $selected = Select-UngateDesktopModel -Context $context -Definitions $definitions -BuiltInDefinitions $definitions -RegistryPath $context.CustomModelDefinitionsPath -PickerSettingsPath $context.PickerModelSelectionPath -PickerCapacity $context.CodexDesktopPickerCapacity
+        $selected = Select-UngateDesktopModel -Context $context -Definitions $definitions -PickerSettingsPath $context.PickerModelSelectionPath -PickerCapacity $context.CodexDesktopPickerCapacity
         $selected | Should -Be $definitions[0].Slug
         Should -Invoke -ModuleName Picker Invoke-CodexToolCompatibility -Times 1 -ParameterFilter { $Definitions.Count -gt 0 }
         Test-Path -LiteralPath $context.CustomCodexHome | Should -BeFalse

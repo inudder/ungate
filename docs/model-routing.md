@@ -363,12 +363,13 @@ When exposing a new provider model from OmniRoute through the Desktop launcher:
 2. **OmniRoute active live catalog gating (`key_value` table)**:
    - OmniRoute validates incoming model IDs against the connection's active synced catalog (`getActiveSyncedCatalog`).
    - Ensure the connection entry in `key_value` (`<providerId>:<connectionId>`) lists the expected model ID (e.g. `[{"id":"deepseek-flash",...},{"id":"deepseek-v4-flash",...}]`), otherwise requests fail with HTTP 400: `Model '<id>' is not available in the active live catalog for provider '<provider>'`.
-3. **Launcher model definitions & aliases (`scripts/codex-desktop-launcher/Models.psm1`)**:
-   - Add built-in definition in `New-UngateModelSet` with `Slug`, `DisplayName`, `UpstreamModel`, `Aliases`, `ContextWindow`, and `SupportedReasoningLevels`.
-   - `Aliases` enable friendly command-line resolution (e.g. `-Model deepseek-flash` mapping to `deepseek-v4-flash`).
+3. **Launcher model template (`scripts/codex-desktop-launcher/models.default.json`)**:
+   - Add the model to the template. A profile that already has `ungate-model-registry.json` does not pick it up until someone copies it from the template. A new profile copies the template on first launch.
+   - `Aliases` stay on the record and still resolve `-Model` (for example `-Model deepseek-flash`).
 4. **Desktop picker configuration (`%USERPROFILE%\.codex-ungate\ungate-picker-models.json`)**:
    - The native desktop picker supports at most 6 models (`$CodexDesktopPickerCapacity = 6`). Desktop renders labels only for seven known IDs, and `gpt-5.6-luna` is reserved: Desktop hard-codes it for chat titles, ambient suggestions, their safety check and codex-auto-review. The launcher routes it as a hidden entry to the launch model, or to the model saved with menu `B` in `ungate-background-model.json`.
    - Add the slug to `modelSlugs` if it should appear directly in the interactive menu without manual reconfiguration.
+   - Removing a model (launcher menu `R`, or the dashboard Codex Beta tab) deletes its record from `ungate-model-registry.json` and drops it from this file and from `ungate-background-model.json`, along with its overrides. It does not return on the next launch. A model that is still in `models.default.json` can be copied back from the template; a custom model has to be entered again. The last remaining model and the `ungate-memory` alias cannot be removed.
 5. **Test fixture snapshot synchronization (`tests/fixtures/models.json`)**:
    - `scripts/codex-desktop-launcher/tests/fixtures/models.json` holds the snapshot for `Launcher.Tests.ps1`, including `IdentitySha256` hashes computed against `environment-instructions.txt`.
    - After adding built-ins or changing instructions, regenerate this snapshot and update the fallback model count assertion.

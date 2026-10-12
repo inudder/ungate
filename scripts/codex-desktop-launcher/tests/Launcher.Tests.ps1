@@ -1,6 +1,6 @@
 BeforeAll {
     $script:moduleRoot = Split-Path -Parent $PSScriptRoot
-    foreach ($name in @('Context', 'Models', 'Routing', 'ProxyRuntime', 'Desktop', 'Profile', 'Memories', 'BackgroundModel', 'Catalog', 'Launcher')) {
+    foreach ($name in @('Context', 'Models', 'Routing', 'ProxyRuntime', 'Desktop', 'Profile', 'Memories', 'BackgroundModel', 'Catalog', 'Picker', 'Launcher')) {
         Import-Module (Join-Path $script:moduleRoot "$name.psm1") -DisableNameChecking -ErrorAction Stop
     }
 
@@ -171,6 +171,16 @@ if ($before -cne $after) { throw 'Import changed environment' }
         Should -Invoke -ModuleName Launcher Select-UngateDesktopModel -Times 1 -Exactly
     }
 
+    It 'uses the first picker model when the omitted default was removed' {
+        $omitted = New-TestContext @{ PrepareOnly = $true } 'omitted-default'
+        $null = Remove-UngateProfileModel -Context $omitted -Slug 'ungate-opus-4-8'
+        (Get-TestSelection $omitted).SelectedModel.Slug | Should -Be 'ungate-fable-5'
+
+        $explicit = New-TestContext @{ PrepareOnly = $true; Model = 'ungate-opus-4-8' } 'missing-default'
+        $null = Remove-UngateProfileModel -Context $explicit -Slug 'ungate-opus-4-8'
+        { Get-TestSelection $explicit } | Should -Throw '*Unsupported Desktop model*'
+    }
+
     It 'rejects unknown and disabled models without preparing a profile' {
         { Get-TestSelection (New-TestContext @{Model='unknown'}) } | Should -Throw '*Unsupported Desktop model*'
         { Get-TestSelection (New-TestContext @{Model='deepseek-v4-pro'}) } | Should -Throw '*not enabled in the Desktop picker*'
@@ -242,8 +252,10 @@ Describe 'Orchestration without production side effects' {
         Invoke-CodexDesktopLauncher -Context $two | Should -Be 0
         @($script:events) | Should -Be @("transport:$($one.CustomCodexHome)", "profile:$($one.CustomCodexHome)", "transport:$($two.CustomCodexHome)", "profile:$($two.CustomCodexHome)")
         $one.Options.EnableProviderFallback | Should -BeFalse
-        Test-Path -LiteralPath $one.CustomCodexHome | Should -BeFalse
-        Test-Path -LiteralPath $two.CustomCodexHome | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $one.CustomCodexHome 'ungate-model-registry.json') | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $two.CustomCodexHome 'ungate-model-registry.json') | Should -BeTrue
+        Test-Path -LiteralPath $one.CustomConfigPath | Should -BeFalse
+        Test-Path -LiteralPath $two.CustomConfigPath | Should -BeFalse
     }
 
     It 'returns one and leaves the running Beta untouched when the OmniRoute context limit is smaller' {

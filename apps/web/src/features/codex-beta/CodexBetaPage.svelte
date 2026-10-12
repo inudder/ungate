@@ -1,5 +1,5 @@
 <script lang="ts">
-import { onMount } from 'svelte';
+import { onMount, tick } from 'svelte';
 
 import { dashboardClient } from '$shared/dashboard-client';
 
@@ -70,15 +70,9 @@ let skipRestore = $state(false);
 let noLogWatch = $state(false);
 let launchLogLevel = $state('');
 let addOpen = $state(false);
-let addDraft = $state({
-	registryId: '',
-	displayName: '',
-	upstreamModel: '',
-	transport: 'omniroute',
-	defaultReasoningLevel: 'medium',
-	supportsImageInput: false,
-	supportsImageDetailOriginal: false
-});
+let addForm = $state<HTMLDivElement | null>(null);
+let addError = $state('');
+let addDraft = $state(blankAddDraft());
 let catalogIds = $state<string[]>([]);
 let catalogMessage = $state('');
 let toolDraft = $state<string[]>([]);
@@ -86,6 +80,19 @@ let activeOp = $state<LauncherOperation | null>(null);
 let reportText = $state('');
 let busy = $state(false);
 
+function blankAddDraft() {
+	return {
+		registryId: '',
+		displayName: '',
+		upstreamModel: '',
+		contextWindow: '',
+		transport: 'omniroute',
+		defaultReasoningLevel: 'medium',
+		supportsImageInput: false,
+		supportsImageDetailOriginal: false,
+		skipCatalogCheck: false
+	};
+}
 function blankCaps(): Record<CapName, CapDraft> {
 	const next = {} as Record<CapName, CapDraft>;
 	for (const name of capabilityNames) next[name] = { inherit: true, value: name === 'supportedReasoningLevels' ? [] : null };
@@ -111,6 +118,9 @@ function explicitPrefix(model: LauncherModelState): string {
 
 	return typeof value === 'string' ? value : '';
 }
+function upstreamText(value: string | null | undefined): string {
+	return value ?? '';
+}
 function sameValue(left: CapValue, right: unknown): boolean {
 	if (Array.isArray(left) || Array.isArray(right)) {
 		const rightLevels = asLevels(right);
@@ -133,7 +143,7 @@ const visible = $derived(
 			' ' +
 			model.registryId +
 			' ' +
-			model.upstreamModel +
+			upstreamText(model.upstreamModel) +
 			' ' +
 			model.requestModel
 		).toLowerCase();
@@ -142,10 +152,11 @@ const visible = $derived(
 	})
 );
 const transports = $derived([...new Set((page?.models ?? []).map((model) => model.transport))]);
+const templateModels = $derived(page?.templates?.models ?? []);
 const versionDirty = $derived(
 	Boolean(
 		selected &&
-		(versionDraft.upstreamModel !== selected.upstreamModel ||
+		(versionDraft.upstreamModel !== upstreamText(selected.upstreamModel) ||
 			versionDraft.displayName !== selected.displayName ||
 			versionDraft.contextWindow !== String(selected.contextWindow))
 	)
@@ -203,7 +214,7 @@ const launchCommand = $derived.by(() => {
 function syncDrafts() {
 	if (!selected) return;
 	versionDraft = {
-		upstreamModel: selected.upstreamModel,
+		upstreamModel: upstreamText(selected.upstreamModel),
 		displayName: selected.displayName,
 		contextWindow: String(selected.contextWindow)
 	};
@@ -278,7 +289,11 @@ function saveVersion() {
 		return;
 	}
 	const set: Record<string, string> = {};
-	if (versionDraft.upstreamModel !== selected.upstreamModel) set.upstreamModel = versionDraft.upstreamModel;
+	const unset: string[] = [];
+	if (versionDraft.upstreamModel !== upstreamText(selected.upstreamModel)) {
+		if (versionDraft.upstreamModel.trim() === '') unset.push('upstreamModel');
+		else set.upstreamModel = versionDraft.upstreamModel;
+	}
 	if (versionDraft.displayName !== selected.displayName) set.displayName = versionDraft.displayName;
 	if (versionDraft.contextWindow !== String(selected.contextWindow)) set.contextWindow = versionDraft.contextWindow;
 	void save('models/version', {
@@ -286,7 +301,7 @@ function saveVersion() {
 		registryId: selected.registryId,
 		expectedRevision: selected.revisions.version,
 		set,
-		unset: []
+		unset
 	});
 }
 function savePrefix() {
@@ -404,6 +419,68 @@ async function cancelOperation() {
 	await dashboardClient.launcherPost('operations/' + encodeURIComponent(activeOp.id) + '/cancel', {});
 	await watchOperation(activeOp.id);
 }
+function removeSelected() {
+	if (!selected) return;
+	const question = selected.inTemplate
+		? 'Удалить «' + selected.displayName + '»? Модель можно вернуть из шаблонов. Вернётся запись шаблона, не текущие правки.'
+		: 'Удалить «' + selected.displayName + '»? Свою модель после удаления придётся ввести заново.';
+	if (!window.confirm(question)) return;
+	void save('models/remove', {
+		profileId: 'default',
+		registryId: selected.registryId,
+		expectedRevision: selected.revisions.remove
+	});
+}
+async function openAdd() {
+	if (addOpen) {
+		addOpen = false;
+
+		return;
+	}
+	// Search text is the most likely ID the user wants; never clobber fields they already typed.
+	addError = '';
+	const typed = query.trim();
+	if (typed) {
+		if (!addDraft.registryId) addDraft.registryId = typed;
+		if (!addDraft.upstreamModel) addDraft.upstreamModel = typed;
+		if (!addDraft.displayName) addDraft.displayName = typed;
+	}
+	addOpen = true;
+	await tick();
+	addForm?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+	addForm?.querySelector<HTMLInputElement>('input')?.focus({ preventScroll: true });
+}
+async function addModel() {
+	const registryId = addDraft.registryId.trim();
+	const existed = page?.models.some((model) => model.registryId === registryId) ?? false;
+	addError = '';
+	await save('models/add', {
+		profileId: 'default',
+		expectedRevision: page?.registry.revision,
+		...addDraft,
+		registryId,
+		supportsImageDetailOriginal: addDraft.supportsImageInput && addDraft.supportsImageDetailOriginal
+	});
+	if (existed || !page?.models.some((model) => model.registryId === registryId)) {
+		// The page-level notice sits far above the form, so repeat the rejection next to the button.
+		addError = notice;
+
+		return;
+	}
+	selectedId = registryId;
+	syncDrafts();
+	query = '';
+	addDraft = blankAddDraft();
+	addOpen = false;
+	notice = 'Модель добавлена. Отметьте её на вкладке Picker, чтобы она появилась в Codex Desktop после перезапуска Beta.';
+}
+function addTemplateModel(registryId: string) {
+	void save('models/add-template', {
+		profileId: 'default',
+		registryId,
+		expectedRevision: page?.templates.revision
+	});
+}
 function openSettings() {
 	window.dispatchEvent(new CustomEvent('ungate-dashboard-page', { detail: 'settings' }));
 }
@@ -464,14 +541,37 @@ onMount(() => {
 								><button
 									class="w-full rounded px-2 py-1 text-left {selectedId === model.registryId ? 'bg-primary-500/15' : ''}"
 									onclick={() => (selectedId = model.registryId)}
-									>{model.displayName}<span class="block text-xs text-surface-400">{model.registryId} · {model.requestModel}</span
+									>{model.displayName}<span class="block text-xs text-surface-400"
+										>{model.registryId} · {model.requestModel} · {model.inTemplate ? 'из шаблона' : 'своя'}</span
 									></button
 								></li>
 						{/each}
 					</ul>
+					{#if visible.length === 0 && query.trim()}
+						<p class="text-xs text-surface-400">Модель «{query.trim()}» не найдена. Её можно добавить как custom-модель.</p>
+					{/if}
 					<button
 						class="btn btn-sm preset-tonal-surface"
-						onclick={() => (addOpen = !addOpen)}>{addOpen ? 'Скрыть новую модель' : 'Добавить модель'}</button>
+						onclick={() => void openAdd()}
+						>{addOpen
+							? 'Скрыть новую модель'
+							: visible.length === 0 && query.trim()
+								? 'Добавить «' + query.trim() + '»'
+								: 'Добавить модель'}</button>
+					{#if templateModels.length > 0}
+						<div class="space-y-1 rounded-xl border border-surface-700/50 p-3 text-xs">
+							<p class="text-surface-400">Добавить из шаблонов</p>
+							{#each templateModels as templateModel (templateModel.registryId)}
+								<div class="flex items-center justify-between gap-2">
+									<span>{templateModel.displayName}</span>
+									<button
+										class="btn btn-sm preset-tonal-surface"
+										disabled={busy}
+										onclick={() => addTemplateModel(templateModel.registryId)}>Добавить</button>
+								</div>
+							{/each}
+						</div>
+					{/if}
 				</div>
 				<div class="space-y-4 text-sm">
 					<div class="rounded-xl border border-surface-700/50 p-4">
@@ -646,32 +746,58 @@ onMount(() => {
 									})}>Сбросить возможности</button>
 						</div>
 					</div>
+					<div class="space-y-2 rounded-xl border border-surface-700/50 p-4">
+						<p class="font-medium">Удаление</p>
+						<p class="text-xs text-surface-400"
+							>{selected.inTemplate
+								? 'Модель из шаблона. После удаления её можно вернуть из шаблонов. Вернётся запись шаблона, не текущие правки.'
+								: 'Свою модель после удаления придётся ввести заново.'}
+							Из picker и настройки фоновых задач модель тоже убирается. Последнюю модель удалить нельзя.</p>
+						<button
+							class="btn btn-sm preset-tonal-error"
+							disabled={busy}
+							onclick={removeSelected}>Удалить модель</button>
+					</div>
 					{#if addOpen}
-						<div class="space-y-2 rounded-xl border border-surface-700/50 p-4">
+						<div
+							class="space-y-2 rounded-xl border border-surface-700/50 p-4"
+							bind:this={addForm}>
 							<p class="font-medium">Новая custom-модель. Встроенные записи не переписываются.</p>
-							<input
-								class="input"
-								placeholder="registryId"
-								bind:value={addDraft.registryId} />
-							<input
-								class="input"
-								placeholder="Название"
-								bind:value={addDraft.displayName} />
-							<input
-								class="input"
-								placeholder="Upstream"
-								bind:value={addDraft.upstreamModel}
-								list="catalog-ids" />
-							<select
-								class="select"
-								bind:value={addDraft.transport}
-								><option value="ungate">ungate</option><option value="cliproxyapi">cliproxyapi</option><option value="omniroute"
-									>omniroute</option
-								></select>
-							<select
-								class="select"
-								bind:value={addDraft.defaultReasoningLevel}
-								>{#each page.launch.reasoningLevels as level}<option value={level}>{level}</option>{/each}</select>
+							<label class="block text-xs text-surface-400"
+								>ID в launcher (registryId)<input
+									class="input mt-1"
+									placeholder="registryId"
+									bind:value={addDraft.registryId} /></label>
+							<label class="block text-xs text-surface-400"
+								>Название в picker<input
+									class="input mt-1"
+									placeholder="Название"
+									bind:value={addDraft.displayName} /></label>
+							<label class="block text-xs text-surface-400"
+								>Upstream<input
+									class="input mt-1"
+									placeholder="Upstream"
+									bind:value={addDraft.upstreamModel}
+									list="catalog-ids" /></label>
+							<label class="block text-xs text-surface-400"
+								>Контекст, токены или 200k/1M<input
+									class="input mt-1"
+									placeholder="Пусто — 200k"
+									bind:value={addDraft.contextWindow} /></label>
+							<label class="block text-xs text-surface-400"
+								>Транспорт<select
+									class="select mt-1"
+									bind:value={addDraft.transport}
+									><option value="ungate">ungate</option><option value="cliproxyapi">cliproxyapi</option><option value="omniroute"
+										>omniroute</option
+									></select
+								></label>
+							<label class="block text-xs text-surface-400"
+								>Reasoning по умолчанию<select
+									class="select mt-1"
+									bind:value={addDraft.defaultReasoningLevel}
+									>{#each page.launch.reasoningLevels as level}<option value={level}>{level}</option>{/each}</select
+								></label>
 							<label class="flex gap-2"
 								><input
 									type="checkbox"
@@ -681,16 +807,21 @@ onMount(() => {
 									type="checkbox"
 									bind:checked={addDraft.supportsImageDetailOriginal}
 									disabled={!addDraft.supportsImageInput} /> Original, по умолчанию выключен</label>
+							<p class="text-xs text-surface-400"
+								>Original разрешает Codex отправлять картинку в исходном разрешении (detail: original) вместо уменьшенной копии.
+								Включайте, только если upstream это принимает: поддержка изображений её не подразумевает.</p>
+							<label class="flex gap-2"
+								><input
+									type="checkbox"
+									bind:checked={addDraft.skipCatalogCheck} /> Не сверять с каталогом транспорта</label>
+							<p class="text-xs text-surface-400"
+								>По умолчанию upstream сверяется с /v1/models выбранного транспорта, и добавление отклоняется, если модели там нет
+								или каталог недоступен. Отключайте для моделей, которые транспорт обслуживает, но не публикует в каталоге.</p>
+							{#if addError}<p class="text-sm text-error-400">{addError}</p>{/if}
 							<button
 								class="btn btn-sm preset-filled-primary-500"
-								disabled={busy}
-								onclick={() =>
-									void save('models/add', {
-										profileId: 'default',
-										expectedRevision: page?.registry.revision,
-										...addDraft,
-										supportsImageDetailOriginal: addDraft.supportsImageInput && addDraft.supportsImageDetailOriginal
-									})}>Добавить</button>
+								disabled={busy || !addDraft.registryId.trim()}
+								onclick={() => void addModel()}>Добавить</button>
 						</div>
 					{/if}
 				</div>

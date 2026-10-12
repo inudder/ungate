@@ -7,7 +7,9 @@ order, `Models.psm1` for model definitions, `Routing.psm1` for route generation,
 and `ProxyRuntime.psm1` for transport startup and preflight. See
 `docs/desktop-launcher.md` for module contracts and isolated tests. The complete
 model/provider matrix and external-directory map are maintained in
-`J:\Dev\ungate-local\docs\model-routing.md`.
+`J:\Dev\ungate-local\docs\model-routing.md`. Active launcher models live in
+`~/.codex-ungate/ungate-model-registry.json`. The git template is
+`scripts/codex-desktop-launcher/models.default.json`.
 
 ## PowerShell paths
 

@@ -62,9 +62,7 @@ function Get-UngateMemoryDefinition {
         'omniroute' { $Context.OmniRouteProviderName }
         'ungate' { $Context.ProviderName }
     }
-    $modelSet = New-UngateModelSet -Context $Context
-    $definitions = @(Get-UngateModelDefinitions -Context $Context -BuiltInDefinitions $modelSet.BuiltInDefinitions `
-        -RegistryPath $Context.CustomModelDefinitionsPath -OverridesPath $Context.CustomModelOverridesPath)
+    $definitions = @(Get-UngateModelDefinitions -Context $Context -OverridesPath $Context.CustomModelOverridesPath)
     $known = $definitions | Where-Object { $_.ProviderName -eq $providerName -and
         ($_.UpstreamModel -eq $Settings.Model -or $_.Slug -eq $Settings.Model) } | Select-Object -First 1
     if ($known) {
@@ -171,9 +169,7 @@ function Invoke-UngateMemoryMenu {
                 $provider = switch ($providerChoice.Trim()) { '1' { 'cliproxyapi' } '2' { 'omniroute' } '3' { 'ungate' } }
                 if (-not $provider) { continue }
                 $candidate.Provider = $provider
-                $modelSet = New-UngateModelSet -Context $Context
-                $definitions = @(Get-UngateModelDefinitions -Context $Context -BuiltInDefinitions $modelSet.BuiltInDefinitions `
-                    -RegistryPath $Context.CustomModelDefinitionsPath -OverridesPath $Context.CustomModelOverridesPath)
+                $definitions = @(Get-UngateModelDefinitions -Context $Context -OverridesPath $Context.CustomModelOverridesPath)
                 $providerName = (Get-UngateMemoryDefinition -Context $Context -Settings $candidate).ProviderName
                 $models = @($definitions | Where-Object { $_.ProviderName -eq $providerName } | ForEach-Object {
                     if ($_.UpstreamModel) { [string]$_.UpstreamModel } else { [string]$_.Slug }
