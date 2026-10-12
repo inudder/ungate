@@ -15,6 +15,7 @@ import type {
 
 export interface WakePingStatus {
 	enabled: boolean;
+	model: string;
 	workStart: string;
 	workEnd: string;
 	nextPingAt: string | null;
@@ -120,7 +121,9 @@ export class Api {
 		return this.get('/wake-ping');
 	}
 
-	static updateWakePing(update: Partial<Pick<WakePingStatus, 'enabled' | 'workStart' | 'workEnd'>>): Promise<{ ok: boolean }> {
+	static updateWakePing(
+		update: Partial<Pick<WakePingStatus, 'enabled' | 'model' | 'workStart' | 'workEnd'>>
+	): Promise<{ ok: boolean }> {
 		return this.post('/wake-ping', update);
 	}
 

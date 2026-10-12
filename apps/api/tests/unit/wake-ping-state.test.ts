@@ -4,7 +4,12 @@ const makeClaudeCodeRequestMock = vi.fn();
 
 function mockPingResponse(
 	status: number,
-	body: { type?: string; model?: string; usage?: { input_tokens?: number; output_tokens?: number } }
+	body: {
+		type?: string;
+		model?: string;
+		usage?: { input_tokens?: number; output_tokens?: number };
+		error?: { message?: string };
+	}
 ) {
 	return {
 		success: true,
@@ -19,6 +24,7 @@ vi.mock('src/proxy/anthropic-client', () => ({
 describe('wake-ping lastPingAt / lastPingError tracking', () => {
 	let getLastPingAt: () => string | null;
 	let getLastPingError: () => string | null;
+	let clearLastPingError: () => void;
 	let sendWakePing: () => Promise<void>;
 
 	beforeEach(async () => {
@@ -28,6 +34,7 @@ describe('wake-ping lastPingAt / lastPingError tracking', () => {
 		const mod = await import('src/wake-ping');
 		getLastPingAt = mod.getLastPingAt;
 		getLastPingError = mod.getLastPingError;
+		clearLastPingError = mod.clearLastPingError;
 		sendWakePing = mod.sendWakePing;
 	});
 
@@ -54,14 +61,44 @@ describe('wake-ping lastPingAt / lastPingError tracking', () => {
 	});
 
 	it('records lastPingError when API returns 404 with zero tokens', async () => {
-		makeClaudeCodeRequestMock.mockResolvedValue(
-			mockPingResponse(404, { type: 'error' })
-		);
+		makeClaudeCodeRequestMock.mockResolvedValue(mockPingResponse(404, { type: 'error' }));
 
 		await sendWakePing();
 
 		expect(getLastPingAt()).toBeNull();
 		expect(getLastPingError()).toContain('HTTP 404');
+	});
+
+	it('includes the provider message when Claude rejects the model', async () => {
+		makeClaudeCodeRequestMock.mockResolvedValue(
+			mockPingResponse(404, {
+				type: 'error',
+				error: { message: 'model: claude-sonnet-4-6' }
+			})
+		);
+
+		await sendWakePing();
+
+		expect(getLastPingError()).toBe('Invalid response: HTTP 404, model: claude-sonnet-4-6');
+	});
+
+	it('clears a stored ping error without touching the last success time', async () => {
+		makeClaudeCodeRequestMock.mockResolvedValue(
+			mockPingResponse(200, {
+				type: 'message',
+				model: 'claude-sonnet-4-6',
+				usage: { input_tokens: 10, output_tokens: 5 }
+			})
+		);
+		await sendWakePing();
+		const previousLast = getLastPingAt();
+
+		makeClaudeCodeRequestMock.mockResolvedValue({ success: false, error: 'Permission denied', status: 403 });
+		await sendWakePing();
+		clearLastPingError();
+
+		expect(getLastPingError()).toBeNull();
+		expect(getLastPingAt()).toBe(previousLast);
 	});
 
 	it('records lastPingError on a failed ping and keeps the previous lastPingAt', async () => {

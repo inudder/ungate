@@ -4,18 +4,36 @@ import IconSend from 'virtual:icons/lucide/send';
 
 import { Api } from '$shared/api';
 
+import type { ProviderModelCatalogItem } from '@ungate/shared/frontend';
 import type { WakePingStatus } from '$shared/api';
 
 let status = $state<WakePingStatus | null>(null);
 let workStart = $state('07:00');
 let workEnd = $state('22:00');
+let model = $state('');
+let catalog = $state<ProviderModelCatalogItem[]>([]);
+let catalogLoaded = $state(false);
+let catalogError = $state<string | null>(null);
 let loading = $state(true);
 let saving = $state(false);
 let sending = $state(false);
 let error = $state<string | null>(null);
 
+const modelUnavailable = $derived(
+	Boolean(status && catalogLoaded && !catalogError && !catalog.some((item) => item.upstreamModel === status?.model))
+);
+
 $effect(() => {
 	void load();
+
+	const onVisible = (): void => {
+		if (document.visibilityState === 'visible' && !saving && !sending) void load({ silent: true });
+	};
+	document.addEventListener('visibilitychange', onVisible);
+
+	return () => {
+		document.removeEventListener('visibilitychange', onVisible);
+	};
 });
 
 function formatDate(value: string | null): string {
@@ -24,19 +42,42 @@ function formatDate(value: string | null): string {
 	return new Date(value).toLocaleString();
 }
 
-async function load(): Promise<void> {
-	loading = true;
-	error = null;
+function modelOptionLabel(item: ProviderModelCatalogItem): string {
+	if (!item.label.trim() || item.label === item.upstreamModel) return item.upstreamModel;
 
-	try {
-		status = await Api.wakePingStatus();
-		workStart = status.workStart;
-		workEnd = status.workEnd;
-	} catch (reason) {
-		error = reason instanceof Error ? reason.message : String(reason);
-	} finally {
-		loading = false;
+	return `${item.label} · ${item.upstreamModel}`;
+}
+
+async function load(options?: { silent?: boolean }): Promise<void> {
+	if (!options?.silent) {
+		loading = true;
+		error = null;
 	}
+
+	const [wakeResult, catalogResult] = await Promise.allSettled([Api.wakePingStatus(), Api.fetchAvailableModels('claude')]);
+
+	if (wakeResult.status === 'fulfilled') {
+		status = wakeResult.value;
+		if (!saving) {
+			workStart = status.workStart;
+			workEnd = status.workEnd;
+			model = status.model;
+		}
+	} else {
+		error = wakeResult.reason instanceof Error ? wakeResult.reason.message : String(wakeResult.reason);
+	}
+
+	if (catalogResult.status === 'fulfilled') {
+		catalog = [...catalogResult.value.models].sort(
+			(left, right) => left.label.localeCompare(right.label) || left.upstreamModel.localeCompare(right.upstreamModel)
+		);
+		catalogLoaded = true;
+		catalogError = null;
+	} else {
+		catalogError = catalogResult.reason instanceof Error ? catalogResult.reason.message : String(catalogResult.reason);
+	}
+
+	loading = false;
 }
 
 async function setEnabled(event: Event): Promise<void> {
@@ -46,7 +87,7 @@ async function setEnabled(event: Event): Promise<void> {
 
 	try {
 		await Api.updateWakePing({ enabled });
-		await load();
+		await load({ silent: true });
 	} catch (reason) {
 		error = reason instanceof Error ? reason.message : String(reason);
 	} finally {
@@ -66,8 +107,26 @@ async function saveSchedule(): Promise<void> {
 
 	try {
 		await Api.updateWakePing({ workStart, workEnd });
-		await load();
+		await load({ silent: true });
 	} catch (reason) {
+		error = reason instanceof Error ? reason.message : String(reason);
+	} finally {
+		saving = false;
+	}
+}
+
+async function saveModel(): Promise<void> {
+	const previousModel = status?.model;
+	if (!previousModel || model === previousModel) return;
+
+	saving = true;
+	error = null;
+
+	try {
+		await Api.updateWakePing({ model });
+		await load({ silent: true });
+	} catch (reason) {
+		model = previousModel;
 		error = reason instanceof Error ? reason.message : String(reason);
 	} finally {
 		saving = false;
@@ -79,13 +138,11 @@ async function sendNow(): Promise<void> {
 	error = null;
 
 	try {
-		const result = await Api.sendWakePing();
-		if (result.lastPingError) {
-			throw new Error(result.lastPingError);
-		}
+		await Api.sendWakePing();
 
-		await load();
+		await load({ silent: true });
 	} catch (reason) {
+		await load({ silent: true });
 		error = reason instanceof Error ? reason.message : String(reason);
 	} finally {
 		sending = false;
@@ -114,6 +171,33 @@ async function sendNow(): Promise<void> {
 				onchange={(event) => void setEnabled(event)} />
 			<span class="text-sm">Enable scheduled wake pings</span>
 		</label>
+
+		<label class="label">
+			<span class="label-text text-xs">Claude model</span>
+			<select
+				class="select text-sm font-mono"
+				bind:value={model}
+				disabled={saving || !catalogLoaded}
+				onchange={() => void saveModel()}>
+				{#if model && !catalog.some((item) => item.upstreamModel === model)}
+					<option value={model}>{modelUnavailable ? `${model} (unavailable)` : model}</option>
+				{/if}
+				{#each catalog as item (item.upstreamModel)}
+					<option value={item.upstreamModel}>{modelOptionLabel(item)}</option>
+				{/each}
+			</select>
+			<span class="text-xs text-surface-400">Only Claude models. This list is checked again when you return to the page.</span>
+		</label>
+
+		{#if modelUnavailable}
+			<p class="text-xs text-warning-400">
+				{status.model} is no longer in the Claude catalog. Scheduled pings still use it and will fail until you choose another model.
+			</p>
+		{/if}
+
+		{#if catalogError}
+			<p class="text-xs text-warning-400">Couldn't check whether {status.model} is still available: {catalogError}</p>
+		{/if}
 
 		<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
 			<label class="label">
@@ -157,7 +241,7 @@ async function sendNow(): Promise<void> {
 		</button>
 
 		{#if status.lastPingError}
-			<p class="text-xs text-error-500">{status.lastPingError}</p>
+			<p class="text-xs text-error-500">Last ping for {status.model} failed: {status.lastPingError}</p>
 		{/if}
 	{/if}
 

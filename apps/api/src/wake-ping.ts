@@ -78,17 +78,20 @@ export async function sendWakePing(): Promise<void> {
 			let inputTokens = 0;
 			let outputTokens = 0;
 			let responseType = '';
+			let errorMessage = '';
 			try {
 				const responseJson = await result.response.clone().json();
 				const json = responseJson as {
 					model?: string;
 					type?: string;
 					usage?: { input_tokens?: number; output_tokens?: number };
+					error?: { message?: string };
 				};
 				responseModel = json.model ?? '';
 				responseType = json.type ?? '';
 				inputTokens = json.usage?.input_tokens ?? 0;
 				outputTokens = json.usage?.output_tokens ?? 0;
+				errorMessage = json.error?.message?.trim() ?? '';
 			} catch {
 				// response body parse failed
 			}
@@ -99,7 +102,8 @@ export async function sendWakePing(): Promise<void> {
 				_lastPingError = null;
 				console.log('[wake-ping] OK at ' + _lastPingAt + ` (${totalTokens} tokens, model=${responseModel})`);
 			} else {
-				_lastPingError = `Invalid response: HTTP ${httpStatus}, type=${responseType || 'unknown'}, tokens=${totalTokens}`;
+				const detail = errorMessage || `type=${responseType || 'unknown'}, tokens=${totalTokens}`;
+				_lastPingError = `Invalid response: HTTP ${httpStatus}, ${detail}`;
 				console.log(`[wake-ping] Failed: ${_lastPingError}`);
 			}
 		} else {
@@ -132,26 +136,29 @@ function scheduleNextPing(): void {
 	}, delay);
 }
 
-export function startWakePingScheduler(): void {
+export function startWakePingScheduler(): Promise<void> {
 	_wakePingConfig = loadWakePingConfig();
 	if (!_wakePingConfig.enabled) {
 		console.log('[wake-ping] Disabled in config, not starting');
 
-		return;
+		return Promise.resolve();
 	}
 	console.log(
 		`[wake-ping] Starting scheduler: workStart=${_wakePingConfig.workStart} workEnd=${_wakePingConfig.workEnd} interval=${_wakePingConfig.intervalHours}h model=${_wakePingConfig.model}`
 	);
 	_wakePingEnabled = true;
 
+	let startup = Promise.resolve();
 	if (_wakePingConfig.sendOnStartup) {
 		console.log('[wake-ping] Sending startup wake ping...');
-		sendWakePing().catch((err) => console.error('[wake-ping] Initial ping error:', err));
+		startup = sendWakePing().catch((err) => console.error('[wake-ping] Initial ping error:', err));
 	} else {
 		console.log('[wake-ping] Startup ping skipped (sendOnStartup is false)');
 	}
 
 	scheduleNextPing();
+
+	return startup;
 }
 
 export function stopWakePingScheduler(): void {
@@ -173,4 +180,8 @@ export function getLastPingAt(): string | null {
 
 export function getLastPingError(): string | null {
 	return _lastPingError;
+}
+
+export function clearLastPingError(): void {
+	_lastPingError = null;
 }

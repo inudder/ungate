@@ -15,6 +15,7 @@ import openaiPlugin from './routes/openai';
 import responsesPlugin from './routes/responses';
 import settingsPlugin from './routes/settings';
 import {
+	clearLastPingError,
 	getLastPingAt,
 	getLastPingError,
 	getNextPingTime,
@@ -80,6 +81,7 @@ export async function startServer(): Promise<void> {
 			pingMessage: string;
 		}>;
 		const cfg = loadWakePingConfig();
+		const previousModel = cfg.model;
 		if (typeof body.enabled === 'boolean') cfg.enabled = body.enabled;
 		if (typeof body.intervalHours === 'number' && body.intervalHours >= 1) cfg.intervalHours = body.intervalHours;
 		if (typeof body.workStart === 'string') {
@@ -94,16 +96,25 @@ export async function startServer(): Promise<void> {
 			return reply.code(400).send({ error: 'workStart must be earlier than workEnd (overnight windows not yet supported)' });
 		}
 		if (typeof body.sendOnStartup === 'boolean') cfg.sendOnStartup = body.sendOnStartup;
-		if (typeof body.model === 'string' && body.model.length > 0) cfg.model = body.model;
+		if (typeof body.model === 'string') {
+			const model = body.model.trim();
+			if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(model)) {
+				return reply.code(400).send({ error: 'model must be a Claude model id' });
+			}
+			cfg.model = model;
+		}
 		if (typeof body.maxTokens === 'number' && body.maxTokens >= 1) cfg.maxTokens = body.maxTokens;
 		if (typeof body.pingMessage === 'string') cfg.pingMessage = body.pingMessage;
+		if (cfg.model !== previousModel) clearLastPingError();
 		saveWakePingConfig(cfg);
+		let startup: Promise<void> | undefined;
 		if (cfg.enabled) {
 			stopWakePingScheduler();
-			startWakePingScheduler();
+			startup = startWakePingScheduler();
 		} else {
 			stopWakePingScheduler();
 		}
+		if (cfg.model !== previousModel && startup) await startup;
 
 		return reply.send({ ok: true, enabled: cfg.enabled, running: isWakePingRunning() });
 	});
@@ -127,5 +138,5 @@ export async function startServer(): Promise<void> {
 	// Uses globalThis.console to bypass quiet mode.
 	globalThis.console.log(`[ungate] listening on localhost:${config.port}`);
 
-	startWakePingScheduler();
+	void startWakePingScheduler();
 }
