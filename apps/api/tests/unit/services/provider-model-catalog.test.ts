@@ -15,6 +15,9 @@ vi.mock('src/auth/openai/openai-oauth-service', () => ({
 vi.mock('src/database/provider-settings', () => ({
 	ProviderSettings: { get: mocks.providerSettingsGet }
 }));
+vi.mock('src/services/codex-client-version', () => ({
+	resolveCodexClientVersion: () => Promise.resolve(process.env.CODEX_CLIENT_VERSION ?? '9.8.7')
+}));
 
 const fetchMock = vi.fn<typeof fetch>();
 
@@ -118,14 +121,14 @@ describe('ProviderModelCatalog', () => {
 		);
 	});
 
-	it('uses a valid fallback OpenAI client version', async () => {
+	it('sends the resolved OpenAI client version by default', async () => {
 		mocks.openaiToken.mockResolvedValue({ accessToken: 'openai-secret', accountId: 'account-1' });
 		fetchMock.mockResolvedValueOnce(jsonResponse({ models: [] }));
 		vi.stubGlobal('fetch', fetchMock);
 
 		await ProviderModelCatalog.list('openai');
 
-		expect(fetchMock.mock.calls[0]?.[0]).toBe('https://chatgpt.com/backend-api/codex/models?client_version=0.162.1');
+		expect(fetchMock.mock.calls[0]?.[0]).toBe('https://chatgpt.com/backend-api/codex/models?client_version=9.8.7');
 	});
 
 	it.each(['claude', 'minimax', 'openai'] as const)('returns 401 when %s is not connected', async (provider) => {

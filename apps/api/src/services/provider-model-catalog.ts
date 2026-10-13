@@ -7,13 +7,13 @@ import { OAuth } from '../auth/oauth';
 import { OpenAIOAuthService } from '../auth/openai/openai-oauth-service';
 import { ClaudeTransportError, fetchClaude } from '../proxy/claude-transport';
 
+import { resolveCodexClientVersion } from './codex-client-version';
+
 import type { ModelMappingProvider, ProviderModelCatalogItem, ProviderModelsResponse } from '@ungate/shared';
 
 const REQUEST_TIMEOUT_MS = 10_000;
 const CLAUDE_PAGE_LIMIT = 1000;
 const CLAUDE_MAX_PAGES = 100;
-// The Codex catalog hides models whose minimum client version is above this value.
-const DEFAULT_CODEX_CLIENT_VERSION = '0.162.1';
 
 export class ProviderModelCatalogError extends Error {
 	constructor(
@@ -218,8 +218,7 @@ async function fetchOpenAIModels(): Promise<ProviderModelCatalogItem[]> {
 	}
 
 	const url = new URL(`${config.openai.codexUrl}/models`);
-	const configuredClientVersion = process.env.CODEX_CLIENT_VERSION?.trim();
-	url.searchParams.set('client_version', nonEmptyOr(configuredClientVersion, DEFAULT_CODEX_CLIENT_VERSION));
+	url.searchParams.set('client_version', await resolveCodexClientVersion());
 	const payload = await fetchCatalogJson(url.toString(), {
 		Accept: 'application/json',
 		Authorization: `Bearer ${credentials.accessToken}`,
