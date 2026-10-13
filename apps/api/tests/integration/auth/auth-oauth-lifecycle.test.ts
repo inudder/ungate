@@ -5,7 +5,7 @@ import { ProviderSettings } from 'src/database/provider-settings';
 
 describe('auth-oauth-lifecycle', () => {
 	it('returns unauthenticated status when row missing', () => {
-		expect(OAuth.getAuthStatus()).toEqual({ authenticated: false });
+		expect(OAuth.getAuthStatus()).toMatchObject({ authenticated: false });
 	});
 
 	it('returns authenticated status with email and can logout', () => {
@@ -15,7 +15,7 @@ describe('auth-oauth-lifecycle', () => {
 			expiresAt: Date.now() + 10 * 60_000,
 			email: 'user@example.com'
 		});
-		expect(OAuth.getAuthStatus()).toEqual({ authenticated: true, email: 'user@example.com' });
+		expect(OAuth.getAuthStatus()).toMatchObject({ authenticated: true, email: 'user@example.com' });
 
 		OAuth.logout();
 		expect(ProviderSettings.get('claude')).toBeUndefined();
@@ -33,7 +33,8 @@ describe('auth-oauth-lifecycle', () => {
 		expect(token?.accessToken).toBe('a');
 
 		ProviderSettings.remove('claude');
-		expect(await OAuth.getValidToken()).toBeNull();
+		const result1 = await OAuth.getValidToken();
+		expect(result1).toBeNull();
 	});
 
 	it('returns sessionExpired status when markExpired is called', () => {
@@ -45,7 +46,7 @@ describe('auth-oauth-lifecycle', () => {
 		});
 
 		OAuth.markExpired();
-		expect(OAuth.getAuthStatus()).toEqual({
+		expect(OAuth.getAuthStatus()).toMatchObject({
 			authenticated: false,
 			sessionExpired: true,
 			email: 'user@example.com'

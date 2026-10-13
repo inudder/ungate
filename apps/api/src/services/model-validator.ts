@@ -1,5 +1,4 @@
 import { openaiToAnthropic } from '../adapter/openai-to-anthropic';
-import { OAuth } from '../auth/oauth';
 import { OpenAIOAuthService } from '../auth/openai';
 import { ProviderSettings } from '../database/provider-settings';
 import { CompletionErrorMapper, CompletionModelRouting } from '../orchestration/openai';
@@ -55,10 +54,6 @@ export class ModelValidator {
 	}
 
 	private static async validateClaude(model: ModelMappingConfig, upstreamModel: string): Promise<ModelValidationResult> {
-		if (!OAuth.getAuthStatus().authenticated) {
-			return { ok: true, available: false, message: 'Claude is not logged in.', provider: 'claude', upstreamModel };
-		}
-
 		const anthropicBody = openaiToAnthropic(probeBody(upstreamModel), {
 			model: upstreamModel,
 			reasoningBudget: model.reasoningBudget

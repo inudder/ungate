@@ -494,6 +494,9 @@ $effect(() => {
 		{#if uiStore.authStates[selectedProvider] === ProviderAuthState.SessionExpired}
 			<p class="text-xs text-warning-400"
 				>{getProviderLabel(selectedProvider)} session has expired. Re-authorize the provider above to load its model catalog.</p>
+		{:else if uiStore.authStates[selectedProvider] === ProviderAuthState.RetryWait}
+			<p class="text-xs text-warning-400"
+				>Claude connection is temporarily unavailable. Saved authorization will be retried automatically.</p>
 		{:else}
 			<p class="text-xs text-warning-400">Connect {getProviderLabel(selectedProvider)} above to load its model catalog.</p>
 		{/if}

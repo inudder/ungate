@@ -2,6 +2,7 @@ import { dashboardClient } from './dashboard-client';
 
 import type {
 	AnalyticsSummary,
+	ClaudeAuthStatus,
 	AppSettings,
 	ModelMappingConfig,
 	ModelMappingProvider,
@@ -81,8 +82,12 @@ export class Api {
 		return this.post('/auth/claude/complete', { code, sessionId });
 	}
 
-	static authStatus(): Promise<{ authenticated: boolean; sessionExpired?: boolean; email?: string }> {
+	static authStatus(): Promise<ClaudeAuthStatus> {
 		return this.get('/auth/claude/status');
+	}
+
+	static authRefresh(): Promise<ClaudeAuthStatus> {
+		return this.post('/auth/claude/refresh');
 	}
 
 	static authLogout(): Promise<{ ok: boolean }> {

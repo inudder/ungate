@@ -144,6 +144,28 @@ describe('dashboard control server', () => {
 		);
 	});
 
+	it('protects the Claude refresh route with CSRF and the backend allowlist', async () => {
+		const route = '/api/backend/auth/claude/refresh';
+		const host = '127.0.0.1:47820';
+		const denied = await app.inject({ method: 'POST', url: route, headers: { host } });
+		expect(denied.statusCode).toBe(403);
+		const bootstrap = await app.inject({ method: 'GET', url: '/api/control/bootstrap', headers: { host } });
+		const token = parseJson<{ csrfToken: string }>(bootstrap.body).csrfToken;
+		const foreign = await app.inject({
+			method: 'POST',
+			url: route,
+			headers: { host, origin: 'https://example.com', 'x-ungate-csrf': token }
+		});
+		expect(foreign.statusCode).toBe(403);
+		fetcher.mockClear();
+		const allowed = await app.inject({ method: 'POST', url: route, headers: { host, 'x-ungate-csrf': token } });
+		expect(allowed.statusCode).toBe(200);
+		expect(fetcher).toHaveBeenCalledWith(
+			'http://127.0.0.1:47821/auth/claude/refresh',
+			expect.objectContaining({ method: 'POST' })
+		);
+	});
+
 	it('rejects foreign origins and non-allowlisted backend routes', async () => {
 		const foreign = await app.inject({
 			method: 'GET',

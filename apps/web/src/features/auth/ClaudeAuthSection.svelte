@@ -1,4 +1,5 @@
 <script lang="ts">
+import { onMount } from 'svelte';
 import IconAlertTriangle from 'virtual:icons/lucide/alert-triangle';
 import IconCheck from 'virtual:icons/lucide/check';
 import IconExternalLink from 'virtual:icons/lucide/external-link';
@@ -6,6 +7,10 @@ import IconLoader from 'virtual:icons/lucide/loader-circle';
 import IconLogOut from 'virtual:icons/lucide/log-out';
 
 import { Api } from '$shared/api';
+
+import { getSettingsUiStore } from '../settings/settings-ui-store.svelte';
+
+import type { ClaudeAuthStatus } from '@ungate/shared/frontend';
 
 type Phase = 'idle' | 'pending-code' | 'completing';
 
@@ -15,9 +20,12 @@ interface Props {
 
 let { onAuthStatusChange }: Props = $props();
 
-let authenticated = $state(false);
-let sessionExpired = $state(false);
-let email = $state<string | undefined>(undefined);
+const uiStore = getSettingsUiStore();
+let status = $derived(uiStore.claudeStatus);
+let refreshing = $state(false);
+let authenticated = $derived(status.authenticated);
+let sessionExpired = $derived(status.sessionExpired ?? false);
+let email = $derived(status.email);
 let loading = $state(true);
 let phase = $state<Phase>('idle');
 let authUrl = $state('');
@@ -25,19 +33,44 @@ let sessionId = $state('');
 let codeInput = $state('');
 let error = $state<string | null>(null);
 
-$effect(() => {
+onMount(() => {
 	void loadStatus();
 });
 
-async function loadStatus() {
-	loading = true;
+function applyStatus(value: ClaudeAuthStatus): void {
+	uiStore.applyClaudeStatus(value);
+}
+
+async function handleRefresh(): Promise<void> {
+	refreshing = true;
+	error = null;
+	try {
+		applyStatus(await Api.authRefresh());
+	} catch (e) {
+		error = e instanceof Error ? e.message : String(e);
+	} finally {
+		refreshing = false;
+	}
+}
+
+function authErrorMessage(code: string): string {
+	if (code === 'proxy_unavailable') return 'The Claude proxy is unavailable. Check that GOST is running.';
+	if (code === 'rate_limited') return 'Claude asked us to wait before the next token update.';
+	if (code === 'upstream_forbidden') return 'Claude rejected the connection. The saved authorization will be retried.';
+
+	return 'The token update could not finish. We will try again automatically.';
+}
+
+function formatTime(value: number | undefined): string {
+	return value ? new Date(value).toLocaleString() : 'Not yet';
+}
+
+async function loadStatus(showLoading = true) {
+	if (showLoading) loading = true;
 	error = null;
 
 	try {
-		const status = await Api.authStatus();
-		authenticated = status.authenticated;
-		sessionExpired = status.sessionExpired ?? false;
-		email = status.email;
+		applyStatus(await Api.authStatus());
 	} catch (e) {
 		error = e instanceof Error ? e.message : String(e);
 	}
@@ -75,9 +108,7 @@ async function handleComplete() {
 			return;
 		}
 
-		authenticated = true;
-		sessionExpired = false;
-		email = result.email;
+		await loadStatus(false);
 		phase = 'idle';
 		codeInput = '';
 		authUrl = '';
@@ -94,9 +125,7 @@ async function handleLogout() {
 
 	try {
 		await Api.authLogout();
-		authenticated = false;
-		sessionExpired = false;
-		email = undefined;
+		applyStatus({ authenticated: false, state: 'disconnected' });
 		phase = 'idle';
 		onAuthStatusChange?.();
 	} catch (e) {
@@ -159,12 +188,32 @@ function handleCancelLogin() {
 				</button>
 			</div>
 		</div>
+	{:else if status.state === 'retry_wait' || status.state === 'refreshing'}
+		<div class="space-y-3 text-sm">
+			<p class="text-warning-400"
+				>{status.state === 'refreshing'
+					? 'Refreshing Claude authorization...'
+					: 'Claude connection is temporarily unavailable. Your authorization is saved.'}</p>
+			{#if status.errorCode}<p class="text-xs text-surface-400">{authErrorMessage(status.errorCode)}</p>{/if}
+			{#if status.nextRetryAt}<p class="text-xs text-surface-400">Next attempt: {formatTime(status.nextRetryAt)}</p>{/if}
+			<button
+				class="btn btn-sm preset-filled-primary-500"
+				onclick={handleRefresh}
+				disabled={refreshing || status.state === 'refreshing'}>{refreshing ? 'Retrying...' : 'Retry now'}</button>
+			<button
+				class="btn btn-sm preset-filled-surface-500"
+				onclick={handleLogout}>Logout</button>
+		</div>
 	{:else if sessionExpired}
 		<div class="space-y-3">
 			<div class="flex items-center gap-2 text-sm text-warning-400">
 				<IconAlertTriangle class="size-4" />
-				<span>Session expired{email ? ` for ${email}` : ''}</span>
+				<span>Authorization required{email ? ` for ${email}` : ''}</span>
 			</div>
+			{#if status.errorCode === 'refresh_uncertain'}
+				<p class="text-xs text-surface-400"
+					>The refresh result is unknown. Re-authorize to recover; the previous refresh token will not be replayed.</p>
+			{/if}
 			<div class="flex items-center gap-2">
 				<button
 					class="btn btn-sm preset-filled-primary-500"
@@ -206,6 +255,10 @@ function handleCancelLogin() {
 			onclick={handleStartLogin}>
 			Login with Claude
 		</button>
+	{/if}
+
+	{#if status.lastRefreshAt}
+		<p class="text-xs text-surface-400">Last token update: {formatTime(status.lastRefreshAt)}</p>
 	{/if}
 
 	{#if error}

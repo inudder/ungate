@@ -19,14 +19,16 @@ const authStatusTitle: Record<ProviderAuthState, string> = {
 	[ProviderAuthState.Authorized]: 'Authorized',
 	[ProviderAuthState.NotAuthorized]: 'Not authorized',
 	[ProviderAuthState.SessionExpired]: 'Session expired',
-	[ProviderAuthState.Loading]: 'Checking...'
+	[ProviderAuthState.Loading]: 'Checking...',
+	[ProviderAuthState.RetryWait]: 'Temporary connection problem'
 };
 
 const authStatusClass: Record<ProviderAuthState, string> = {
 	[ProviderAuthState.Authorized]: 'text-success-400',
 	[ProviderAuthState.NotAuthorized]: 'text-error-400',
 	[ProviderAuthState.SessionExpired]: 'text-warning-400',
-	[ProviderAuthState.Loading]: 'text-warning-400'
+	[ProviderAuthState.Loading]: 'text-warning-400',
+	[ProviderAuthState.RetryWait]: 'text-warning-400'
 };
 
 function handleAuthStatusChange(): void {
@@ -55,7 +57,7 @@ function handleAuthStatusChange(): void {
 							class="size-3.5 {authStatusClass[uiStore.authStates[currentProvider]]}"
 							title={authStatusTitle[uiStore.authStates[currentProvider]]}
 							aria-label={authStatusTitle[uiStore.authStates[currentProvider]]} />
-					{:else if uiStore.authStates[currentProvider] === ProviderAuthState.SessionExpired}
+					{:else if uiStore.authStates[currentProvider] === ProviderAuthState.SessionExpired || uiStore.authStates[currentProvider] === ProviderAuthState.RetryWait}
 						<IconAlertTriangle
 							class="size-3.5 {authStatusClass[uiStore.authStates[currentProvider]]}"
 							title={authStatusTitle[uiStore.authStates[currentProvider]]}

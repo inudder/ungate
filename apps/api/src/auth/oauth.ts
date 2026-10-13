@@ -6,12 +6,16 @@ import { logger } from 'src/utils/logger';
 
 import { config } from '../config';
 import { ProviderSettings } from '../database/provider-settings';
+import { fetchClaude } from '../proxy/claude-transport';
+
+import { ClaudeTokenManager, validatedTokenResponse } from './claude-token-manager';
 
 import type { TokenInfo, TokenRefreshResponse, AuthStatus, LoginStart } from '../types/index';
 
 interface PkceSession {
 	codeVerifier: string;
 	expiresAt: number;
+	epoch: number;
 }
 
 interface TokenExchangeResponse extends TokenRefreshResponse {
@@ -19,6 +23,7 @@ interface TokenExchangeResponse extends TokenRefreshResponse {
 }
 
 export class OAuth {
+	private static epoch = 0;
 	private static readonly pkceStore = new Map<string, PkceSession>();
 	private static readonly SESSION_TTL_MS = minutesToMilliseconds(15);
 
@@ -31,7 +36,7 @@ export class OAuth {
 					this.pkceStore.delete(sessionId);
 				}
 			}
-		}, minutesToMilliseconds(1));
+		}, minutesToMilliseconds(1)).unref();
 	}
 
 	private static base64urlEncode(buf: Buffer): string {
@@ -48,12 +53,15 @@ export class OAuth {
 	}
 
 	static async startLogin(): Promise<LoginStart> {
+		const epoch = ++this.epoch;
+		this.pkceStore.clear();
 		const { verifier, challenge } = await this.generatePkce();
 		const sessionId = verifier;
 
 		this.pkceStore.set(sessionId, {
 			codeVerifier: verifier,
-			expiresAt: Date.now() + this.SESSION_TTL_MS
+			expiresAt: Date.now() + this.SESSION_TTL_MS,
+			epoch
 		});
 
 		const params = new URLSearchParams({
@@ -96,7 +104,8 @@ export class OAuth {
 		const state = parts[1] ?? sessionId;
 
 		try {
-			const response = await fetch(config.claude.oauth.tokenUrl, {
+			const response = await fetchClaude(config.claude.oauth.tokenUrl, {
+				signal: AbortSignal.timeout(15_000),
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
@@ -110,165 +119,73 @@ export class OAuth {
 			});
 
 			if (!response.ok) {
-				const errorText = await response.text();
-				logger.error('Token exchange failed:', response.status, errorText);
+				await response.body?.cancel();
+				logger.error(`[claude-auth] ${new Date().toISOString()} result=exchange_failed status=${response.status}`);
 
 				return { ok: false, error: `Token exchange failed: ${response.status}` };
 			}
 
 			const data: TokenExchangeResponse = await response.json();
-			const expiresAt = Date.now() + data.expires_in * 1000;
+			const credentials = validatedTokenResponse(data);
+			if (!credentials.refreshToken) throw new Error('Missing OAuth refresh token');
+			if (session.epoch !== this.epoch) return { ok: false, error: 'Login superseded or cancelled' };
 			const email = data.account?.email_address;
 
 			ProviderSettings.upsertOAuth('claude', {
-				accessToken: data.access_token,
-				refreshToken: data.refresh_token,
-				expiresAt,
-				email
+				...credentials,
+				email,
+				accountId: data.account?.uuid
 			});
 
 			logger.log('✓ OAuth login complete', email ? `(${email})` : '');
 
 			return { ok: true, email };
-		} catch (error) {
-			logger.error('completeLogin error:', error);
+		} catch {
+			logger.error(`[claude-auth] ${new Date().toISOString()} result=exchange_error`);
 
-			return { ok: false, error: String(error) };
+			return { ok: false, error: 'Unable to complete Claude login. Check the Claude proxy connection and try again.' };
 		}
 	}
 
 	static isTokenExpired(expiresAt: number): boolean {
-		const bufferMs = minutesToMilliseconds(5);
-
-		return Date.now() >= expiresAt - bufferMs;
+		return ClaudeTokenManager.needsRefresh(expiresAt);
 	}
 
-	static async refreshToken(refreshTokenValue: string): Promise<TokenInfo | null> {
-		try {
-			logger.log('Refreshing OAuth token...');
-
-			const response = await fetch(config.claude.oauth.tokenUrl, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					grant_type: 'refresh_token',
-					refresh_token: refreshTokenValue,
-					client_id: config.claude.clientId
-				})
-			});
-
-			if (!response.ok) {
-				const errorText = await response.text();
-				logger.error('Token refresh failed:', response.status, errorText);
-				this.markExpired();
-
-				return null;
-			}
-
-			const data: TokenRefreshResponse = await response.json();
-			const expiresAt = Date.now() + data.expires_in * 1000;
-
-			ProviderSettings.upsertOAuth('claude', {
-				accessToken: data.access_token,
-				refreshToken: data.refresh_token,
-				expiresAt
-			});
-
-			logger.log('Token refreshed successfully');
-
-			const result: TokenInfo = {
-				accessToken: data.access_token,
-				refreshToken: data.refresh_token,
-				expiresAt,
-				isExpired: false
-			};
-
-			return result;
-		} catch (error) {
-			logger.error('Failed to refresh token:', error);
-			this.markExpired();
-
-			return null;
-		}
+	static refreshToken(_refreshTokenValue?: string): Promise<TokenInfo | null> {
+		return ClaudeTokenManager.refresh(true);
 	}
 
-	static async getValidToken(): Promise<TokenInfo | null> {
-		const row = ProviderSettings.get('claude');
-
-		if (!row?.accessToken) {
-			return null;
-		}
-
-		if (!this.isTokenExpired(row.expiresAt!)) {
-			const result: TokenInfo = {
-				accessToken: row.accessToken,
-				refreshToken: row.refreshToken!,
-				expiresAt: row.expiresAt!,
-				isExpired: false
-			};
-
-			return result;
-		}
-
-		if (!row.refreshToken) {
-			this.markExpired();
-
-			return null;
-		}
-
-		return this.refreshToken(row.refreshToken);
+	static getValidToken(rejectedAccessToken?: string): Promise<TokenInfo | null> {
+		return ClaudeTokenManager.getValidToken(rejectedAccessToken);
 	}
 
-	// No-op — token state is DB-backed, no in-memory cache to clear
 	static clearCachedToken(): void {}
 
 	static markExpired(): void {
 		ProviderSettings.markExpired('claude');
-		logger.warn('Claude OAuth session marked as expired');
 	}
 
 	static getAuthStatus(): AuthStatus {
-		const row = ProviderSettings.get('claude');
-
-		if (!row) {
-			return { authenticated: false };
-		}
-
-		if (!row.accessToken) {
-			return { authenticated: false, sessionExpired: true, email: row.email ?? undefined };
-		}
-
-		return { authenticated: true, email: row.email ?? undefined };
+		return ClaudeTokenManager.getAuthStatus();
 	}
 
-	static async checkAuthStatus(): Promise<AuthStatus> {
-		const row = ProviderSettings.get('claude');
+	static checkAuthStatus(): Promise<AuthStatus> {
+		void ClaudeTokenManager.maintain().catch(() => {
+			logger.error(`[claude-auth] ${new Date().toISOString()} result=maintenance_error code=storage_error`);
+		});
 
-		if (!row) {
-			return { authenticated: false };
-		}
+		return Promise.resolve(this.getAuthStatus());
+	}
 
-		if (!row.accessToken) {
-			return { authenticated: false, sessionExpired: true, email: row.email ?? undefined };
-		}
+	static async refreshAuthStatus(): Promise<AuthStatus> {
+		await ClaudeTokenManager.refresh(true);
 
-		if (this.isTokenExpired(row.expiresAt!)) {
-			if (!row.refreshToken) {
-				this.markExpired();
-
-				return { authenticated: false, sessionExpired: true, email: row.email ?? undefined };
-			}
-
-			const refreshed = await this.refreshToken(row.refreshToken);
-			if (!refreshed) {
-				return { authenticated: false, sessionExpired: true, email: row.email ?? undefined };
-			}
-		}
-
-		return { authenticated: true, email: row.email ?? undefined };
+		return this.getAuthStatus();
 	}
 
 	static logout(): void {
+		this.epoch += 1;
+		this.pkceStore.clear();
 		ProviderSettings.remove('claude');
 		logger.log('✓ Logged out, OAuth tokens deleted');
 	}

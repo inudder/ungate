@@ -81,9 +81,7 @@ describe('ProviderModelCatalog', () => {
 		expect(result.models.map((model) => model.upstreamModel)).toEqual(['claude-a', 'claude-b']);
 		expect(fetchMock).toHaveBeenCalledTimes(2);
 		expect(fetchMock.mock.calls[0]?.[0]).toBe('https://api.anthropic.com/v1/models?limit=1000&beta=true');
-		expect(fetchMock.mock.calls[1]?.[0]).toBe(
-			'https://api.anthropic.com/v1/models?limit=1000&beta=true&after_id=cursor-a'
-		);
+		expect(fetchMock.mock.calls[1]?.[0]).toBe('https://api.anthropic.com/v1/models?limit=1000&beta=true&after_id=cursor-a');
 		expect(fetchMock.mock.calls[0]?.[1]?.headers).toEqual(
 			expect.objectContaining({
 				Authorization: 'Bearer claude-secret',
@@ -127,7 +125,7 @@ describe('ProviderModelCatalog', () => {
 
 		await ProviderModelCatalog.list('openai');
 
-		expect(fetchMock.mock.calls[0]?.[0]).toBe('https://chatgpt.com/backend-api/codex/models?client_version=0.0.0');
+		expect(fetchMock.mock.calls[0]?.[0]).toBe('https://chatgpt.com/backend-api/codex/models?client_version=0.162.1');
 	});
 
 	it.each(['claude', 'minimax', 'openai'] as const)('returns 401 when %s is not connected', async (provider) => {

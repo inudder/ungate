@@ -25,6 +25,7 @@ const BACKEND_ROUTES = new Map<string, ReadonlySet<string>>([
 	['/auth/claude/complete', new Set(['POST'])],
 	['/auth/claude/status', new Set(['GET'])],
 	['/auth/claude/logout', new Set(['POST'])],
+	['/auth/claude/refresh', new Set(['POST'])],
 	['/auth/minimax/status', new Set(['GET'])],
 	['/auth/minimax/login', new Set(['POST'])],
 	['/auth/minimax/base-url', new Set(['POST'])],

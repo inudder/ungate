@@ -1,9 +1,10 @@
 import { logger } from 'src/utils/logger';
 
+import { ClaudeAuthError } from '../auth/claude-token-manager';
 import { OAuth } from '../auth/oauth';
 import { config } from '../config';
-import { ProviderSettings } from '../database/provider-settings';
 
+import { ClaudeTransportError, fetchClaude } from './claude-transport';
 import { RequestBuilder } from './request-builder';
 import { ToolMapper } from './tool-mapper';
 
@@ -19,13 +20,9 @@ export async function makeClaudeCodeRequest(
 	body: AnthropicRequest,
 	_headers: Record<string, string>
 ): Promise<RequestResult> {
-	const token = await OAuth.getValidToken();
-
-	if (!token) {
-		return { success: false, error: 'No valid OAuth token', status: 401 };
-	}
-
 	try {
+		const token = await OAuth.getValidToken();
+		if (!token) return { success: false, error: 'Claude requires authorization.', status: 401 };
 		const preparedBody = RequestBuilder.prepareClaudeCodeBody(body);
 
 		let reverseToolMapping: Record<string, string> = {};
@@ -37,26 +34,28 @@ export async function makeClaudeCodeRequest(
 
 		const url = `${config.anthropic.apiUrl}${endpoint}?beta=true`;
 
-		const response = await fetch(url, {
-			method: 'POST',
-			headers: {
-				Accept: 'application/json',
-				Authorization: `Bearer ${token.accessToken}`,
-				'anthropic-beta': [
-					config.anthropic.beta.claudeCode,
-					config.anthropic.beta.oauth,
-					config.anthropic.beta.interleavedThinking
-				].join(','),
-				'anthropic-dangerous-direct-browser-access': 'true',
-				'anthropic-version': '2023-06-01',
-				'Content-Type': 'application/json',
-				'User-Agent': 'claude-cli/2.1.9 (external, claude-vscode, agent-sdk/0.2.7)',
-				'x-app': 'cli',
-				...RequestBuilder.getStainlessHeaders()
-			},
-			body: JSON.stringify(preparedBody)
-		});
-
+		function send(accessToken: string): Promise<Response> {
+			return fetchClaude(url, {
+				method: 'POST',
+				headers: {
+					Accept: 'application/json',
+					Authorization: `Bearer ${accessToken}`,
+					'anthropic-beta': [
+						config.anthropic.beta.claudeCode,
+						config.anthropic.beta.oauth,
+						config.anthropic.beta.interleavedThinking
+					].join(','),
+					'anthropic-dangerous-direct-browser-access': 'true',
+					'anthropic-version': '2023-06-01',
+					'Content-Type': 'application/json',
+					'User-Agent': 'claude-cli/2.1.9 (external, claude-vscode, agent-sdk/0.2.7)',
+					'x-app': 'cli',
+					...RequestBuilder.getStainlessHeaders()
+				},
+				body: JSON.stringify(preparedBody)
+			});
+		}
+		const response = await send(token.accessToken);
 		if (response.status === 429) {
 			logger.log('Claude Code rate limited; preserving upstream error details');
 
@@ -64,50 +63,32 @@ export async function makeClaudeCodeRequest(
 		}
 
 		if (response.status === 401) {
-			const errorBody = await response.clone().text();
-			logger.error(`Claude Code 401 error: ${errorBody}`);
+			await response.body?.cancel();
+			logger.log(`[claude-auth] ${new Date().toISOString()} result=access_rejected status=401`);
 
-			const row = ProviderSettings.get('claude');
+			const refreshed = await OAuth.getValidToken(token.accessToken);
+			if (refreshed) {
+				const retryResponse = await send(refreshed.accessToken);
+				logger.log(`Retry after refresh: ${retryResponse.status}`);
 
-			if (row?.refreshToken) {
-				logger.log('Attempting token refresh after 401...');
-				const refreshed = await OAuth.refreshToken(row.refreshToken);
-
-				if (refreshed) {
-					const retryResponse = await fetch(url, {
-						method: 'POST',
-						headers: {
-							Accept: 'application/json',
-							Authorization: `Bearer ${refreshed.accessToken}`,
-							'anthropic-beta': [
-								config.anthropic.beta.claudeCode,
-								config.anthropic.beta.oauth,
-								config.anthropic.beta.interleavedThinking
-							].join(','),
-							'anthropic-dangerous-direct-browser-access': 'true',
-							'anthropic-version': '2023-06-01',
-							'Content-Type': 'application/json',
-							'User-Agent': 'claude-cli/2.1.9 (external, claude-vscode, agent-sdk/0.2.7)',
-							'x-app': 'cli',
-							...RequestBuilder.getStainlessHeaders()
-						},
-						body: JSON.stringify(preparedBody)
-					});
-
-					logger.log(`Retry after refresh: ${retryResponse.status}`);
-
-					return { success: true, response: retryResponse, source: 'claude', reverseToolMapping };
-				}
+				return { success: true, response: retryResponse, source: 'claude', reverseToolMapping };
 			}
 
 			return { success: false, error: 'OAuth token invalid', status: 401 };
 		}
 
 		if (response.status === 403) {
-			const errorBody = await response.clone().text();
-			logger.error(`Claude Code 403 error: ${errorBody}`);
+			const payload: unknown = await response.json().catch(() => null);
+			const blocked = (payload as { error?: { message?: string } } | null)?.error?.message === 'Request not allowed';
+			logger.error(
+				`[claude-auth] ${new Date().toISOString()} result=${blocked ? 'connection_rejected' : 'permission_denied'} status=403`
+			);
 
-			return { success: false, error: 'Permission denied', status: 403 };
+			return {
+				success: false,
+				error: blocked ? 'Claude connection was rejected. Retry later.' : 'Permission denied',
+				status: blocked ? 503 : 403
+			};
 		}
 
 		if (response.status === 400) {
@@ -175,9 +156,12 @@ export async function makeClaudeCodeRequest(
 
 		return { success: true, response, source: 'claude', reverseToolMapping };
 	} catch (error) {
-		logger.error(`Claude Code OAuth request failed: ${String(error)}`);
+		if (error instanceof ClaudeAuthError || error instanceof ClaudeTransportError) {
+			return { success: false, error: error.message, status: 503 };
+		}
+		logger.error(`[claude-auth] ${new Date().toISOString()} result=request_error`);
 
-		return { success: false, error: String(error), status: 500 };
+		return { success: false, error: 'Claude request failed.', status: 500 };
 	}
 }
 

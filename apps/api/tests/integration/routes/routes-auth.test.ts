@@ -8,6 +8,7 @@ const oauthStartLoginMock = vi.fn();
 const oauthCompleteLoginMock = vi.fn();
 const oauthStatusMock = vi.fn();
 const oauthLogoutMock = vi.fn();
+const oauthRefreshMock = vi.fn();
 
 const openaiStartLoginMock = vi.fn();
 const openaiCompleteLoginMock = vi.fn();
@@ -24,6 +25,7 @@ vi.mock('src/auth/oauth', () => ({
 		completeLogin: (...args: unknown[]) => oauthCompleteLoginMock(...args),
 		getAuthStatus: (...args: unknown[]) => oauthStatusMock(...args),
 		checkAuthStatus: (...args: unknown[]) => oauthStatusMock(...args),
+		refreshAuthStatus: (...args: unknown[]) => oauthRefreshMock(...args),
 		logout: (...args: unknown[]) => oauthLogoutMock(...args)
 	}
 }));
@@ -80,6 +82,20 @@ describe('routes-auth', () => {
 		await app.close();
 	});
 
+	it.each(['ready', 'retry_wait', 'reauth_required'])('returns %s status from the shared refresh manager', async (state) => {
+		const status = { authenticated: state === 'ready', state, nextRetryAt: 1234, errorCode: 'test_error' };
+		oauthRefreshMock.mockResolvedValueOnce(status);
+		const app = await withPlugin(authPlugin);
+		try {
+			const response = await app.inject({ method: 'POST', url: '/auth/claude/refresh' });
+			expect(response.statusCode).toBe(200);
+			expect(response.json()).toEqual(status);
+			expect(oauthRefreshMock).toHaveBeenCalledTimes(1);
+		} finally {
+			await app.close();
+		}
+	});
+
 	it('handles minimax login/status/logout contracts', async () => {
 		providerGetMock.mockReturnValueOnce({ accessToken: 'k', baseUrl: 'https://x' });
 		const app = await withPlugin(authPlugin);
@@ -115,7 +131,7 @@ describe('routes-auth', () => {
 		const app = await withPlugin(authPlugin);
 
 		const start = await app.inject({ method: 'GET', url: '/auth/openai/start' });
-		expect(start.json().authUrl).toBe('openai-url');
+		expect(start.json<{ authUrl: string }>().authUrl).toBe('openai-url');
 
 		const missing = await app.inject({ method: 'GET', url: '/auth/openai/callback' });
 		expect(missing.statusCode).toBe(200);

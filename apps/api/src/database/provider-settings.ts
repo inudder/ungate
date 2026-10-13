@@ -1,4 +1,6 @@
-import { eq } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
+
+import { and, eq } from 'drizzle-orm';
 
 import { providerSettings } from './schema';
 
@@ -35,6 +37,17 @@ export class ProviderSettings {
 
 	static upsertOAuth(provider: AIProviderName, data: OAuthCredentials): void {
 		const db = getDb();
+		const claudeState =
+			provider === 'claude'
+				? {
+						credentialVersion: randomUUID(),
+						authState: 'ready',
+						authErrorCode: null,
+						lastRefreshAt: Date.now(),
+						nextRetryAt: null,
+						refreshFailures: 0
+					}
+				: {};
 
 		db.insert(providerSettings)
 			.values({
@@ -44,7 +57,8 @@ export class ProviderSettings {
 				expiresAt: data.expiresAt,
 				email: data.email ?? null,
 				accountId: data.accountId ?? null,
-				createdAt: Date.now()
+				createdAt: Date.now(),
+				...claudeState
 			})
 			.onConflictDoUpdate({
 				target: providerSettings.provider,
@@ -53,10 +67,21 @@ export class ProviderSettings {
 					refreshToken: data.refreshToken,
 					expiresAt: data.expiresAt,
 					email: data.email ?? null,
-					accountId: data.accountId ?? null
+					accountId: data.accountId ?? null,
+					...claudeState
 				}
 			})
 			.run();
+	}
+
+	static updateClaude(version: string, data: Partial<typeof providerSettings.$inferInsert>): boolean {
+		return (
+			getDb()
+				.update(providerSettings)
+				.set(data)
+				.where(and(eq(providerSettings.provider, 'claude'), eq(providerSettings.credentialVersion, version)))
+				.run().changes === 1
+		);
 	}
 
 	static updateBaseUrl(provider: AIProviderName, baseUrl: string): boolean {
@@ -77,6 +102,15 @@ export class ProviderSettings {
 		const existing = this.get(provider);
 
 		if (!existing) {
+			return;
+		}
+		if (provider === 'claude') {
+			this.updateClaude(existing.credentialVersion, {
+				authState: 'reauth_required',
+				authErrorCode: 'refresh_invalid',
+				nextRetryAt: null
+			});
+
 			return;
 		}
 

@@ -1,17 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { ModelValidator } from 'src/services/model-validator';
+
 import type { ModelMappingConfig } from '@ungate/shared';
 
-const getAuthStatusMock = vi.fn();
 const makeClaudeCodeRequestMock = vi.fn();
 const proxyMiniMaxRequestMock = vi.fn();
 const proxyOpenAIRequestMock = vi.fn();
 const providerSettingsGetMock = vi.fn();
 const openaiAuthStatusMock = vi.fn();
-
-vi.mock('src/auth/oauth', () => ({
-	OAuth: { getAuthStatus: () => getAuthStatusMock() }
-}));
 
 vi.mock('src/auth/openai', () => ({
 	OpenAIOAuthService: { getAuthStatus: () => openaiAuthStatusMock() }
@@ -32,8 +29,6 @@ vi.mock('src/proxy/minimax-client', () => ({
 vi.mock('src/proxy/proxy-client', () => ({
 	proxyOpenAIRequest: (...args: unknown[]) => proxyOpenAIRequestMock(...args)
 }));
-
-import { ModelValidator } from 'src/services/model-validator';
 
 function model(partial: Partial<ModelMappingConfig> & Pick<ModelMappingConfig, 'provider'>): ModelMappingConfig {
 	return {
@@ -59,18 +54,17 @@ describe('ModelValidator', () => {
 		expect(makeClaudeCodeRequestMock).not.toHaveBeenCalled();
 	});
 
-	it('returns not-logged-in for claude without auth without probing', async () => {
-		getAuthStatusMock.mockReturnValue({ authenticated: false });
+	it('reports Claude authorization failure from the shared request path', async () => {
+		makeClaudeCodeRequestMock.mockResolvedValue({ success: false, error: 'Claude requires authorization.', status: 401 });
 
 		const result = await ModelValidator.validate(model({ provider: 'claude' }));
 
 		expect(result.available).toBe(false);
-		expect(result.message).toContain('not logged in');
-		expect(makeClaudeCodeRequestMock).not.toHaveBeenCalled();
+		expect(result.statusCode).toBe(401);
+		expect(makeClaudeCodeRequestMock).toHaveBeenCalledTimes(1);
 	});
 
 	it('marks claude available on successful probe', async () => {
-		getAuthStatusMock.mockReturnValue({ authenticated: true });
 		makeClaudeCodeRequestMock.mockResolvedValue({ success: true, response: new Response('{}', { status: 200 }) });
 
 		const result = await ModelValidator.validate(model({ provider: 'claude', upstreamModel: 'claude-opus-4-8' }));
@@ -80,7 +74,6 @@ describe('ModelValidator', () => {
 	});
 
 	it('surfaces claude upstream error message on 404', async () => {
-		getAuthStatusMock.mockReturnValue({ authenticated: true });
 		makeClaudeCodeRequestMock.mockResolvedValue({
 			success: true,
 			response: new Response(JSON.stringify({ error: { message: 'Claude Fable 5 is not available. Please use Opus 4.8.' } }), {
@@ -96,7 +89,6 @@ describe('ModelValidator', () => {
 	});
 
 	it('surfaces claude failure result when request itself failed', async () => {
-		getAuthStatusMock.mockReturnValue({ authenticated: true });
 		makeClaudeCodeRequestMock.mockResolvedValue({ success: false, error: 'Rate limited', status: 429 });
 
 		const result = await ModelValidator.validate(model({ provider: 'claude' }));

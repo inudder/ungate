@@ -3,9 +3,11 @@ import Fastify from 'fastify';
 
 import { setQuietMode } from 'src/utils/logger';
 
+import { ClaudeTokenManager } from './auth/claude-token-manager';
 import { getConfig } from './config';
 import { getDb } from './database/index';
 import { Settings } from './database/settings';
+import { closeClaudeTransport } from './proxy/claude-transport';
 import analyticsPlugin from './routes/analytics';
 import anthropicPlugin from './routes/anthropic';
 import authPlugin from './routes/auth';
@@ -35,6 +37,10 @@ export async function startServer(): Promise<void> {
 	setQuietMode(config.quietMode);
 
 	const app = Fastify({ logger: false });
+	app.addHook('onClose', async () => {
+		await ClaudeTokenManager.stop();
+		await closeClaudeTransport();
+	});
 	app.decorate('config', config);
 
 	await app.register(cors, { origin: '*' });
@@ -138,5 +144,6 @@ export async function startServer(): Promise<void> {
 	// Uses globalThis.console to bypass quiet mode.
 	globalThis.console.log(`[ungate] listening on localhost:${config.port}`);
 
+	ClaudeTokenManager.start();
 	void startWakePingScheduler();
 }

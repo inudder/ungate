@@ -18,7 +18,13 @@ export const providerSettings = sqliteTable('provider_settings', {
 	email: text(),
 	accountId: text(),
 	createdAt: integer().notNull(),
-	baseUrl: text()
+	baseUrl: text(),
+	credentialVersion: text().notNull().default(''),
+	authState: text().notNull().default('ready'),
+	authErrorCode: text(),
+	lastRefreshAt: integer(),
+	nextRetryAt: integer(),
+	refreshFailures: integer().notNull().default(0)
 });
 
 export const modelMappings = sqliteTable('model_mappings', {

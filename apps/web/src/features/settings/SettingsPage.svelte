@@ -1,4 +1,8 @@
 <script lang="ts">
+import { onMount } from 'svelte';
+
+import { Api } from '$shared/api';
+
 import TunnelPanel from '../tunnel/TunnelPanel.svelte';
 
 import ModelsSection from './ModelsSection.svelte';
@@ -11,6 +15,17 @@ import type { AppSettings, ModelMappingConfig, ModelMappingProvider } from '@ung
 
 const store = getSettingsStore();
 const uiStore = getSettingsUiStore();
+
+onMount(() => {
+	const timer = setInterval(() => {
+		if (!document.hidden)
+			void Api.authStatus()
+				.then((status) => uiStore.applyClaudeStatus(status))
+				.catch(() => {});
+	}, 15_000);
+
+	return () => clearInterval(timer);
+});
 
 let port = $state('');
 let apiKey = $state('');
@@ -234,8 +249,11 @@ $effect(() => {
 			<ProviderPanel />
 			<ModelsSection
 				selectedProvider={uiStore.selectedProvider}
-				providerAuthorized={uiStore.authStates[uiStore.selectedProvider] === ProviderAuthState.Authorized}
-				providerAuthLoading={uiStore.authStates[uiStore.selectedProvider] === ProviderAuthState.Loading}
+				providerAuthorized={uiStore.selectedProvider === 'claude'
+					? uiStore.claudeStatus.authenticated
+					: uiStore.authStates[uiStore.selectedProvider] === ProviderAuthState.Authorized}
+				providerAuthLoading={uiStore.authStates[uiStore.selectedProvider] === ProviderAuthState.Loading &&
+					(uiStore.selectedProvider !== 'claude' || !uiStore.claudeStatus.authenticated)}
 				models={models}
 				onSave={handleSaveWithoutRestart}
 				saving={store.saving}

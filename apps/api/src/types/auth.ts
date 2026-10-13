@@ -1,8 +1,4 @@
-export interface AuthStatus {
-	authenticated: boolean;
-	sessionExpired?: boolean;
-	email?: string;
-}
+export type { ClaudeAuthStatus as AuthStatus } from '@ungate/shared';
 
 export interface LoginStart {
 	authUrl: string;

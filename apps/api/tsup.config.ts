@@ -19,7 +19,8 @@ export default defineConfig({
 		'lodash-es',
 		'source-map-support',
 		'tslib',
-		'zod'
+		'zod',
+		'undici'
 	],
 	external: ['better-sqlite3'],
 });

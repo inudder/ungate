@@ -2,19 +2,23 @@ import { config } from 'src/config';
 import { ProviderSettings } from 'src/database/provider-settings';
 import { RequestBuilder } from 'src/proxy/request-builder';
 
+import { ClaudeAuthError } from '../auth/claude-token-manager';
 import { OAuth } from '../auth/oauth';
 import { OpenAIOAuthService } from '../auth/openai/openai-oauth-service';
+import { ClaudeTransportError, fetchClaude } from '../proxy/claude-transport';
 
 import type { ModelMappingProvider, ProviderModelCatalogItem, ProviderModelsResponse } from '@ungate/shared';
 
 const REQUEST_TIMEOUT_MS = 10_000;
 const CLAUDE_PAGE_LIMIT = 1000;
 const CLAUDE_MAX_PAGES = 100;
+// The Codex catalog hides models whose minimum client version is above this value.
+const DEFAULT_CODEX_CLIENT_VERSION = '0.162.1';
 
 export class ProviderModelCatalogError extends Error {
 	constructor(
 		message: string,
-		readonly statusCode: 401 | 502 | 504
+		readonly statusCode: 401 | 403 | 502 | 503 | 504
 	) {
 		super(message);
 		this.name = 'ProviderModelCatalogError';
@@ -68,14 +72,23 @@ export function normalizeProviderModels(items: (ProviderModelCatalogItem | null)
 	return models;
 }
 
-async function fetchCatalogJson(url: string, headers: Record<string, string>): Promise<unknown> {
+async function fetchCatalogJson(url: string, headers: Record<string, string>, claude = false): Promise<unknown> {
 	try {
-		const response = await fetch(url, {
+		const response = await (claude ? fetchClaude : fetch)(url, {
 			method: 'GET',
 			headers,
 			signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
 		});
 
+		if (claude && response.status === 403) {
+			const payload: unknown = await response.json().catch(() => null);
+			const body = payload as { error?: { message?: string } } | null;
+			const blocked = body?.error?.message === 'Request not allowed';
+			throw new ProviderModelCatalogError(
+				blocked ? 'Claude connection was rejected. Retry later.' : 'Claude model catalog permission denied.',
+				blocked ? 503 : 403
+			);
+		}
 		if (response.status === 401 || response.status === 403) {
 			throw new ProviderModelCatalogError('Provider authorization was rejected. Please reconnect the provider.', 401);
 		}
@@ -91,6 +104,7 @@ async function fetchCatalogJson(url: string, headers: Record<string, string>): P
 		}
 	} catch (error) {
 		if (error instanceof ProviderModelCatalogError) throw error;
+		if (error instanceof ClaudeTransportError) throw new ProviderModelCatalogError(error.message, 503);
 
 		if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
 			throw new ProviderModelCatalogError('Provider model catalog request timed out.', 504);
@@ -118,15 +132,18 @@ function claudeHeaders(accessToken: string): Record<string, string> {
 }
 
 async function fetchClaudeModels(): Promise<ProviderModelCatalogItem[]> {
-	const token = await OAuth.getValidToken();
-	if (!token) {
-		const row = ProviderSettings.get('claude');
-		if (row) {
-			OAuth.markExpired();
-			throw new ProviderModelCatalogError('Claude session has expired. Please re-authorize the provider.', 401);
+	async function getToken(rejectedAccessToken?: string) {
+		try {
+			const credentials = await OAuth.getValidToken(rejectedAccessToken);
+			if (!credentials) throw new ProviderModelCatalogError('Claude requires authorization. Re-authorize the provider.', 401);
+
+			return credentials;
+		} catch (error) {
+			if (error instanceof ClaudeAuthError) throw new ProviderModelCatalogError(error.message, 503);
+			throw error;
 		}
-		throw new ProviderModelCatalogError('Claude is not connected. Please connect the provider first.', 401);
 	}
+	let token = await getToken();
 
 	const models: (ProviderModelCatalogItem | null)[] = [];
 	const visitedCursors = new Set<string>();
@@ -141,13 +158,14 @@ async function fetchClaudeModels(): Promise<ProviderModelCatalogItem[]> {
 
 		let payload: unknown;
 		try {
-			payload = await fetchCatalogJson(url.toString(), claudeHeaders(token.accessToken));
+			payload = await fetchCatalogJson(url.toString(), claudeHeaders(token.accessToken), true);
 		} catch (error) {
 			if (error instanceof ProviderModelCatalogError && error.statusCode === 401) {
-				OAuth.markExpired();
-				throw new ProviderModelCatalogError('Claude session has expired. Please re-authorize the provider.', 401);
+				token = await getToken(token.accessToken);
+				payload = await fetchCatalogJson(url.toString(), claudeHeaders(token.accessToken), true);
+			} else {
+				throw error;
 			}
-			throw error;
 		}
 		if (!isRecord(payload) || !Array.isArray(payload.data)) {
 			throw new ProviderModelCatalogError('Claude returned an invalid model catalog response.', 502);
@@ -201,7 +219,7 @@ async function fetchOpenAIModels(): Promise<ProviderModelCatalogItem[]> {
 
 	const url = new URL(`${config.openai.codexUrl}/models`);
 	const configuredClientVersion = process.env.CODEX_CLIENT_VERSION?.trim();
-	url.searchParams.set('client_version', nonEmptyOr(configuredClientVersion, '0.0.0'));
+	url.searchParams.set('client_version', nonEmptyOr(configuredClientVersion, DEFAULT_CODEX_CLIENT_VERSION));
 	const payload = await fetchCatalogJson(url.toString(), {
 		Accept: 'application/json',
 		Authorization: `Bearer ${credentials.accessToken}`,
