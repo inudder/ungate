@@ -134,6 +134,12 @@ async function sendResponsesJson(
 
 		CompletionRequestTelemetry.applyProxyHeaders(reply, Date.now() - context.startTime);
 
+		if (synthesized.status === 'failed') {
+			const message = synthesized.error?.message ?? 'Upstream response failed';
+
+			return reply.code(502).send(ResponsesNonStreamSynthesizer.errorResponse(message, 'api_error', synthesized.error?.code));
+		}
+
 		return reply.send(synthesized);
 	}
 

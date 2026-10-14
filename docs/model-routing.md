@@ -71,6 +71,22 @@ rather than zeros; nothing in this repository requires the field. Non-stream
 requests record the same input, output, and cache-read tokens in `requests`.
 Stream requests are still recorded before the stream starts, with zero tokens.
 
+Codex terminal events map as follows (`ResponsesEventRouter`):
+
+| Upstream event | Stream | Non-stream |
+| --- | --- | --- |
+| `response.completed` | final chunk `stop` / `tool_calls` + usage, `[DONE]` | 200, `finish_reason: stop` |
+| `response.incomplete` | final chunk `length` (`content_filter` when that is the reason) + usage, `[DONE]` | 200, `finish_reason: length` / `content_filter` |
+| `response.failed` or `error` | one `data: {"error": {...}}` frame, no `[DONE]` | 502 with `{ error: { message, type: 'api_error', code } }` |
+
+The OpenAI `/v1/responses` route reads the same chat stream: `length` becomes
+`status: incomplete`, an error frame becomes `response.failed` (non-stream: HTTP
+502), and the failure is recorded with `source: 'error'`. Its usage and telemetry
+take cache reads from `prompt_tokens_details.cached_tokens` as well as the
+Claude-style `prompt_cache_hit_tokens`, so MiniMax streams that report cached
+tokens are counted too. The client `max_tokens` is not forwarded to Codex, so
+`response.incomplete` comes only from upstream limits or content filtering.
+
 ## OmniRoute credential separation
 
 Keep the OmniRoute server master key and the Codex client key distinct. The

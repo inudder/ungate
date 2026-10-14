@@ -183,7 +183,7 @@ export class OpenAiClient {
 					const results = ResponsesSseProcessor.process(state, text);
 
 					for (const result of results) {
-						if (result.type === 'chunk') {
+						if (result.type === 'chunk' || result.type === 'error') {
 							controller.enqueue(encoder.encode(`data: ${JSON.stringify(result.data)}\n\n`));
 						} else if (result.type === 'done') {
 							controller.enqueue(encoder.encode('data: [DONE]\n\n'));
@@ -248,13 +248,25 @@ export class OpenAiClient {
 		reader.releaseLock();
 		StreamDiagnostics.logFinished(state, 'buffer');
 
+		if (state.error) {
+			const { message, code } = state.error;
+
+			return new Response(JSON.stringify({ error: { message, type: 'api_error', ...(code && { code }) } }), {
+				status: 502,
+				headers: { 'Content-Type': 'application/json' }
+			});
+		}
+
+		// Tool calls are not assembled into the buffered message, so `tool_calls` is reported as `stop`.
+		const finishReason = state.finishReason === 'length' || state.finishReason === 'content_filter' ? state.finishReason : 'stop';
+
 		return new Response(
 			JSON.stringify({
 				id: state.id,
 				object: 'chat.completion',
 				created: state.created,
 				model: normalizedModel,
-				choices: [{ index: 0, message: { role: 'assistant', content: fullContent || null }, finish_reason: 'stop' }],
+				choices: [{ index: 0, message: { role: 'assistant', content: fullContent || null }, finish_reason: finishReason }],
 				...(state.usage && { usage: state.usage })
 			}),
 			{

@@ -521,6 +521,29 @@ describe('routes-responses', () => {
 		await app.close();
 	});
 
+	it('returns HTTP 502 when an OpenAI-mapped non-stream upstream fails mid-stream', async () => {
+		resolveForChatCompletionMock.mockReturnValueOnce({ provider: 'openai', upstreamModel: 'gpt-up', reasoningBudget: null });
+		proxyOpenAIRequestMock.mockResolvedValueOnce({
+			response: sseResponse([
+				'{"choices":[{"delta":{"content":"par"},"finish_reason":null}]}',
+				'{"error":{"message":"Upstream overloaded","type":"api_error","code":"server_error"}}'
+			]),
+			context: { startTime: Date.now(), model: 'gpt-up', source: 'openai', reverseToolMapping: {} }
+		});
+
+		const app = await withPlugin(responsesPlugin, { apiKey: 'secret' });
+		const response = await app.inject({
+			method: 'POST',
+			url: '/v1/responses',
+			headers: { authorization: 'Bearer secret' },
+			payload: { model: 'gpt-alias', input: 'hi' }
+		});
+
+		expect(response.statusCode).toBe(502);
+		expect(response.json()).toEqual({ error: { message: 'Upstream overloaded', type: 'api_error', code: 'server_error' } });
+		await app.close();
+	});
+
 	it('routes Claude streaming responses as Responses SSE events', async () => {
 		resolveForChatCompletionMock.mockReturnValueOnce(null);
 		proxyRequestMock.mockResolvedValueOnce({

@@ -343,4 +343,84 @@ describe('Responses synthesizers', () => {
 		expect(text).toContain('event: response.completed');
 		expect(text).not.toContain('response.function_call_arguments.done');
 	});
+
+	it('reads OpenAI prompt_tokens_details cache reads into usage and telemetry', async () => {
+		const response = await ResponsesStreamSynthesizer.collectStreamResponse({
+			source: 'openai',
+			response: sseResponse([
+				'{"choices":[{"delta":{"content":"OK"},"finish_reason":null}]}',
+				'{"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":37,"completion_tokens":5,"total_tokens":42,"prompt_tokens_details":{"cached_tokens":16},"completion_tokens_details":{"reasoning_tokens":3}}}',
+				'[DONE]'
+			]),
+			requestId: 'cache_read',
+			model: 'gpt-6.1-sol',
+			context: context()
+		});
+
+		expect(response.usage).toEqual({
+			input_tokens: 37,
+			output_tokens: 5,
+			total_tokens: 42,
+			input_tokens_details: { cached_tokens: 16, cache_creation_tokens: 0 }
+		});
+		expect(requestsRecordMock).toHaveBeenLastCalledWith(
+			expect.objectContaining({ source: 'openai', inputTokens: 37, outputTokens: 5 }),
+			16,
+			0
+		);
+	});
+
+	it('maps a length finish into an incomplete Responses result', async () => {
+		const response = await ResponsesStreamSynthesizer.collectStreamResponse({
+			source: 'openai',
+			response: sseResponse([
+				'{"choices":[{"delta":{"content":"partial"},"finish_reason":null}]}',
+				'{"choices":[{"delta":{},"finish_reason":"length"}],"usage":{"prompt_tokens":10,"completion_tokens":64,"total_tokens":74}}',
+				'[DONE]'
+			]),
+			requestId: 'incomplete',
+			model: 'gpt-6.1-sol',
+			context: context()
+		});
+
+		expect(response.status).toBe('incomplete');
+		expect(response.incomplete_details).toEqual({ reason: 'max_output_tokens' });
+		expect(response.usage.output_tokens).toBe(64);
+	});
+
+	it('turns a mid-stream chat error frame into response.failed and records an error', async () => {
+		const { stream } = ResponsesStreamSynthesizer.createResponseStream({
+			source: 'openai',
+			response: sseResponse([
+				'{"choices":[{"delta":{"content":"par"},"finish_reason":null}]}',
+				'{"error":{"message":"Upstream overloaded","type":"api_error","code":"server_error"}}'
+			]),
+			requestId: 'failed_stream',
+			model: 'gpt-6.1-sol',
+			context: context()
+		});
+		const text = await readBody(stream);
+
+		expect(text).toContain('event: response.failed');
+		expect(text).toContain('Upstream overloaded');
+		expect(text).not.toContain('event: response.completed');
+		expect(requestsRecordMock).toHaveBeenLastCalledWith(
+			expect.objectContaining({ source: 'error', stream: true, error: 'Upstream overloaded' }),
+			0,
+			0
+		);
+	});
+
+	it('returns a failed Responses object when collecting an errored chat stream', async () => {
+		const response = await ResponsesStreamSynthesizer.collectStreamResponse({
+			source: 'openai',
+			response: sseResponse(['{"error":{"message":"Upstream overloaded","code":"server_error"}}']),
+			requestId: 'failed_collect',
+			model: 'gpt-6.1-sol',
+			context: context()
+		});
+
+		expect(response.status).toBe('failed');
+		expect(response.error).toEqual({ message: 'Upstream overloaded', code: 'server_error', type: 'api_error' });
+	});
 });

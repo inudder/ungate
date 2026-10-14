@@ -108,7 +108,8 @@ function mapUsage(usage: unknown): OpenAIResponseUsage {
 	const inputTokens = Number(raw.prompt_tokens ?? raw.input_tokens ?? 0);
 	const outputTokens = Number(raw.completion_tokens ?? raw.output_tokens ?? 0);
 	const totalTokens = Number(raw.total_tokens ?? inputTokens + outputTokens);
-	const cacheReadTokens = Number(raw.prompt_cache_hit_tokens ?? raw.cache_read_input_tokens ?? 0);
+	const details = (raw.prompt_tokens_details ?? raw.input_tokens_details) as Record<string, unknown> | undefined;
+	const cacheReadTokens = Number(raw.prompt_cache_hit_tokens ?? raw.cache_read_input_tokens ?? details?.cached_tokens ?? 0);
 	const cacheCreationTokens = Number(raw.prompt_cache_miss_tokens ?? raw.cache_creation_input_tokens ?? 0);
 
 	return {
@@ -214,6 +215,7 @@ class ResponsesEventEmitter {
 	private messageText = '';
 	private finishReason: string | null = null;
 	private incompleteReason: string | undefined;
+	private failure: { message: string; code?: string } | null = null;
 	private usage: OpenAIResponseUsage = { input_tokens: 0, output_tokens: 0, total_tokens: 0 };
 	private cacheReadTokens = 0;
 	private cacheCreationTokens = 0;
@@ -448,6 +450,8 @@ class ResponsesEventEmitter {
 
 	setUsage(usage: unknown): void {
 		this.usage = mapUsage(usage);
+		this.cacheReadTokens = this.usage.input_tokens_details?.cached_tokens ?? 0;
+		this.cacheCreationTokens = this.usage.input_tokens_details?.cache_creation_tokens ?? 0;
 	}
 
 	setAnthropicUsage(usage: {
@@ -537,19 +541,35 @@ class ResponsesEventEmitter {
 		return events;
 	}
 
+	/** Ends the response as `response.failed`; later finalize calls emit nothing. */
+	fail(error: { message?: unknown; code?: unknown }): OpenAIResponseStreamEvent[] {
+		if (this.finalized) {
+			return [];
+		}
+
+		this.finalized = true;
+		this.failure = {
+			message: typeof error.message === 'string' && error.message.length > 0 ? error.message : 'Upstream response failed',
+			...(typeof error.code === 'string' && error.code.length > 0 && { code: error.code })
+		};
+
+		return [{ type: 'response.failed', response: this.response('failed') }];
+	}
+
 	getFinalResponse(): OpenAIResponsesResponse {
-		return this.response(this.finalStatus());
+		return this.response(this.failure ? 'failed' : this.finalStatus());
 	}
 
 	record(context: RequestContext, stream: boolean): void {
 		CompletionRequestTelemetry.record(
 			{
 				model: context.model,
-				source: context.source,
+				source: this.failure ? 'error' : context.source,
 				inputTokens: this.usage.input_tokens,
 				outputTokens: this.usage.output_tokens,
 				stream,
-				latencyMs: Date.now() - context.startTime
+				latencyMs: Date.now() - context.startTime,
+				...(this.failure && { error: this.failure.message })
 			},
 			this.cacheReadTokens,
 			this.cacheCreationTokens
@@ -598,7 +618,8 @@ class ResponsesEventEmitter {
 			status,
 			output: this.output,
 			usage: this.usage,
-			...(this.incompleteReason && { incomplete_details: { reason: this.incompleteReason } })
+			...(status === 'incomplete' && this.incompleteReason && { incomplete_details: { reason: this.incompleteReason } }),
+			...(status === 'failed' && this.failure && { error: { ...this.failure, type: 'api_error' } })
 		};
 	}
 }
@@ -614,12 +635,18 @@ function processChatPayload(
 
 	const chunk = JSON.parse(payload) as OpenAIStreamChunk & {
 		usage?: Record<string, unknown>;
+		error?: { message?: unknown; code?: unknown };
 		choices?: (OpenAIStreamChunk['choices'][number] & { delta?: Record<string, unknown> })[];
 	};
 	const events: Record<string, unknown>[] = [];
 
 	if (chunk.usage) {
 		emitter.setUsage(chunk.usage);
+	}
+
+	// A mid-stream Chat Completions error frame (e.g. upstream `response.failed`).
+	if (chunk.error && typeof chunk.error === 'object') {
+		return emitter.fail(chunk.error);
 	}
 
 	for (const choice of chunk.choices ?? []) {

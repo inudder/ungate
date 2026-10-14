@@ -257,3 +257,73 @@ describe('responses-stream-mapper usage', () => {
 		expect(got.doneCount).toBe(1);
 	});
 });
+
+describe('responses-stream-mapper terminal events', () => {
+	function run(events: Record<string, unknown>[]) {
+		const state = StreamStateFactory.create('gpt-6.1-sol');
+		const out = ResponsesSseProcessor.process(state, encodeSse(events));
+
+		return {
+			state,
+			chunks: out.filter((x) => x.type === 'chunk').map((x) => x.data!),
+			errors: out.filter((x) => x.type === 'error').map((x) => x.data!),
+			doneCount: out.filter((x) => x.type === 'done').length
+		};
+	}
+
+	it.each([
+		['max_output_tokens', 'length'],
+		['content_filter', 'content_filter'],
+		[undefined, 'length']
+	])('maps response.incomplete reason %s to finish_reason %s with usage', (reason, finish) => {
+		const got = run([
+			{ type: 'response.output_text.delta', delta: '{"title":' },
+			{
+				type: 'response.incomplete',
+				response: {
+					status: 'incomplete',
+					...(reason && { incomplete_details: { reason } }),
+					usage: { input_tokens: 10, output_tokens: 64, total_tokens: 74 }
+				}
+			}
+		]);
+		const finalChunk = got.chunks.at(-1)!;
+
+		expect((finalChunk.choices as { finish_reason: string }[])[0].finish_reason).toBe(finish);
+		expect(finalChunk.usage).toEqual({ prompt_tokens: 10, completion_tokens: 64, total_tokens: 74 });
+		expect(got.state.finishReason).toBe(finish);
+		expect(got.doneCount).toBe(1);
+	});
+
+	it('emits one error payload and no done for response.failed', () => {
+		const got = run([
+			{ type: 'response.output_text.delta', delta: 'par' },
+			{
+				type: 'response.failed',
+				response: { status: 'failed', error: { code: 'server_error', message: 'Upstream overloaded' } }
+			}
+		]);
+
+		expect(got.errors).toEqual([{ error: { message: 'Upstream overloaded', type: 'api_error', code: 'server_error' } }]);
+		expect(got.state.error).toEqual({ message: 'Upstream overloaded', code: 'server_error' });
+		expect(got.doneCount).toBe(0);
+	});
+
+	it('reports an error event followed by response.failed once, keeping failed usage', () => {
+		const got = run([
+			{ type: 'error', code: 'rate_limit_exceeded', message: 'Slow down' },
+			{
+				type: 'response.failed',
+				response: { status: 'failed', error: { message: 'other' }, usage: { input_tokens: 9, output_tokens: 0 } }
+			}
+		]);
+
+		expect(got.errors).toHaveLength(1);
+		expect(got.state.error).toEqual({ message: 'Slow down', code: 'rate_limit_exceeded' });
+		expect(got.state.usage).toEqual({ prompt_tokens: 9, completion_tokens: 0, total_tokens: 9 });
+	});
+
+	it('falls back to a generic message when response.failed has no error', () => {
+		expect(run([{ type: 'response.failed', response: {} }]).state.error).toEqual({ message: 'Upstream response failed' });
+	});
+});

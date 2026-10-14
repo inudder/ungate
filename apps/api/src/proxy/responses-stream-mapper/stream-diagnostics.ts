@@ -102,7 +102,7 @@ export class StreamDiagnostics {
 		}
 
 		logger.log(
-			`[Codex stream] ${how} done toolCallsSeen=${state.toolCallsSeen} toolCallIndex=${state.toolCallIndex} text=${state.sawTextDelta} kinds=${state.sseKindCounts.size} output_item.added[${added}] output_item.done[${done}] ${summaryOrPlaceholder}`
+			`[Codex stream] ${how} done finish=${state.finishReason ?? (state.error ? 'error' : '-')} toolCallsSeen=${state.toolCallsSeen} toolCallIndex=${state.toolCallIndex} text=${state.sawTextDelta} kinds=${state.sseKindCounts.size} output_item.added[${added}] output_item.done[${done}] ${summaryOrPlaceholder}`
 		);
 	}
 }

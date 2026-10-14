@@ -133,3 +133,70 @@ describe('OpenAiClient usage', () => {
 		});
 	});
 });
+
+describe('OpenAiClient terminal upstream events', () => {
+	const INCOMPLETE = {
+		type: 'response.incomplete',
+		response: {
+			incomplete_details: { reason: 'max_output_tokens' },
+			usage: { input_tokens: 10, output_tokens: 64, total_tokens: 74 }
+		}
+	};
+	const FAILED = { type: 'response.failed', response: { error: { code: 'server_error', message: 'Upstream overloaded' } } };
+
+	beforeEach(() => {
+		getProviderSettingsMock.mockReturnValue({ accessToken: 'test-token', accountId: 'acct-test' });
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		vi.clearAllMocks();
+	});
+
+	it('returns finish_reason length and usage for a non-stream incomplete response', async () => {
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(sseResponse([...upstreamEvents(false), INCOMPLETE])));
+
+		const { response, context } = await OpenAiClient.proxy(chatRequest('gpt-6.1-sol'));
+		const json = await readJson(response);
+
+		expect(response.status).toBe(200);
+		expect(json.choices[0].finish_reason).toBe('length');
+		expect(json.choices[0].message?.content).toBe('OK');
+		expect(json.usage).toEqual({ prompt_tokens: 10, completion_tokens: 64, total_tokens: 74 });
+		expect(context).toMatchObject({ inputTokens: 10, outputTokens: 64 });
+	});
+
+	it('returns an HTTP 502 error for a non-stream failed response', async () => {
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(sseResponse([...upstreamEvents(false), FAILED])));
+
+		const { response } = await OpenAiClient.proxy(chatRequest('gpt-6.1-sol'));
+		const json: unknown = await response.json();
+
+		expect(response.status).toBe(502);
+		expect(json).toEqual({ error: { message: 'Upstream overloaded', type: 'api_error', code: 'server_error' } });
+	});
+
+	it('streams finish_reason length then DONE for an incomplete response', async () => {
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(sseResponse([...upstreamEvents(false), INCOMPLETE])));
+
+		const { response } = await OpenAiClient.proxy(chatRequest('gpt-6.1-sol', true));
+		const frames = await readStreamFrames(response);
+		const finalChunk = JSON.parse(frames.at(-2)!) as ChatCompletionJson;
+
+		expect(frames.at(-1)).toBe('[DONE]');
+		expect(finalChunk.choices[0].finish_reason).toBe('length');
+		expect(finalChunk.usage?.completion_tokens).toBe(64);
+	});
+
+	it('streams an error frame without DONE for a failed response', async () => {
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(sseResponse([...upstreamEvents(false), FAILED])));
+
+		const { response } = await OpenAiClient.proxy(chatRequest('gpt-6.1-sol', true));
+		const frames = await readStreamFrames(response);
+
+		expect(frames).not.toContain('[DONE]');
+		expect(JSON.parse(frames.at(-1)!)).toEqual({
+			error: { message: 'Upstream overloaded', type: 'api_error', code: 'server_error' }
+		});
+	});
+});

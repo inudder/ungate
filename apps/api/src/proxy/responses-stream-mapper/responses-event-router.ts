@@ -4,7 +4,7 @@ import { AssistantTextExtractor } from './stream-assistant-text';
 import { StreamDiagnostics } from './stream-diagnostics';
 import { StreamChunkMapper } from './stream-openai-chunks';
 
-import type { StreamProcessResult, StreamState } from './stream-state';
+import type { StreamFinishReason, StreamProcessResult, StreamState } from './stream-state';
 
 export class ResponsesEventRouter {
 	static route(state: StreamState, payload: Record<string, unknown>, results: StreamProcessResult[]): void {
@@ -35,7 +35,11 @@ export class ResponsesEventRouter {
 			return;
 		}
 
-		this.handleCompletedEvent(state, payload, kind, results);
+		if (this.handleFailedEvent(state, payload, kind, results)) {
+			return;
+		}
+
+		this.handleTerminalEvent(state, payload, kind, results);
 	}
 
 	private static handleCreatedEvent(state: StreamState, payload: Record<string, unknown>, kind: string | undefined): boolean {
@@ -291,13 +295,14 @@ export class ResponsesEventRouter {
 		StreamChunkMapper.emitToolCalls(state, item, results);
 	}
 
-	private static handleCompletedEvent(
+	/** `response.completed` and `response.incomplete` both end the stream with a finish chunk, usage and `[DONE]`. */
+	private static handleTerminalEvent(
 		state: StreamState,
 		payload: Record<string, unknown>,
 		kind: string | undefined,
 		results: StreamProcessResult[]
 	): void {
-		if (kind !== 'response.completed') {
+		if (kind !== 'response.completed' && kind !== 'response.incomplete') {
 			return;
 		}
 
@@ -312,16 +317,59 @@ export class ResponsesEventRouter {
 			}
 		}
 
-		let finish: 'tool_calls' | 'stop' = 'stop';
+		let finish: StreamFinishReason = 'stop';
 
-		if (state.toolCallsSeen) {
+		if (kind === 'response.incomplete') {
+			finish = this.incompleteFinishReason(resp);
+		} else if (state.toolCallsSeen) {
 			finish = 'tool_calls';
 		}
 
+		state.finishReason = finish;
 		state.usage = StreamDiagnostics.mapUsage(resp?.usage);
 
 		results.push({ type: 'chunk', data: StreamChunkMapper.chunk(state, {}, finish, state.usage) });
 		results.push({ type: 'done' });
+	}
+
+	private static incompleteFinishReason(resp: Record<string, unknown> | undefined): StreamFinishReason {
+		const details = resp?.incomplete_details as Record<string, unknown> | undefined;
+
+		return details?.reason === 'content_filter' ? 'content_filter' : 'length';
+	}
+
+	/** `response.failed` or a Responses `error` event: emit one Chat Completions error payload and no `[DONE]`. */
+	private static handleFailedEvent(
+		state: StreamState,
+		payload: Record<string, unknown>,
+		kind: string | undefined,
+		results: StreamProcessResult[]
+	): boolean {
+		if (kind !== 'response.failed' && kind !== 'error') {
+			return false;
+		}
+
+		const resp = payload.response as Record<string, unknown> | undefined;
+		const usage = StreamDiagnostics.mapUsage(resp?.usage);
+
+		if (usage) {
+			state.usage = usage;
+		}
+
+		if (state.error) {
+			return true;
+		}
+
+		const source = (kind === 'error' ? payload : resp?.error) as Record<string, unknown> | undefined;
+		const message =
+			typeof source?.message === 'string' && source.message.length > 0 ? source.message : 'Upstream response failed';
+		const code = typeof source?.code === 'string' && source.code.length > 0 ? source.code : undefined;
+
+		state.error = { message, ...(code && { code }) };
+		logger.error(`[Codex stream] upstream ${kind} model=${state.model} code=${code ?? '-'}`);
+		results.push({ type: 'error', data: { error: { message, type: 'api_error', ...(code && { code }) } } });
+
+		return true;
 	}
 
 	private static readArgumentsDelta(rawArgDelta: unknown): string {
