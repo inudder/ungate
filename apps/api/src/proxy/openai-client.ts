@@ -82,7 +82,11 @@ export class OpenAiClient {
 			`[Codex] upstreamModel=${model} chatMessages=${buildResult.debug.chatMessages} inputField=${buildResult.debug.inputField} codexItems=${buildResult.debug.codexItems} fromBodyInput=${buildResult.debug.fromBodyInput}`
 		);
 
-		logger.log(`OpenAI Codex proxy: ${model} → ${normalizedModel} tools=${incomingToolCount} stream=${body.stream ?? false}`);
+		const promptCacheKey = String(requestBody.prompt_cache_key);
+
+		logger.log(
+			`OpenAI Codex proxy: ${model} → ${normalizedModel} tools=${incomingToolCount} stream=${body.stream ?? false} cacheKey=${promptCacheKey}`
+		);
 
 		return fetch(`${config.openai.codexUrl}/responses`, {
 			method: 'POST',
@@ -90,6 +94,7 @@ export class OpenAiClient {
 				'content-type': 'application/json',
 				authorization: `Bearer ${accessToken}`,
 				'chatgpt-account-id': accountId,
+				session_id: promptCacheKey,
 				originator: 'codex_cli_rs',
 				accept: 'text/event-stream'
 			},

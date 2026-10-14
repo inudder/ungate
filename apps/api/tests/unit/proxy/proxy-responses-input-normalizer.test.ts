@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { ResponsesBodyBuilder } from 'src/proxy/responses-input-normalizer/build-body';
 import { ResponsesModelResolver } from 'src/proxy/responses-input-normalizer/resolve-model';
 
+import type { OpenAIChatRequest } from 'src/types/openai';
+
 describe('proxy-responses-input-normalizer', () => {
 	it('resolves model aliases without inventing reasoning defaults', () => {
 		expect(ResponsesModelResolver.resolveModel('')).toEqual({ model: 'gpt-5.4' });
@@ -146,5 +148,40 @@ describe('proxy-responses-input-normalizer', () => {
 		const last = input.at(-1)!;
 		expect(last.role).toBe('user');
 		expect(last.content).toEqual([{ type: 'input_text', text: '.' }]);
+	});
+
+	describe('prompt_cache_key', () => {
+		const options = { instructionsFallback: 'fallback', extraInstruction: '', envInstructions: '' };
+
+		function cacheKey(system: string, user: string, extra: Partial<OpenAIChatRequest> = {}): unknown {
+			const body: OpenAIChatRequest = {
+				model: 'gpt-6.1-sol',
+				messages: [
+					{ role: 'system', content: system },
+					{ role: 'user', content: user }
+				],
+				...extra
+			};
+
+			return ResponsesBodyBuilder.buildBody(body, body.model, options).payload.prompt_cache_key;
+		}
+
+		it('derives one key for a shared system prompt across different user messages', () => {
+			const key = cacheKey('landing rules', 'write the hero section');
+
+			expect(key).toMatch(/^ungate-[0-9a-f]{32}$/);
+			expect(cacheKey('landing rules', 'write the FAQ section')).toBe(key);
+		});
+
+		it('derives a different key when the system prompt or tools change', () => {
+			const key = cacheKey('landing rules', 'hello');
+
+			expect(cacheKey('other rules', 'hello')).not.toBe(key);
+			expect(cacheKey('landing rules', 'hello', { tools: [{ type: 'function', function: { name: 'Read' } }] })).not.toBe(key);
+		});
+
+		it('keeps a client prompt_cache_key', () => {
+			expect(cacheKey('landing rules', 'hello', { prompt_cache_key: ' conversation-1 ' })).toBe('conversation-1');
+		});
 	});
 });

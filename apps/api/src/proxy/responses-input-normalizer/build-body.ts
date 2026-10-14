@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import { CodexInputUtils } from 'src/proxy/codex-input-utils';
 import { resolveReasoningEffort } from 'src/utils/reasoning-effort';
 
@@ -77,6 +79,8 @@ export class ResponsesBodyBuilder {
 			payload.parallel_tool_calls = false;
 		}
 
+		payload.prompt_cache_key = this.resolvePromptCacheKey(body, payload);
+
 		const debug = {
 			chatMessages: messages.length,
 			inputField: Array.isArray(body.input) ? body.input.length : 0,
@@ -85,6 +89,34 @@ export class ResponsesBodyBuilder {
 		};
 
 		return { payload, debug };
+	}
+
+	// Codex only reuses the prompt cache when requests share a cache key (sent as
+	// `prompt_cache_key` and the `session_id` header); without one, identical
+	// prompts miss. Keep a client key, otherwise hash the stable prefix — model,
+	// instructions, tools and leading system/developer items — so requests that
+	// share a system prompt but differ in the user message share a key.
+	private static resolvePromptCacheKey(body: OpenAIChatRequest, payload: Record<string, unknown>): string {
+		const clientKey = typeof body.prompt_cache_key === 'string' ? body.prompt_cache_key.trim() : '';
+
+		if (clientKey) {
+			return clientKey;
+		}
+
+		const input = payload.input as Record<string, unknown>[];
+		const leadingSystemItems: Record<string, unknown>[] = [];
+
+		for (const item of input) {
+			if (item.type !== 'message' || (item.role !== 'developer' && item.role !== 'system')) {
+				break;
+			}
+
+			leadingSystemItems.push(item);
+		}
+
+		const prefix = JSON.stringify([payload.model, payload.instructions, payload.tools ?? null, leadingSystemItems]);
+
+		return `ungate-${createHash('sha256').update(prefix).digest('hex').slice(0, 32)}`;
 	}
 
 	// The Responses API expects function tools in a flattened shape with `name`,

@@ -100,6 +100,20 @@ describe('OpenAiClient usage', () => {
 		expect(context).toMatchObject({ source: 'openai', inputTokens: 37, outputTokens: 5, cacheReadTokens: 16 });
 	});
 
+	it('sends the prompt cache key as the Codex session_id header', async () => {
+		const fetchMock = vi.fn().mockResolvedValue(sseResponse(upstreamEvents()));
+		vi.stubGlobal('fetch', fetchMock);
+
+		await OpenAiClient.proxy(chatRequest('gpt-6.1-sol'));
+
+		const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+		const sentBody = JSON.parse(init.body as string) as { prompt_cache_key?: string };
+		const headers = init.headers as Record<string, string>;
+
+		expect(sentBody.prompt_cache_key).toMatch(/^ungate-[0-9a-f]{32}$/);
+		expect(headers.session_id).toBe(sentBody.prompt_cache_key);
+	});
+
 	it('omits usage when the upstream stream ends without response.completed', async () => {
 		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(sseResponse(upstreamEvents(false))));
 

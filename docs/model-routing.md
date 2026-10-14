@@ -87,8 +87,20 @@ Claude-style `prompt_cache_hit_tokens`, so MiniMax streams that report cached
 tokens are counted too. Dashboard Analytics -> Prompt Cache lists these cache
 reads per provider and model (`Analytics.getPromptCacheStats`); only Claude reports
 cache writes, so write counts and reuse rate are shown as `—` for OpenAI and
-MiniMax. The client `max_tokens` is not forwarded to Codex, so
+MiniMax. Codex does send `input_tokens_details.cache_write_tokens`, but it is
+always 0, so it is not read. The client `max_tokens` is not forwarded to Codex, so
 `response.incomplete` comes only from upstream limits or content filtering.
+
+### Codex prompt cache key
+
+Codex reuses the prompt cache only for requests that share a cache key; without
+one, even identical prompts miss. `ResponsesBodyBuilder.buildBody` sets
+`prompt_cache_key` on every Codex request, and `OpenAiClient` sends the same value
+as the `session_id` header (as the Codex CLI does). The key is the client's
+`prompt_cache_key` (Chat Completions body, or forwarded from `/v1/responses`) when
+present; otherwise `ungate-<sha256>` of the model, instructions, tools and leading
+system/developer items. Requests that share a system prompt but differ in the user
+message therefore share a key and reuse the cached system prefix.
 
 ## OmniRoute credential separation
 

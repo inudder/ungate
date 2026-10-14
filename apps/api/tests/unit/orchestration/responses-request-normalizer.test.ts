@@ -59,6 +59,18 @@ describe('ResponsesRequestNormalizer', () => {
 		expect(result.body.max_completion_tokens).toBe(12000);
 	});
 
+	it('forwards prompt_cache_key', () => {
+		resolveForChatCompletionMock.mockReturnValueOnce(null);
+
+		const result = ResponsesRequestNormalizer.toChatRequest({
+			model: 'gpt-alias',
+			input: 'hello',
+			prompt_cache_key: 'conversation-1'
+		});
+
+		expect(result.body.prompt_cache_key).toBe('conversation-1');
+	});
+
 	it('ignores reasoning items when normalizing a continuation input', () => {
 		resolveForChatCompletionMock.mockReturnValueOnce(null);
 

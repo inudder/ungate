@@ -51,6 +51,8 @@ export interface OpenAIChatRequest {
 	presence_penalty?: number;
 	frequency_penalty?: number;
 	user?: string;
+	/** Routes Codex requests to a shared prompt cache; derived from the request prefix when absent. */
+	prompt_cache_key?: string;
 	tools?: OpenAITool[];
 	tool_choice?: 'none' | 'auto' | 'required' | { type: 'function'; function: { name: string } };
 	reasoning_effort?: OpenAIReasoningEffort | null;
@@ -148,6 +150,7 @@ export interface OpenAIResponsesRequest {
 	} | null;
 	metadata?: Record<string, unknown> | null;
 	user?: string;
+	prompt_cache_key?: string;
 	previous_response_id?: string;
 	store?: boolean;
 }

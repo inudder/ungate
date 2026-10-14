@@ -375,6 +375,7 @@ export class ResponsesRequestNormalizer {
 			temperature: flattenedRequest.temperature,
 			top_p: flattenedRequest.top_p,
 			user: flattenedRequest.user,
+			prompt_cache_key: flattenedRequest.prompt_cache_key,
 			tools: flattenedRequest.tools?.map((tool) => normalizeTool(tool as OpenAIResponsesFunctionTool | OpenAITool)),
 			tool_choice: normalizeToolChoice(flattenedRequest.tool_choice),
 			max_completion_tokens: normalizeMaxCompletionTokens(flattenedRequest.max_output_tokens)
