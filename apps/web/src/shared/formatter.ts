@@ -3,6 +3,11 @@ export class Formatter {
 		return value.toLocaleString();
 	}
 
+	/** Formats a 0..1 ratio as a percentage with one decimal. */
+	static percent(ratio: number): string {
+		return `${(ratio * 100).toFixed(1)}%`;
+	}
+
 	static cost(value: number): string {
 		return `$${value.toFixed(2)}`;
 	}

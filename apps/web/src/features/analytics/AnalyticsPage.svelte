@@ -94,33 +94,40 @@ function handleConfirmReset() {
 
 		<div class="card preset-tonal-surface border border-surface-700/30">
 			<div class="p-4 border-b border-surface-700/30">
-				<p class="text-sm font-semibold">Anthropic Prompt Cache</p>
-				<p class="text-xs text-surface-400 mt-1">Measured from provider usage since cache tracking was installed.</p>
+				<p class="text-sm font-semibold">Prompt Cache</p>
+				<p class="text-xs text-surface-400 mt-1">
+					Measured from provider usage since cache tracking was installed (OpenAI since 14 Oct 2026). Cached input is cache read /
+					input tokens. Only Claude reports cache writes, so writes and reuse rate show — for other providers.
+				</p>
 			</div>
 			{#if !store.promptCache || store.promptCache.models.length === 0}
-				<div class="p-6 text-center text-surface-400 text-sm">No Anthropic requests in this period</div>
+				<div class="p-6 text-center text-surface-400 text-sm">No provider requests in this period</div>
 			{:else}
 				<div class="overflow-x-auto">
 					<table class="table w-full text-sm">
 						<thead>
 							<tr>
 								<th>Model</th>
+								<th>Provider</th>
 								<th>Requests</th>
 								<th>Hits / Writes</th>
 								<th>Cache read</th>
 								<th>Cache write</th>
+								<th>Cached input</th>
 								<th>Reuse rate</th>
 							</tr>
 						</thead>
 						<tbody>
-							{#each store.promptCache.models as model (model.model)}
+							{#each store.promptCache.models as model (`${model.provider}:${model.model}`)}
 								<tr>
 									<td>{model.model}</td>
+									<td>{getProviderLabel(model.provider)}</td>
 									<td>{Formatter.number(model.requests)}</td>
-									<td>{model.cacheHitRequests} / {model.cacheWriteRequests}</td>
+									<td>{model.cacheHitRequests} / {model.reportsCacheWrites ? model.cacheWriteRequests : '—'}</td>
 									<td>{Formatter.number(model.cacheReadTokens)}</td>
-									<td>{Formatter.number(model.cacheCreationTokens)}</td>
-									<td>{(model.reuseRate * 100).toFixed(1)}%</td>
+									<td>{model.reportsCacheWrites ? Formatter.number(model.cacheCreationTokens) : '—'}</td>
+									<td>{Formatter.percent(model.cachedInputShare)}</td>
+									<td>{model.reuseRate === null ? '—' : Formatter.percent(model.reuseRate)}</td>
 								</tr>
 							{/each}
 						</tbody>

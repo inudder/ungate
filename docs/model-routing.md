@@ -84,7 +84,10 @@ The OpenAI `/v1/responses` route reads the same chat stream: `length` becomes
 502), and the failure is recorded with `source: 'error'`. Its usage and telemetry
 take cache reads from `prompt_tokens_details.cached_tokens` as well as the
 Claude-style `prompt_cache_hit_tokens`, so MiniMax streams that report cached
-tokens are counted too. The client `max_tokens` is not forwarded to Codex, so
+tokens are counted too. Dashboard Analytics -> Prompt Cache lists these cache
+reads per provider and model (`Analytics.getPromptCacheStats`); only Claude reports
+cache writes, so write counts and reuse rate are shown as `—` for OpenAI and
+MiniMax. The client `max_tokens` is not forwarded to Codex, so
 `response.incomplete` comes only from upstream limits or content filtering.
 
 ## OmniRoute credential separation

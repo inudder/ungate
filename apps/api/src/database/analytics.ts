@@ -6,7 +6,10 @@ import { requests } from './schema';
 
 import { getDb } from './index';
 
-import type { AnalyticsSummary, Period, PromptCacheAnalytics, TokenSeriesPoint } from '@ungate/shared';
+import type { AnalyticsSummary, ModelMappingProvider, Period, PromptCacheAnalytics, TokenSeriesPoint } from '@ungate/shared';
+
+/** Providers whose usage reports cache writes (Anthropic `cache_creation_input_tokens`). */
+const CACHE_WRITE_PROVIDERS = new Set<ModelMappingProvider>(['claude']);
 
 export class Analytics {
 	static getSummary(since: number, until: number = Date.now()): AnalyticsSummary {
@@ -69,6 +72,7 @@ export class Analytics {
 		const rows = db
 			.select({
 				model: requests.model,
+				provider: requests.source,
 				requests: sql<number>`COUNT(*)`,
 				cacheHitRequests: sql<number>`SUM(CASE WHEN ${requests.cacheReadTokens} > 0 THEN 1 ELSE 0 END)`,
 				cacheWriteRequests: sql<number>`SUM(CASE WHEN ${requests.cacheCreationTokens} > 0 THEN 1 ELSE 0 END)`,
@@ -77,8 +81,10 @@ export class Analytics {
 				cacheCreationTokens: sql<number>`SUM(${requests.cacheCreationTokens})`
 			})
 			.from(requests)
-			.where(sql`${requests.source} = 'claude' AND ${requests.timestamp} >= ${since} AND ${requests.timestamp} <= ${until}`)
-			.groupBy(requests.model)
+			.where(
+				sql`${requests.source} IN ('claude', 'openai', 'minimax') AND ${requests.timestamp} >= ${since} AND ${requests.timestamp} <= ${until}`
+			)
+			.groupBy(requests.source, requests.model)
 			.orderBy(sql`SUM(${requests.cacheReadTokens}) DESC, COUNT(*) DESC`)
 			.all();
 
@@ -87,19 +93,30 @@ export class Analytics {
 			periodStart: since,
 			periodEnd: until,
 			models: rows.map((row) => {
+				const provider = row.provider as ModelMappingProvider;
 				const read = row.cacheReadTokens ?? 0;
 				const creation = row.cacheCreationTokens ?? 0;
+				const input = row.inputTokens ?? 0;
 				const cacheActivity = read + creation;
+				const reportsCacheWrites = CACHE_WRITE_PROVIDERS.has(provider);
+				let reuseRate: number | null = null;
+
+				if (reportsCacheWrites) {
+					reuseRate = cacheActivity > 0 ? read / cacheActivity : 0;
+				}
 
 				return {
 					model: row.model,
+					provider,
 					requests: row.requests ?? 0,
 					cacheHitRequests: row.cacheHitRequests ?? 0,
 					cacheWriteRequests: row.cacheWriteRequests ?? 0,
-					inputTokens: row.inputTokens ?? 0,
+					inputTokens: input,
 					cacheReadTokens: read,
 					cacheCreationTokens: creation,
-					reuseRate: cacheActivity > 0 ? read / cacheActivity : 0
+					cachedInputShare: input > 0 ? read / input : 0,
+					reportsCacheWrites,
+					reuseRate
 				};
 			})
 		};
