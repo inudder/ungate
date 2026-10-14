@@ -1,3 +1,5 @@
+import type { ChatCompletionUsage } from 'src/types/openai';
+
 export interface StreamProcessResult {
 	type: 'chunk' | 'done';
 	data?: Record<string, unknown>;
@@ -24,6 +26,8 @@ export interface StreamState {
 	sseKindCounts: Map<string, number>;
 	outputItemTypeAdded: Map<string, number>;
 	outputItemTypeDone: Map<string, number>;
+	/** Set from `response.completed`; absent when upstream sent no usable usage. */
+	usage?: ChatCompletionUsage;
 }
 
 export class StreamStateFactory {

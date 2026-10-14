@@ -1,4 +1,5 @@
 import type { StreamProcessResult, StreamState } from './stream-state';
+import type { ChatCompletionUsage } from 'src/types/openai';
 
 const TOOL_ARGS_STREAM_CHUNK = 96;
 
@@ -7,7 +8,7 @@ export class StreamChunkMapper {
 		state: StreamState,
 		delta: Record<string, unknown>,
 		finishReason: string | null,
-		usage?: Record<string, number>
+		usage?: ChatCompletionUsage
 	): Record<string, unknown> {
 		const chunk: Record<string, unknown> = {
 			id: state.id,

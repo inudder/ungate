@@ -47,6 +47,30 @@ Native `/v1/messages`, OmniRoute, and CLIProxyAPI are outside this contract.
 | Codex model-shell router | `http://127.0.0.1:8319` | `J:\Dev\ungate-local\scripts\codex-model-shell-router.mjs` | Selects the route, rewrites model id, and enables only the configured stream adapter |
 | OmniRoute | `http://127.0.0.1:20128` | `%APPDATA%\omniroute` | OmniRoute provider/combo routing and call logs |
 
+### Ungate Chat Completions usage
+
+`/v1/chat/completions` returns token `usage` for every provider:
+
+| Provider | `usage` fields |
+| --- | --- |
+| `claude` | `prompt_tokens` (includes cache reads and writes), `completion_tokens`, `total_tokens`, `prompt_cache_hit_tokens`, `prompt_cache_miss_tokens` |
+| `minimax` | Passed through from MiniMax, e.g. `prompt_tokens_details.cached_tokens`, `completion_tokens_details.reasoning_tokens` |
+| `openai` | Mapped from the Codex `response.completed` usage, see below |
+
+For `provider: 'openai'`, `StreamDiagnostics.mapUsage`
+(`apps/api/src/proxy/responses-stream-mapper/stream-diagnostics.ts`) builds the same
+object for the non-stream body and the final stream chunk: `input_tokens` ->
+`prompt_tokens`, `output_tokens` -> `completion_tokens` (reasoning included),
+`total_tokens` (recomputed as input + output when missing or 0),
+`input_tokens_details.cached_tokens` -> `prompt_tokens_details.cached_tokens`, and
+`output_tokens_details.reasoning_tokens` -> `completion_tokens_details.reasoning_tokens`.
+Only non-negative integers count, and a `*_details` object appears only when
+upstream sent that field. When upstream sends no usage (for example, the stream
+ends without `response.completed`), the non-stream body has no `usage` field
+rather than zeros; nothing in this repository requires the field. Non-stream
+requests record the same input, output, and cache-read tokens in `requests`.
+Stream requests are still recorded before the stream starts, with zero tokens.
+
 ## OmniRoute credential separation
 
 Keep the OmniRoute server master key and the Codex client key distinct. The
@@ -382,6 +406,8 @@ When exposing a new provider model from OmniRoute through the Desktop launcher:
 - Router: `scripts\codex-model-shell-router.test.mjs`
 - MiniMax/API Responses: tests under `apps\api\tests\unit` and the
   Responses orchestration suites.
+- OpenAI Chat Completions usage: `apps\api\tests\unit\proxy\openai-client.test.ts`
+  and `apps\api\tests\unit\proxy\responses-stream-mapper.test.ts`.
 
 Do not copy API keys, full tool arguments, patch contents, or provider secrets
 into this document or into diagnostic notes.

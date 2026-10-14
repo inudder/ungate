@@ -50,14 +50,19 @@ export class OpenAiMappedChatHandler {
 		const responseJson = await response.json();
 		const latencyMs = Date.now() - context.startTime;
 
-		CompletionRequestTelemetry.recordAndApplyProxyHeaders(reply, latencyMs, {
-			model: context.model,
-			source: context.source,
-			inputTokens: context.inputTokens ?? 0,
-			outputTokens: context.outputTokens ?? 0,
-			stream: false,
-			latencyMs
-		});
+		CompletionRequestTelemetry.recordAndApplyProxyHeaders(
+			reply,
+			latencyMs,
+			{
+				model: context.model,
+				source: context.source,
+				inputTokens: context.inputTokens ?? 0,
+				outputTokens: context.outputTokens ?? 0,
+				stream: false,
+				latencyMs
+			},
+			context.cacheReadTokens
+		);
 
 		return reply.send(responseJson);
 	}

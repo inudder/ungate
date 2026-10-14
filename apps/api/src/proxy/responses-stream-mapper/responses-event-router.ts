@@ -312,16 +312,15 @@ export class ResponsesEventRouter {
 			}
 		}
 
-		const usage = resp?.usage as Record<string, number> | undefined;
 		let finish: 'tool_calls' | 'stop' = 'stop';
 
 		if (state.toolCallsSeen) {
 			finish = 'tool_calls';
 		}
 
-		const mappedUsage = StreamDiagnostics.mapUsage(usage);
+		state.usage = StreamDiagnostics.mapUsage(resp?.usage);
 
-		results.push({ type: 'chunk', data: StreamChunkMapper.chunk(state, {}, finish, mappedUsage) });
+		results.push({ type: 'chunk', data: StreamChunkMapper.chunk(state, {}, finish, state.usage) });
 		results.push({ type: 'done' });
 	}
 

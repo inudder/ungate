@@ -59,6 +59,15 @@ export interface OpenAIChatRequest {
 	} | null;
 }
 
+/** Chat Completions usage mapped from an upstream Responses `usage`; `*_details` appear only when upstream sent them. */
+export interface ChatCompletionUsage {
+	prompt_tokens: number;
+	completion_tokens: number;
+	total_tokens: number;
+	prompt_tokens_details?: { cached_tokens: number };
+	completion_tokens_details?: { reasoning_tokens: number };
+}
+
 export interface OpenAIChatResponse {
 	id: string;
 	object: 'chat.completion';

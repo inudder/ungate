@@ -224,6 +224,50 @@ describe('routes-openai', () => {
 		await app.close();
 	});
 
+	it('records mapped openai non-stream usage tokens, including cache reads', async () => {
+		const usage = {
+			prompt_tokens: 37,
+			completion_tokens: 5,
+			total_tokens: 42,
+			prompt_tokens_details: { cached_tokens: 16 },
+			completion_tokens_details: { reasoning_tokens: 3 }
+		};
+
+		resolveForChatCompletionMock.mockReturnValueOnce({ provider: 'openai', upstreamModel: 'gpt-6.1-sol', reasoningBudget: null });
+		proxyOpenAIRequestMock.mockResolvedValueOnce({
+			response: new Response(JSON.stringify({ id: 'chatcmpl-usage', object: 'chat.completion', usage }), {
+				status: 200,
+				headers: { 'content-type': 'application/json' }
+			}),
+			context: {
+				startTime: Date.now(),
+				model: 'gpt-6.1-sol',
+				source: 'openai',
+				reverseToolMapping: {},
+				inputTokens: 37,
+				outputTokens: 5,
+				cacheReadTokens: 16
+			}
+		});
+
+		const app = await withPlugin(openaiPlugin, { apiKey: 'secret' });
+		const response = await app.inject({
+			method: 'POST',
+			url: '/v1/chat/completions',
+			headers: { 'x-api-key': 'secret' },
+			payload: { model: 'gpt-6.1-sol', messages: [{ role: 'user', content: 'hi' }], stream: false }
+		});
+
+		expect(response.statusCode).toBe(200);
+		expect(response.json()).toMatchObject({ usage });
+		expect(requestsRecordMock).toHaveBeenCalledWith(
+			expect.objectContaining({ model: 'gpt-6.1-sol', source: 'openai', inputTokens: 37, outputTokens: 5, stream: false }),
+			16,
+			undefined
+		);
+		await app.close();
+	});
+
 	it('routes to anthropic provider and maps successful response', async () => {
 		resolveForChatCompletionMock.mockReturnValueOnce(null);
 		proxyRequestMock.mockResolvedValueOnce({

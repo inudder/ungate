@@ -1,6 +1,15 @@
 import { logger } from 'src/utils/logger';
 
 import type { StreamState } from './stream-state';
+import type { ChatCompletionUsage } from 'src/types/openai';
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+	return value && typeof value === 'object' ? (value as Record<string, unknown>) : undefined;
+}
+
+function tokenCount(value: unknown): number | undefined {
+	return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : undefined;
+}
 
 export class StreamDiagnostics {
 	static bumpOutputItem(map: Map<string, number>, item: Record<string, unknown>): void {
@@ -23,16 +32,39 @@ export class StreamDiagnostics {
 		state.sseKindCounts.set(k, (state.sseKindCounts.get(k) ?? 0) + 1);
 	}
 
-	static mapUsage(usage: Record<string, number> | undefined): Record<string, number> | undefined {
-		if (!usage) {
+	/** Maps Responses `usage` to Chat Completions; undefined when it carries no input or output count. */
+	static mapUsage(usage: unknown): ChatCompletionUsage | undefined {
+		const raw = asRecord(usage);
+
+		if (!raw) {
 			return undefined;
 		}
 
-		const mappedUsage: Record<string, number> = {
-			prompt_tokens: usage.input_tokens ?? usage.prompt_tokens ?? 0,
-			completion_tokens: usage.output_tokens ?? usage.completion_tokens ?? 0,
-			total_tokens: usage.total_tokens ?? 0
+		const promptTokens = tokenCount(raw.input_tokens) ?? tokenCount(raw.prompt_tokens);
+		const completionTokens = tokenCount(raw.output_tokens) ?? tokenCount(raw.completion_tokens);
+
+		if (promptTokens === undefined && completionTokens === undefined) {
+			return undefined;
+		}
+
+		const prompt = promptTokens ?? 0;
+		const completion = completionTokens ?? 0;
+		const upstreamTotal = tokenCount(raw.total_tokens);
+		const mappedUsage: ChatCompletionUsage = {
+			prompt_tokens: prompt,
+			completion_tokens: completion,
+			total_tokens: upstreamTotal !== undefined && upstreamTotal > 0 ? upstreamTotal : prompt + completion
 		};
+		const cachedTokens = tokenCount(asRecord(raw.input_tokens_details ?? raw.prompt_tokens_details)?.cached_tokens);
+		const reasoningTokens = tokenCount(asRecord(raw.output_tokens_details ?? raw.completion_tokens_details)?.reasoning_tokens);
+
+		if (cachedTokens !== undefined) {
+			mappedUsage.prompt_tokens_details = { cached_tokens: cachedTokens };
+		}
+
+		if (reasoningTokens !== undefined) {
+			mappedUsage.completion_tokens_details = { reasoning_tokens: reasoningTokens };
+		}
 
 		return mappedUsage;
 	}

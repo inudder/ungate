@@ -8,7 +8,7 @@ import { ResponsesBodyBuilder } from './responses-input-normalizer/build-body';
 import { ResponsesModelResolver } from './responses-input-normalizer/resolve-model';
 import { ResponsesSseProcessor, StreamDiagnostics, StreamStateFactory } from './responses-stream-mapper';
 
-import type { OpenAIChatRequest } from '../types/openai';
+import type { ChatCompletionUsage, OpenAIChatRequest } from '../types/openai';
 import type { RequestContext } from '../types/proxy';
 
 /** Codex `/responses` requires non-empty `instructions` (api_error otherwise). */
@@ -161,7 +161,7 @@ export class OpenAiClient {
 
 		return {
 			response: bufferedResponse,
-			context: this.openAiContext(model, startTime)
+			context: this.openAiContext(model, startTime, state.usage)
 		};
 	}
 
@@ -255,7 +255,7 @@ export class OpenAiClient {
 				created: state.created,
 				model: normalizedModel,
 				choices: [{ index: 0, message: { role: 'assistant', content: fullContent || null }, finish_reason: 'stop' }],
-				usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
+				...(state.usage && { usage: state.usage })
 			}),
 			{
 				status: 200,
@@ -268,7 +268,15 @@ export class OpenAiClient {
 		return { model, source: 'error', startTime, reverseToolMapping: {}, inputTokens: 0, outputTokens: 0 };
 	}
 
-	private static openAiContext(model: string, startTime: number): RequestContext {
-		return { model, source: 'openai', startTime, reverseToolMapping: {}, inputTokens: 0, outputTokens: 0 };
+	private static openAiContext(model: string, startTime: number, usage?: ChatCompletionUsage): RequestContext {
+		return {
+			model,
+			source: 'openai',
+			startTime,
+			reverseToolMapping: {},
+			inputTokens: usage?.prompt_tokens ?? 0,
+			outputTokens: usage?.completion_tokens ?? 0,
+			cacheReadTokens: usage?.prompt_tokens_details?.cached_tokens ?? 0
+		};
 	}
 }

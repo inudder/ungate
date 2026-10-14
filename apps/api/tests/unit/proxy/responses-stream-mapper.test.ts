@@ -179,3 +179,81 @@ describe('responses-stream-mapper replay', () => {
 		expect(got.finishReason).toBe('stop');
 	});
 });
+
+describe('responses-stream-mapper usage', () => {
+	function complete(usage?: unknown) {
+		const state = StreamStateFactory.create('gpt-6.1-sol');
+		const response = usage === undefined ? {} : { usage };
+		const out = ResponsesSseProcessor.process(
+			state,
+			encodeSse([
+				{ type: 'response.created', response: { id: 'resp_usage' } },
+				{ type: 'response.output_text.delta', delta: 'OK' },
+				{ type: 'response.completed', response }
+			])
+		);
+		const chunks = out.filter((x) => x.type === 'chunk').map((x) => x.data!);
+
+		return { state, finalChunk: chunks.at(-1)!, doneCount: out.filter((x) => x.type === 'done').length };
+	}
+
+	it('maps cached and reasoning token details into the final chunk and state', () => {
+		const got = complete({
+			input_tokens: 183,
+			input_tokens_details: { cached_tokens: 128 },
+			output_tokens: 28,
+			output_tokens_details: { reasoning_tokens: 24 },
+			total_tokens: 211
+		});
+		const expected = {
+			prompt_tokens: 183,
+			completion_tokens: 28,
+			total_tokens: 211,
+			prompt_tokens_details: { cached_tokens: 128 },
+			completion_tokens_details: { reasoning_tokens: 24 }
+		};
+
+		expect(got.finalChunk.usage).toEqual(expected);
+		expect(got.state.usage).toEqual(expected);
+		expect(got.doneCount).toBe(1);
+	});
+
+	it('omits details objects the upstream did not send', () => {
+		const got = complete({ input_tokens: 37, output_tokens: 5, total_tokens: 42 });
+
+		expect(got.finalChunk.usage).toEqual({ prompt_tokens: 37, completion_tokens: 5, total_tokens: 42 });
+	});
+
+	it.each([
+		['missing', { input_tokens: 37, output_tokens: 5 }],
+		['zero', { input_tokens: 37, output_tokens: 5, total_tokens: 0 }]
+	])('recomputes total_tokens when upstream total is %s', (_label, usage) => {
+		expect(complete(usage).state.usage?.total_tokens).toBe(42);
+	});
+
+	it('skips non-numeric, fractional and negative counts', () => {
+		const got = complete({
+			input_tokens: '37',
+			prompt_tokens: 37,
+			output_tokens: -1,
+			completion_tokens: 5.5,
+			total_tokens: Number.NaN,
+			input_tokens_details: { cached_tokens: -3 },
+			output_tokens_details: { reasoning_tokens: 'many' }
+		});
+
+		expect(got.state.usage).toEqual({ prompt_tokens: 37, completion_tokens: 0, total_tokens: 37 });
+	});
+
+	it.each([
+		['absent', undefined],
+		['null', null],
+		['empty', {}]
+	])('leaves usage unset when response.completed usage is %s', (_label, usage) => {
+		const got = complete(usage);
+
+		expect(got.state.usage).toBeUndefined();
+		expect(got.finalChunk).not.toHaveProperty('usage');
+		expect(got.doneCount).toBe(1);
+	});
+});
