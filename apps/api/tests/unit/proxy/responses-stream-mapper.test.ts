@@ -323,6 +323,24 @@ describe('responses-stream-mapper terminal events', () => {
 		expect(got.state.usage).toEqual({ prompt_tokens: 9, completion_tokens: 0, total_tokens: 9 });
 	});
 
+	it('reads a nested error event shape', () => {
+		const got = run([
+			{ type: 'error', error: { type: 'server_error', code: 'server_is_overloaded', message: 'Try again later' } }
+		]);
+
+		expect(got.errors).toEqual([{ error: { message: 'Try again later', type: 'api_error', code: 'server_is_overloaded' } }]);
+	});
+
+	it('upgrades a generic error event with the response.failed reason', () => {
+		const got = run([
+			{ type: 'error', sequence_number: 2 },
+			{ type: 'response.failed', response: { error: { code: 'rate_limit_exceeded', message: 'Too many requests' } } }
+		]);
+
+		expect(got.errors).toHaveLength(1);
+		expect(got.state.error).toEqual({ message: 'Too many requests', code: 'rate_limit_exceeded' });
+	});
+
 	it('falls back to a generic message when response.failed has no error', () => {
 		expect(run([{ type: 'response.failed', response: {} }]).state.error).toEqual({ message: 'Upstream response failed' });
 	});

@@ -6,6 +6,8 @@ import { StreamChunkMapper } from './stream-openai-chunks';
 
 import type { StreamFinishReason, StreamProcessResult, StreamState } from './stream-state';
 
+const GENERIC_UPSTREAM_FAILURE = 'Upstream response failed';
+
 export class ResponsesEventRouter {
 	static route(state: StreamState, payload: Record<string, unknown>, results: StreamProcessResult[]): void {
 		const kind = payload?.type as string | undefined;
@@ -356,20 +358,48 @@ export class ResponsesEventRouter {
 			state.usage = usage;
 		}
 
+		const upstreamError = this.readUpstreamError(kind === 'error' ? [payload.error, payload] : [resp?.error]);
+		const message = upstreamError.message ?? GENERIC_UPSTREAM_FAILURE;
+		const code = upstreamError.code;
+
+		// Without a specific reason the raw event is the only evidence; error events carry no credentials.
+		const detail = upstreamError.message ? `message=${message.slice(0, 200)}` : `raw=${JSON.stringify(payload).slice(0, 500)}`;
+
+		logger.error(`[Codex stream] upstream ${kind} model=${state.model} code=${code ?? '-'} ${detail}`);
+
 		if (state.error) {
+			// An `error` event usually precedes `response.failed`; keep the first specific reason.
+			if (state.error.message === GENERIC_UPSTREAM_FAILURE && upstreamError.message) {
+				state.error = { message, ...(code && { code }) };
+			}
+
 			return true;
 		}
 
-		const source = (kind === 'error' ? payload : resp?.error) as Record<string, unknown> | undefined;
-		const message =
-			typeof source?.message === 'string' && source.message.length > 0 ? source.message : 'Upstream response failed';
-		const code = typeof source?.code === 'string' && source.code.length > 0 ? source.code : undefined;
-
 		state.error = { message, ...(code && { code }) };
-		logger.error(`[Codex stream] upstream ${kind} model=${state.model} code=${code ?? '-'}`);
 		results.push({ type: 'error', data: { error: { message, type: 'api_error', ...(code && { code }) } } });
 
 		return true;
+	}
+
+	/** Takes `message` / `code` (or `type`) from the first candidate object that carries them. */
+	private static readUpstreamError(candidates: unknown[]): { message?: string; code?: string } {
+		for (const candidate of candidates) {
+			if (!candidate || typeof candidate !== 'object') {
+				continue;
+			}
+
+			const record = candidate as Record<string, unknown>;
+			const message = typeof record.message === 'string' && record.message.length > 0 ? record.message : undefined;
+			const rawCode = record.code ?? record.type;
+			const code = typeof rawCode === 'string' && rawCode.length > 0 && rawCode !== 'error' ? rawCode : undefined;
+
+			if (message || code) {
+				return { message, code };
+			}
+		}
+
+		return {};
 	}
 
 	private static readArgumentsDelta(rawArgDelta: unknown): string {
