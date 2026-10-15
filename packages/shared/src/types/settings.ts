@@ -12,11 +12,17 @@ export interface ModelMappingConfig {
 	upstreamModel: string;
 	sortOrder: number;
 	reasoningBudget: ReasoningBudgetTier | null;
+	/** Input context window in tokens; null leaves it unknown to clients. */
+	contextWindow?: number | null;
+	/** Output token cap; used when the client omits one and to clamp larger requests. */
+	maxOutputTokens?: number | null;
 }
 
 export interface ProviderModelCatalogItem {
 	upstreamModel: string;
 	label: string;
+	contextWindow?: number;
+	maxOutputTokens?: number;
 }
 
 export interface ProviderModelsResponse {

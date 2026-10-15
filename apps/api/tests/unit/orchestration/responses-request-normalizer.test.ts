@@ -11,6 +11,22 @@ vi.mock('src/database/model-mappings', () => ({
 }));
 
 describe('ResponsesRequestNormalizer', () => {
+	it('uses the mapped model output cap when the client omits max_output_tokens', () => {
+		resolveForChatCompletionMock.mockReturnValueOnce({ provider: 'claude', upstreamModel: 'claude-opus-4-8', maxOutputTokens: 128000 });
+
+		const result = ResponsesRequestNormalizer.toChatRequest({ model: 'opus', input: 'hello' });
+
+		expect(result.body.max_completion_tokens).toBe(128000);
+	});
+
+	it('keeps the token floor within a smaller mapped model cap', () => {
+		resolveForChatCompletionMock.mockReturnValueOnce({ provider: 'minimax', upstreamModel: 'mini-up', maxOutputTokens: 4096 });
+
+		const result = ResponsesRequestNormalizer.toChatRequest({ model: 'mini', input: 'hello', max_output_tokens: 512 });
+
+		expect(result.body.max_completion_tokens).toBe(4096);
+	});
+
 	it('maps instructions, string input, docs-correct tools, token floor, and minimal reasoning', () => {
 		resolveForChatCompletionMock.mockReturnValueOnce(null);
 

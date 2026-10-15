@@ -1,10 +1,12 @@
 import { z } from 'zod';
 
-import { isModelMappingProvider, isReasoningBudgetTier, type AppSettings } from '@ungate/shared';
+import { isModelMappingProvider, isReasoningBudgetTier, MAX_MODEL_TOKEN_LIMIT, type AppSettings } from '@ungate/shared';
 
 import { Settings } from '../database/app-settings';
 
 import type { FastifyPluginCallback } from 'fastify';
+
+const TokenLimitSchema = z.number().int().positive().max(MAX_MODEL_TOKEN_LIMIT).nullable().optional();
 
 const ModelMappingUpdateSchema = z.object({
 	id: z.string(),
@@ -17,7 +19,9 @@ const ModelMappingUpdateSchema = z.object({
 	reasoningBudget: z.union([
 		z.null(),
 		z.string().refine((value) => isReasoningBudgetTier(value), { message: 'Invalid reasoningBudget' })
-	])
+	]),
+	contextWindow: TokenLimitSchema,
+	maxOutputTokens: TokenLimitSchema
 });
 
 const SettingsUpdateSchema = z.object({

@@ -1,3 +1,9 @@
+import {
+	isModelTokenLimit,
+	type ModelMappingProvider,
+	type ProviderModelCatalogItem,
+	type ProviderModelsResponse
+} from '@ungate/shared';
 import { config } from 'src/config';
 import { ProviderSettings } from 'src/database/provider-settings';
 import { RequestBuilder } from 'src/proxy/request-builder';
@@ -8,8 +14,6 @@ import { OpenAIOAuthService } from '../auth/openai/openai-oauth-service';
 import { ClaudeTransportError, fetchClaude } from '../proxy/claude-transport';
 
 import { resolveCodexClientVersion } from './codex-client-version';
-
-import type { ModelMappingProvider, ProviderModelCatalogItem, ProviderModelsResponse } from '@ungate/shared';
 
 const REQUEST_TIMEOUT_MS = 10_000;
 const CLAUDE_PAGE_LIMIT = 1000;
@@ -35,6 +39,19 @@ function nonEmptyOr(value: string | undefined, fallback: string): string {
 	return fallback;
 }
 
+// Anthropic reports max_input_tokens/max_tokens; other catalogs use the OpenAI-style aliases.
+const CONTEXT_WINDOW_KEYS = ['max_input_tokens', 'context_window', 'context_length'];
+const MAX_OUTPUT_TOKEN_KEYS = ['max_tokens', 'max_output_tokens', 'max_completion_tokens'];
+
+function firstTokenLimit(value: Record<string, unknown>, keys: string[]): number | undefined {
+	for (const key of keys) {
+		const candidate = value[key];
+		if (isModelTokenLimit(candidate)) return candidate;
+	}
+
+	return undefined;
+}
+
 function itemFrom(value: unknown, idKey: string, labelKey: string): ProviderModelCatalogItem | null {
 	if (!isRecord(value) || typeof value[idKey] !== 'string') {
 		return null;
@@ -46,8 +63,15 @@ function itemFrom(value: unknown, idKey: string, labelKey: string): ProviderMode
 	}
 
 	const rawLabel = typeof value[labelKey] === 'string' ? value[labelKey].trim() : '';
+	const contextWindow = firstTokenLimit(value, CONTEXT_WINDOW_KEYS);
+	const maxOutputTokens = firstTokenLimit(value, MAX_OUTPUT_TOKEN_KEYS);
 
-	return { upstreamModel, label: nonEmptyOr(rawLabel, upstreamModel) };
+	return {
+		upstreamModel,
+		label: nonEmptyOr(rawLabel, upstreamModel),
+		...(contextWindow && { contextWindow }),
+		...(maxOutputTokens && { maxOutputTokens })
+	};
 }
 
 export function normalizeProviderModels(items: (ProviderModelCatalogItem | null)[]): ProviderModelCatalogItem[] {
@@ -65,7 +89,9 @@ export function normalizeProviderModels(items: (ProviderModelCatalogItem | null)
 		seen.add(key);
 		models.push({
 			upstreamModel,
-			label: nonEmptyOr(label, upstreamModel)
+			label: nonEmptyOr(label, upstreamModel),
+			...(item.contextWindow && { contextWindow: item.contextWindow }),
+			...(item.maxOutputTokens && { maxOutputTokens: item.maxOutputTokens })
 		});
 	}
 

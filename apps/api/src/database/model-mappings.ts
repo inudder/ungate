@@ -2,6 +2,7 @@ import { cloneDeep, orderBy, trim } from 'lodash-es';
 
 import {
 	isModelMappingProvider,
+	isModelTokenLimit,
 	isReasoningBudgetTier,
 	type ModelMappingConfig,
 	type ModelMappingProvider,
@@ -11,6 +12,10 @@ import {
 import { modelMappings } from './schema';
 
 import { getDb } from './index';
+
+function tokenLimitOrNull(value: unknown): number | null {
+	return isModelTokenLimit(value) ? value : null;
+}
 
 export class ModelMappings {
 	private static clone(models: ModelMappingConfig[]): ModelMappingConfig[] {
@@ -45,7 +50,9 @@ export class ModelMappings {
 				provider,
 				upstreamModel: trimmedUpstreamModel,
 				sortOrder: index,
-				reasoningBudget
+				reasoningBudget,
+				contextWindow: tokenLimitOrNull(model.contextWindow),
+				maxOutputTokens: tokenLimitOrNull(model.maxOutputTokens)
 			});
 		}
 
@@ -63,7 +70,9 @@ export class ModelMappings {
 				provider: isModelMappingProvider(row.provider) ? row.provider : 'claude',
 				upstreamModel: row.upstreamModel,
 				sortOrder: row.sortOrder,
-				reasoningBudget: isReasoningBudgetTier(row.reasoningBudget) ? row.reasoningBudget : null
+				reasoningBudget: isReasoningBudgetTier(row.reasoningBudget) ? row.reasoningBudget : null,
+				contextWindow: tokenLimitOrNull(row.contextWindow),
+				maxOutputTokens: tokenLimitOrNull(row.maxOutputTokens)
 			})),
 			['sortOrder'],
 			['asc']
@@ -122,7 +131,9 @@ export class ModelMappings {
 						provider: model.provider,
 						upstreamModel: model.upstreamModel,
 						sortOrder: model.sortOrder,
-						reasoningBudget: model.reasoningBudget
+						reasoningBudget: model.reasoningBudget,
+						contextWindow: model.contextWindow,
+						maxOutputTokens: model.maxOutputTokens
 					})
 					.run();
 			}

@@ -1,9 +1,13 @@
 import { logger } from 'src/utils/logger';
+import { resolveMaxOutputTokens } from 'src/utils/output-tokens';
 import { logReasoningSelection, resolveReasoningEffort } from 'src/utils/reasoning-effort';
 
 import type { AnthropicRequest, AnthropicMessage, ContentBlock } from '../types';
 import type { OpenAIContentPart, OpenAIChatRequest } from '../types/openai';
 import type { ReasoningBudgetTier } from '@ungate/shared';
+
+/** Anthropic requires max_tokens; used only when neither the client nor the model mapping sets one. */
+const DEFAULT_MAX_TOKENS = 4096;
 
 // Legacy Cursor model names can include explicit budgets or the old "-thinking" suffix.
 // e.g. "claude-4.6-opus-high" → "claude-opus-4-6" with reasoningBudget="high"
@@ -36,6 +40,7 @@ export function normalizeModelName(model: string): { model: string; reasoningBud
 export interface AnthropicModelOverride {
 	model: string;
 	reasoningBudget?: ReasoningBudgetTier | null;
+	maxOutputTokens?: number | null;
 }
 
 function supportsAssistantPrefill(model: string): boolean {
@@ -232,7 +237,11 @@ export function openaiToAnthropic(request: OpenAIChatRequest, override?: Anthrop
 		messages.push({ role: 'user', content: 'Continue.' });
 	}
 
-	const maxTokens = request.max_tokens ?? request.max_completion_tokens ?? 4096;
+	const maxTokens = resolveMaxOutputTokens(
+		request.max_tokens ?? request.max_completion_tokens,
+		override?.maxOutputTokens,
+		DEFAULT_MAX_TOKENS
+	);
 
 	logger.log(`[OpenAI→Anthropic] "${request.model}" → "${normalized.model}" | max_tokens=${maxTokens}`);
 

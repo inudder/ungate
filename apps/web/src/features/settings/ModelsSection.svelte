@@ -141,7 +141,9 @@ function addModel() {
 			provider: selectedProvider,
 			upstreamModel: '',
 			sortOrder: models.length,
-			reasoningBudget: null
+			reasoningBudget: null,
+			contextWindow: null,
+			maxOutputTokens: null
 		}
 	]);
 
@@ -324,7 +326,9 @@ function addSelectedModels() {
 			provider,
 			upstreamModel: item.upstreamModel,
 			sortOrder: models.length + offset,
-			reasoningBudget: null
+			reasoningBudget: null,
+			contextWindow: item.contextWindow ?? null,
+			maxOutputTokens: item.maxOutputTokens ?? null
 		})
 	);
 	const firstAddedIndex = models.length;
@@ -342,6 +346,23 @@ function inputValue(event: Event): string {
 	}
 
 	return target.value;
+}
+
+function tokenLimitValue(event: Event): number | null {
+	const raw = inputValue(event).trim();
+	if (!raw) return null;
+
+	const value = Number(raw);
+
+	return Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
+function formatTokenLimit(value: number | null | undefined): string {
+	if (!value) return '';
+	if (value >= 1_000_000 && value % 1_000_000 === 0) return `${value / 1_000_000}M tokens`;
+	if (value >= 1000 && value % 1000 === 0) return `${value / 1000}K tokens`;
+
+	return `${value} tokens`;
 }
 
 function selectValue(event: Event): string {
@@ -628,6 +649,36 @@ $effect(() => {
 							</select>
 							<span class="text-xs text-surface-400">
 								Used when the client omits its reasoning effort. Model default leaves the level to the provider.</span>
+						</label>
+
+						<label class="label">
+							<span class="label-text text-xs">Context window</span>
+							<input
+								class="input text-sm font-mono"
+								type="number"
+								min="1"
+								step="1"
+								value={model.contextWindow ?? ''}
+								oninput={(event) => updateModelAtIndex(index, 'contextWindow', tokenLimitValue(event))}
+								placeholder="1000000" />
+							<span class="text-xs text-surface-400">
+								{model.contextWindow ? `${formatTokenLimit(model.contextWindow)}. ` : ''}Reported to clients in /v1/models. Leave
+								empty if unknown.</span>
+						</label>
+
+						<label class="label">
+							<span class="label-text text-xs">Max output tokens</span>
+							<input
+								class="input text-sm font-mono"
+								type="number"
+								min="1"
+								step="1"
+								value={model.maxOutputTokens ?? ''}
+								oninput={(event) => updateModelAtIndex(index, 'maxOutputTokens', tokenLimitValue(event))}
+								placeholder="128000" />
+							<span class="text-xs text-surface-400">
+								{model.maxOutputTokens ? `${formatTokenLimit(model.maxOutputTokens)}. ` : ''}Sent when the client omits a limit;
+								larger client values are capped to it. Empty keeps the proxy fallback.</span>
 						</label>
 					</div>
 				</div>

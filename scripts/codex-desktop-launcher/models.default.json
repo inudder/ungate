@@ -8,7 +8,9 @@
       "upstreamModel": "claude-opus-4-8",
       "transport": "ungate",
       "defaultReasoningLevel": "high",
-      "supportsImageInput": true
+      "supportsImageInput": true,
+      "contextWindow": 1000000,
+      "maxContextWindow": 1000000
     },
     {
       "slug": "ungate-fable-5",
@@ -17,7 +19,9 @@
       "upstreamModel": "claude-fable-5",
       "transport": "ungate",
       "defaultReasoningLevel": "high",
-      "supportsImageInput": true
+      "supportsImageInput": true,
+      "contextWindow": 1000000,
+      "maxContextWindow": 1000000
     },
     {
       "slug": "miniMax-M3",

@@ -113,6 +113,62 @@ describe('routes: health/settings/models/analytics', () => {
 		await app.close();
 	});
 
+	it('reports configured context and output limits for models', async () => {
+		settingsGetMock.mockReturnValueOnce({
+			models: [
+				{ id: 'opus', provider: 'claude', contextWindow: 1000000, maxOutputTokens: 128000 },
+				{ id: 'plain', provider: 'openai', contextWindow: null, maxOutputTokens: null }
+			]
+		});
+
+		const app = await withPlugin(modelsPlugin);
+		const response = await app.inject({ method: 'GET', url: '/v1/models' });
+
+		expect(response.json().data).toEqual([
+			{
+				id: 'opus',
+				object: 'model',
+				created: 1700000000,
+				owned_by: 'claude',
+				context_window: 1000000,
+				context_length: 1000000,
+				max_input_tokens: 1000000,
+				max_output_tokens: 128000,
+				max_completion_tokens: 128000,
+				max_tokens: 128000
+			},
+			{ id: 'plain', object: 'model', created: 1700000000, owned_by: 'openai' }
+		]);
+		await app.close();
+	});
+
+	it('rejects non-positive model token limits in settings', async () => {
+		const app = await withPlugin(settingsPlugin);
+		const response = await app.inject({
+			method: 'POST',
+			url: '/settings',
+			payload: {
+				models: [
+					{
+						id: 'm',
+						label: 'M',
+						provider: 'claude',
+						upstreamModel: 'claude-opus-4-8',
+						sortOrder: 0,
+						reasoningBudget: null,
+						contextWindow: 0,
+						maxOutputTokens: 128000
+					}
+				]
+			}
+		});
+
+		expect(response.statusCode).toBe(400);
+		expect(response.json().error).toContain('contextWindow');
+		expect(settingsUpdateMock).not.toHaveBeenCalled();
+		await app.close();
+	});
+
 	it('validates a model via ModelValidator', async () => {
 		validateModelMock.mockResolvedValueOnce({
 			ok: true,

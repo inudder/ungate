@@ -28,7 +28,9 @@ function model(id: string, sortOrder: number): ModelMappingConfig {
 		provider: 'claude',
 		upstreamModel: id,
 		sortOrder,
-		reasoningBudget: null
+		reasoningBudget: null,
+		contextWindow: null,
+		maxOutputTokens: null
 	};
 }
 
@@ -41,7 +43,9 @@ describe('database-app-settings', () => {
 				provider: 'claude' as const,
 				upstreamModel: 'claude-test-default-model',
 				sortOrder: 0,
-				reasoningBudget: null
+				reasoningBudget: null,
+				contextWindow: null,
+				maxOutputTokens: null
 			}
 		];
 		ModelMappings.replace(expectedModels);
@@ -60,7 +64,9 @@ describe('database-app-settings', () => {
 			provider: 'claude' as const,
 			upstreamModel: 'u',
 			sortOrder: 0,
-			reasoningBudget: null
+			reasoningBudget: null,
+			contextWindow: 400000,
+			maxOutputTokens: 128000
 		};
 
 		Settings.update({

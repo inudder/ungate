@@ -1,5 +1,6 @@
 import { ModelMappings } from 'src/database/model-mappings';
 import { CodexInputUtils } from 'src/proxy/codex-input-utils';
+import { resolveMaxOutputTokens } from 'src/utils/output-tokens';
 import { normalizeReasoningEffort } from 'src/utils/reasoning-effort';
 
 import { flattenResponsesNamespaceTools } from './responses-namespace-tools';
@@ -54,12 +55,13 @@ function toText(value: unknown): string {
 	return JSON.stringify(value);
 }
 
-function normalizeMaxCompletionTokens(maxOutputTokens: number | undefined): number {
-	if (maxOutputTokens === undefined || !Number.isFinite(maxOutputTokens) || maxOutputTokens <= 0) {
-		return RESPONSES_COMPLETION_TOKEN_FLOOR;
-	}
+function normalizeMaxCompletionTokens(maxOutputTokens: number | undefined, modelCap: number | null | undefined): number {
+	const requested =
+		maxOutputTokens === undefined || !Number.isFinite(maxOutputTokens) || maxOutputTokens <= 0
+			? undefined
+			: Math.max(Math.floor(maxOutputTokens), RESPONSES_COMPLETION_TOKEN_FLOOR);
 
-	return Math.max(Math.floor(maxOutputTokens), RESPONSES_COMPLETION_TOKEN_FLOOR);
+	return resolveMaxOutputTokens(requested, modelCap, RESPONSES_COMPLETION_TOKEN_FLOOR);
 }
 
 function normalizeTool(tool: OpenAIResponsesFunctionTool | OpenAITool): OpenAITool {
@@ -378,7 +380,7 @@ export class ResponsesRequestNormalizer {
 			prompt_cache_key: flattenedRequest.prompt_cache_key,
 			tools: flattenedRequest.tools?.map((tool) => normalizeTool(tool as OpenAIResponsesFunctionTool | OpenAITool)),
 			tool_choice: normalizeToolChoice(flattenedRequest.tool_choice),
-			max_completion_tokens: normalizeMaxCompletionTokens(flattenedRequest.max_output_tokens)
+			max_completion_tokens: normalizeMaxCompletionTokens(flattenedRequest.max_output_tokens, resolvedModel?.maxOutputTokens)
 		};
 
 		if (reasoningEffort) {

@@ -31,7 +31,18 @@ const plugin: FastifyPluginCallback = (app) => {
 			id: model.id,
 			object: 'model' as const,
 			created: 1700000000,
-			owned_by: model.provider
+			owned_by: model.provider,
+			// Not part of OpenAI's schema; the common aliases clients read for model limits.
+			...(model.contextWindow && {
+				context_window: model.contextWindow,
+				context_length: model.contextWindow,
+				max_input_tokens: model.contextWindow
+			}),
+			...(model.maxOutputTokens && {
+				max_output_tokens: model.maxOutputTokens,
+				max_completion_tokens: model.maxOutputTokens,
+				max_tokens: model.maxOutputTokens
+			})
 		}));
 
 		return reply.send({

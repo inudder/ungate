@@ -11,7 +11,9 @@ describe('database-model-mappings', () => {
 				provider: 'openai',
 				upstreamModel: ' gpt-5.4 ',
 				sortOrder: 0,
-				reasoningBudget: 'high'
+				reasoningBudget: 'high',
+				contextWindow: 400000,
+				maxOutputTokens: 0
 			},
 			{
 				id: ' ',
@@ -30,7 +32,9 @@ describe('database-model-mappings', () => {
 			provider: 'openai',
 			upstreamModel: 'gpt-5.4',
 			sortOrder: 0,
-			reasoningBudget: 'high'
+			reasoningBudget: 'high',
+			contextWindow: 400000,
+			maxOutputTokens: null
 		});
 	});
 

@@ -1,9 +1,17 @@
 import { openaiToAnthropic } from 'src/adapter/openai-to-anthropic';
 import { ResponsesModelResolver } from 'src/proxy/responses-input-normalizer/resolve-model';
+import { resolveMaxOutputTokens } from 'src/utils/output-tokens';
 import { logReasoningSelection, resolveReasoningEffort, withReasoningSelection } from 'src/utils/reasoning-effort';
 
 import type { ModelMappingConfig } from '@ungate/shared';
 import type { OpenAIChatRequest } from 'src/types/openai';
+
+/** Without a configured cap the MiniMax client keeps its own fallback for omitted limits. */
+function miniMaxOutputCap(body: OpenAIChatRequest, cap: number | null | undefined): Partial<OpenAIChatRequest> {
+	if (!cap) return {};
+
+	return { max_completion_tokens: resolveMaxOutputTokens(body.max_completion_tokens ?? body.max_tokens, cap, cap) };
+}
 
 const MINIMAX_ADD_FILE_INSTRUCTION = [
 	'For Add File, copy this exact grammar and replace only the path and content:',
@@ -114,7 +122,10 @@ export class CompletionModelRouting {
 	}
 
 	static buildMiniMaxBody(openaiBody: OpenAIChatRequest, resolved: ModelMappingConfig | null): OpenAIChatRequest {
-		const withModel = resolved?.provider === 'minimax' ? { ...openaiBody, model: resolved.upstreamModel } : openaiBody;
+		const withModel =
+			resolved?.provider === 'minimax'
+				? { ...openaiBody, model: resolved.upstreamModel, ...miniMaxOutputCap(openaiBody, resolved.maxOutputTokens) }
+				: openaiBody;
 		const reasoning = resolveReasoningEffort(openaiBody, resolved?.reasoningBudget);
 		logReasoningSelection('minimax', withModel.model, reasoning);
 		const withReasoning = withReasoningSelection(withModel, reasoning);
@@ -156,7 +167,8 @@ export class CompletionModelRouting {
 		if (resolved?.provider === 'claude') {
 			return openaiToAnthropic(openaiBody, {
 				model: resolved.upstreamModel,
-				reasoningBudget: resolved.reasoningBudget
+				reasoningBudget: resolved.reasoningBudget,
+				maxOutputTokens: resolved.maxOutputTokens
 			});
 		}
 
