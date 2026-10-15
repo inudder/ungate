@@ -1,4 +1,5 @@
 import type { RequestSource, Tool } from './index';
+import type { ThinkingStats } from '../metrics/thinking-stats';
 
 export interface RequestContext {
 	model: string;
@@ -9,6 +10,8 @@ export interface RequestContext {
 	outputTokens?: number;
 	cacheReadTokens?: number;
 	cacheCreationTokens?: number;
+	reasoningTokens?: number | null;
+	thinking?: ThinkingStats;
 	bodyJson?: unknown;
 }
 

@@ -69,7 +69,8 @@ export class ClaudeChatHandler {
 				inputTokens: context.inputTokens ?? 0,
 				outputTokens: context.outputTokens ?? 0,
 				stream: false,
-				latencyMs
+				latencyMs,
+				thinking: context.thinking
 			},
 			context.cacheReadTokens,
 			context.cacheCreationTokens

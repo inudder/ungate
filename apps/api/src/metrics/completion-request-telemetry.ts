@@ -1,13 +1,17 @@
 import { Requests } from 'src/database/requests';
 
+import { logThinkingSummary, type ThinkingStats } from './thinking-stats';
+
 import type { RequestRecord } from '@ungate/shared';
 import type { FastifyReply } from 'fastify';
+
+export type TelemetryRecord = RequestRecord & { thinking?: ThinkingStats };
 
 export class CompletionRequestTelemetry {
 	static recordAndApplyProxyHeaders(
 		reply: FastifyReply,
 		latencyMs: number,
-		record: RequestRecord,
+		record: TelemetryRecord,
 		cacheReadTokens?: number,
 		cacheCreationTokens?: number
 	): number {
@@ -17,8 +21,14 @@ export class CompletionRequestTelemetry {
 		return requestId;
 	}
 
-	static record(record: RequestRecord, cacheReadTokens?: number, cacheCreationTokens?: number): number {
-		return Requests.record(record, cacheReadTokens, cacheCreationTokens);
+	static record(record: TelemetryRecord, cacheReadTokens?: number, cacheCreationTokens?: number): number {
+		const { thinking, ...stored } = record;
+
+		if (stored.source !== 'error') {
+			logThinkingSummary(stored.model, thinking, stored.reasoningTokens);
+		}
+
+		return Requests.record(stored, cacheReadTokens, cacheCreationTokens);
 	}
 
 	static applyProxyHeaders(reply: FastifyReply, latencyMs: number): void {

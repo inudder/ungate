@@ -1,4 +1,4 @@
-import { CompletionRequestTelemetry } from 'src/metrics';
+import { CompletionRequestTelemetry, type ThinkingStats } from 'src/metrics';
 import { logger } from 'src/utils/logger';
 
 import { extractMiniMaxInlineToolCalls, inlineToolCallPendingSuffix } from './minimax-inline-tool-calls';
@@ -127,6 +127,14 @@ function mapUsage(usage: unknown): OpenAIResponseUsage {
 	};
 }
 
+function reasoningTokensFrom(usage: unknown): number | undefined {
+	const raw = usage && typeof usage === 'object' ? (usage as Record<string, unknown>) : {};
+	const details = (raw.completion_tokens_details ?? raw.output_tokens_details) as Record<string, unknown> | undefined;
+	const value = Number(details?.reasoning_tokens);
+
+	return Number.isFinite(value) ? value : undefined;
+}
+
 function statusFromFinishReason(finishReason: string | null | undefined): {
 	status: OutputStatus;
 	incompleteReason?: string;
@@ -224,8 +232,14 @@ class ResponsesEventEmitter {
 	private minimaxTextBuffer = '';
 	private minimaxLeakDetected = false;
 	private minimaxRecoveredCalls = 0;
+	private reasoningTokens: number | null = null;
 
-	constructor(requestId: string, model: string, reverseToolMapping: Record<string, string> = {}) {
+	constructor(
+		requestId: string,
+		model: string,
+		reverseToolMapping: Record<string, string> = {},
+		readonly thinking?: ThinkingStats
+	) {
 		this.responseId = responseId(requestId);
 		this.model = model;
 		this.reverseToolMapping = reverseToolMapping;
@@ -250,6 +264,7 @@ class ResponsesEventEmitter {
 			return [];
 		}
 
+		this.thinking?.endReasoning();
 		const events = this.ensureMessage();
 		this.messageText += delta;
 
@@ -269,6 +284,8 @@ class ResponsesEventEmitter {
 		if (!delta) {
 			return [];
 		}
+
+		this.thinking?.reasoningDelta(delta);
 
 		return [
 			{
@@ -292,6 +309,9 @@ class ResponsesEventEmitter {
 		for (const segment of parsed.segments) {
 			if (segment.kind === 'content') {
 				this.minimaxTextBuffer += segment.text;
+				this.thinking?.endReasoning();
+			} else {
+				this.thinking?.reasoningDelta(segment.text);
 			}
 		}
 
@@ -376,6 +396,7 @@ class ResponsesEventEmitter {
 	}
 
 	toolStart(index: number, id: string | undefined, name: string | undefined): OpenAIResponseStreamEvent[] {
+		this.thinking?.endReasoning();
 		const originalName = name ? (this.reverseToolMapping[name] ?? name) : undefined;
 		const existing = this.toolsByIndex.get(index);
 		if (existing) {
@@ -450,6 +471,7 @@ class ResponsesEventEmitter {
 
 	setUsage(usage: unknown): void {
 		this.usage = mapUsage(usage);
+		this.reasoningTokens = reasoningTokensFrom(usage) ?? this.reasoningTokens;
 		this.cacheReadTokens = this.usage.input_tokens_details?.cached_tokens ?? 0;
 		this.cacheCreationTokens = this.usage.input_tokens_details?.cache_creation_tokens ?? 0;
 	}
@@ -569,6 +591,8 @@ class ResponsesEventEmitter {
 				outputTokens: this.usage.output_tokens,
 				stream,
 				latencyMs: Date.now() - context.startTime,
+				reasoningTokens: this.reasoningTokens,
+				thinking: this.thinking,
 				...(this.failure && { error: this.failure.message })
 			},
 			this.cacheReadTokens,
@@ -690,6 +714,8 @@ function processAnthropicPayload(payload: string, emitter: ResponsesEventEmitter
 	};
 	const events: Record<string, unknown>[] = [];
 
+	emitter.thinking?.observeAnthropicEvent(event);
+
 	if (event.type === 'message_start' && event.message?.usage) {
 		emitter.setAnthropicUsage(event.message.usage);
 	}
@@ -741,7 +767,12 @@ async function readStream(
 	}
 
 	const decoder = new TextDecoder();
-	const emitter = new ResponsesEventEmitter(options.requestId, options.model, options.context.reverseToolMapping);
+	const emitter = new ResponsesEventEmitter(
+		options.requestId,
+		options.model,
+		options.context.reverseToolMapping,
+		options.context.thinking
+	);
 	let buffer = '';
 
 	const processPayload = (payload: string): void => {

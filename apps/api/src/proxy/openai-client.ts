@@ -293,7 +293,8 @@ export class OpenAiClient {
 			reverseToolMapping: {},
 			inputTokens: usage?.prompt_tokens ?? 0,
 			outputTokens: usage?.completion_tokens ?? 0,
-			cacheReadTokens: usage?.prompt_tokens_details?.cached_tokens ?? 0
+			cacheReadTokens: usage?.prompt_tokens_details?.cached_tokens ?? 0,
+			reasoningTokens: usage?.completion_tokens_details?.reasoning_tokens ?? null
 		};
 	}
 }

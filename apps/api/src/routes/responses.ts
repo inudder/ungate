@@ -1,5 +1,5 @@
 import { HeadersExtractor } from 'src/handlers/headers-extractor';
-import { CompletionRequestTelemetry } from 'src/metrics';
+import { CompletionRequestTelemetry, ThinkingStats, chatThinkingEffort } from 'src/metrics';
 import { CompletionErrorMapper, CompletionModelRouting, CompletionStreamingGateway } from 'src/orchestration/openai';
 import {
 	ResponsesNonStreamSynthesizer,
@@ -66,15 +66,19 @@ async function callUpstream(
 ): Promise<{ result: ProxyResult; upstreamBody: OpenAIChatRequest }> {
 	if (route === 'minimax') {
 		const upstreamBody = CompletionModelRouting.buildMiniMaxBody(chatBody, resolvedModel);
+		const result = await proxyMiniMaxRequest(upstreamBody);
+		result.context.thinking ??= new ThinkingStats(chatThinkingEffort(upstreamBody));
 
-		return { result: await proxyMiniMaxRequest(upstreamBody), upstreamBody };
+		return { result, upstreamBody };
 	}
 
 	if (route === 'openai') {
 		const upstreamBody = CompletionModelRouting.buildOpenAiUpstreamBody(chatBody, resolvedModel!);
 		const proxyBody = chatBody.stream ? upstreamBody : { ...upstreamBody, stream: true };
+		const result = await proxyOpenAIRequest(proxyBody, 'openai');
+		result.context.thinking ??= new ThinkingStats(chatThinkingEffort(proxyBody));
 
-		return { result: await proxyOpenAIRequest(proxyBody, 'openai'), upstreamBody: proxyBody };
+		return { result, upstreamBody: proxyBody };
 	}
 
 	HeadersExtractor.logRequestDetails(request.headers, request.url, request.method, 'OpenAI /v1/responses');
@@ -163,7 +167,8 @@ async function sendResponsesJson(
 				inputTokens: context.inputTokens ?? synthesized.usage.input_tokens,
 				outputTokens: context.outputTokens ?? synthesized.usage.output_tokens,
 				stream: false,
-				latencyMs
+				latencyMs,
+				thinking: context.thinking
 			},
 			context.cacheReadTokens,
 			context.cacheCreationTokens
@@ -187,7 +192,9 @@ async function sendResponsesJson(
 		inputTokens: context.inputTokens ?? synthesized.usage.input_tokens,
 		outputTokens: context.outputTokens ?? synthesized.usage.output_tokens,
 		stream: false,
-		latencyMs
+		latencyMs,
+		reasoningTokens: context.reasoningTokens,
+		thinking: context.thinking
 	});
 
 	return reply.send(restoreResponsesNamespaceValue(synthesized, namespaceToolMapping));

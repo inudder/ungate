@@ -1,4 +1,4 @@
-import { CompletionRequestTelemetry } from 'src/metrics';
+import { CompletionRequestTelemetry, ThinkingStats, chatThinkingEffort } from 'src/metrics';
 import { CompletionErrorMapper, CompletionModelRouting, CompletionStreamingGateway } from 'src/orchestration/openai';
 import { proxyOpenAIRequest } from 'src/proxy/proxy-client';
 
@@ -59,7 +59,9 @@ export class OpenAiMappedChatHandler {
 				inputTokens: context.inputTokens ?? 0,
 				outputTokens: context.outputTokens ?? 0,
 				stream: false,
-				latencyMs
+				latencyMs,
+				reasoningTokens: context.reasoningTokens,
+				thinking: new ThinkingStats(chatThinkingEffort(upstreamBody))
 			},
 			context.cacheReadTokens
 		);

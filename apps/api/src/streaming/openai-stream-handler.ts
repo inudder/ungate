@@ -1,7 +1,7 @@
 import { logger } from 'src/utils/logger';
 
 import { AnthropicToOpenai } from '../adapter/anthropic-to-openai';
-import { Requests } from '../database/requests';
+import { CompletionRequestTelemetry } from '../metrics/completion-request-telemetry';
 import { ToolNormalizer } from '../tools/normalizer';
 import { type ToolUseBlock, type StreamResult, type RequestContext } from '../types/proxy';
 
@@ -95,6 +95,7 @@ export class OpenAIStreamHandler {
 
 							try {
 								const event = JSON.parse(data) as AnthropicStreamEvent;
+								context.thinking?.observeAnthropicEvent(event);
 
 								if (event.type === 'message_start' && !sentStart) {
 									safeEnqueue(new TextEncoder().encode(AnthropicToOpenai.streamStart(streamId, modelName)));
@@ -212,14 +213,15 @@ export class OpenAIStreamHandler {
 											)
 										);
 
-										Requests.record(
+										CompletionRequestTelemetry.record(
 											{
 												model: context.model,
 												source: context.source,
 												inputTokens: finalUsage.input_tokens,
 												outputTokens: finalUsage.output_tokens,
 												stream: true,
-												latencyMs: Date.now() - context.startTime
+												latencyMs: Date.now() - context.startTime,
+												thinking: context.thinking
 											},
 											finalUsage.cache_read_input_tokens,
 											finalUsage.cache_creation_input_tokens

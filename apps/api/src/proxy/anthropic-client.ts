@@ -3,6 +3,7 @@ import { logger } from 'src/utils/logger';
 import { ClaudeAuthError } from '../auth/claude-token-manager';
 import { OAuth } from '../auth/oauth';
 import { config } from '../config';
+import { ThinkingStats, anthropicThinkingEffort } from '../metrics/thinking-stats';
 
 import { ClaudeTransportError, fetchClaude } from './claude-transport';
 import { RequestBuilder } from './request-builder';
@@ -167,7 +168,8 @@ export async function makeClaudeCodeRequest(
 
 async function extractUsage(
 	response: Response,
-	stream: boolean
+	stream: boolean,
+	thinking: ThinkingStats
 ): Promise<{
 	inputTokens: number;
 	outputTokens: number;
@@ -181,6 +183,7 @@ async function extractUsage(
 	try {
 		const json = await response.clone().json();
 		const data = json as {
+			content?: unknown[];
 			usage?: {
 				input_tokens?: number;
 				output_tokens?: number;
@@ -189,6 +192,9 @@ async function extractUsage(
 			};
 		};
 		const usage = data.usage ?? {};
+		for (const block of data.content ?? []) {
+			thinking.observeAnthropicBlock(block);
+		}
 		const cacheReadTokens = usage.cache_read_input_tokens ?? 0;
 		const cacheCreationTokens = usage.cache_creation_input_tokens ?? 0;
 
@@ -221,7 +227,12 @@ export async function proxyRequest(
 			logger.warn(`Claude Code returned HTTP ${claudeResult.response.status}`);
 		}
 
-		const { inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens } = await extractUsage(claudeResult.response, stream);
+		const thinking = new ThinkingStats(anthropicThinkingEffort(body));
+		const { inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens } = await extractUsage(
+			claudeResult.response,
+			stream,
+			thinking
+		);
 
 		return {
 			response: claudeResult.response,
@@ -233,7 +244,8 @@ export async function proxyRequest(
 				inputTokens,
 				outputTokens,
 				cacheReadTokens,
-				cacheCreationTokens
+				cacheCreationTokens,
+				thinking
 			}
 		};
 	}

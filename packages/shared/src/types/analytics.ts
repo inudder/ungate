@@ -27,6 +27,8 @@ export interface RequestRecord {
 	outputTokens: number;
 	cacheReadTokens?: number;
 	cacheCreationTokens?: number;
+	/** Reasoning tokens reported by the provider; null when it does not break them out. */
+	reasoningTokens?: number | null;
 	estimatedCost?: number;
 	stream: boolean;
 	latencyMs: number | null;

@@ -47,6 +47,7 @@ export const requests = sqliteTable('requests', {
 	outputTokens: integer().notNull().default(0),
 	cacheReadTokens: integer().notNull().default(0),
 	cacheCreationTokens: integer().notNull().default(0),
+	reasoningTokens: integer(),
 	estimatedCost: real().notNull().default(0),
 	stream: integer({ mode: 'boolean' }).notNull().default(false),
 	latencyMs: integer(),

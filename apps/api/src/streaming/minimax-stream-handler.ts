@@ -1,6 +1,6 @@
 import { logger } from 'src/utils/logger';
 
-import { Requests } from '../database/requests';
+import { CompletionRequestTelemetry } from '../metrics/completion-request-telemetry';
 
 import type { RequestContext, StreamResult } from '../types/proxy';
 
@@ -283,10 +283,12 @@ export class MiniMaxStreamHandler {
 									if (!segment.text) continue;
 
 									if (segment.kind === 'reasoning') {
+										context.thinking?.reasoningDelta(segment.text);
 										safeEnqueue(buildChunk(streamId, modelName, { reasoning_content: segment.text }));
 										continue;
 									}
 
+									context.thinking?.endReasoning();
 									safeEnqueue(buildChunk(streamId, modelName, { content: segment.text }));
 								}
 							} catch (error) {
@@ -297,6 +299,7 @@ export class MiniMaxStreamHandler {
 
 					if (pendingTag) {
 						if (streamState === 'thinking') {
+							context.thinking?.reasoningDelta(pendingTag);
 							safeEnqueue(buildChunk(streamId, modelName, { reasoning_content: pendingTag }));
 						} else {
 							safeEnqueue(buildChunk(streamId, modelName, { content: pendingTag }));
@@ -309,13 +312,14 @@ export class MiniMaxStreamHandler {
 						safeEnqueue(buildUsageChunk(streamId, modelName, usage));
 					}
 
-					Requests.record({
+					CompletionRequestTelemetry.record({
 						model: modelName,
 						source: 'minimax',
 						inputTokens: usage?.prompt_tokens ?? 0,
 						outputTokens: usage?.completion_tokens ?? 0,
 						stream: true,
-						latencyMs: Date.now() - context.startTime
+						latencyMs: Date.now() - context.startTime,
+						thinking: context.thinking
 					});
 
 					safeEnqueue('data: [DONE]\n\n');

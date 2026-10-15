@@ -29,7 +29,8 @@ function instrumentAnthropicStream(stream: ReadableStream<Uint8Array>, context: 
 				inputTokens,
 				outputTokens,
 				stream: true,
-				latencyMs: Date.now() - context.startTime
+				latencyMs: Date.now() - context.startTime,
+				thinking: context.thinking
 			},
 			cacheReadTokens,
 			cacheCreationTokens
@@ -45,6 +46,7 @@ function instrumentAnthropicStream(stream: ReadableStream<Uint8Array>, context: 
 			if (!line.startsWith('data: ')) continue;
 			try {
 				const event = JSON.parse(line.slice(6)) as AnthropicStreamEvent;
+				context.thinking?.observeAnthropicEvent(event);
 				if (event.type === 'message_start') {
 					const usage = event.message.usage;
 					cacheReadTokens = usage.cache_read_input_tokens ?? 0;
@@ -111,6 +113,7 @@ const plugin: FastifyPluginCallback = (app) => {
 						outputTokens: context.outputTokens ?? 0,
 						stream: false,
 						latencyMs: Date.now() - context.startTime,
+						thinking: context.thinking,
 						...(!response.ok && { error: `HTTP ${response.status}` })
 					},
 					context.cacheReadTokens,

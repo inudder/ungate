@@ -20,6 +20,22 @@ describe('database-requests', () => {
 		expect(row?.model).toBe('claude-sonnet-4-6');
 		expect(row?.estimatedCost).toBeTypeOf('number');
 		expect(row?.error).toBe('boom');
+		expect(row?.reasoningTokens).toBeNull();
+	});
+
+	it('stores reasoning tokens when the provider reports them', () => {
+		const id = Requests.record({
+			model: 'gpt-6.1-sol',
+			source: 'openai',
+			inputTokens: 10,
+			outputTokens: 20,
+			reasoningTokens: 12,
+			stream: true,
+			latencyMs: 5
+		});
+
+		const row = getDb().select().from(schema.requests).where(eq(schema.requests.id, id)).get();
+		expect(row?.reasoningTokens).toBe(12);
 	});
 
 	it('updates tokens and recalculates cost', () => {

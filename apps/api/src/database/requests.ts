@@ -30,6 +30,7 @@ export class Requests {
 				outputTokens: record.outputTokens,
 				cacheReadTokens: resolvedCacheReadTokens,
 				cacheCreationTokens: resolvedCacheCreationTokens,
+				reasoningTokens: record.reasoningTokens ?? null,
 				estimatedCost,
 				stream: record.stream,
 				latencyMs: record.latencyMs ?? null,

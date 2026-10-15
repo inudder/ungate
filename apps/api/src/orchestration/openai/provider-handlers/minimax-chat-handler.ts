@@ -1,4 +1,4 @@
-import { CompletionRequestTelemetry } from 'src/metrics';
+import { CompletionRequestTelemetry, ThinkingStats, chatThinkingEffort } from 'src/metrics';
 import { CompletionErrorMapper, CompletionModelRouting, CompletionStreamingGateway } from 'src/orchestration/openai';
 import { proxyMiniMaxRequest } from 'src/proxy/minimax-client';
 
@@ -14,6 +14,7 @@ export class MiniMaxChatHandler {
 	): Promise<FastifyReply> {
 		const minimaxBody = CompletionModelRouting.buildMiniMaxBody(openaiBody, resolvedModel);
 		const { response, context } = await proxyMiniMaxRequest(minimaxBody);
+		context.thinking ??= new ThinkingStats(chatThinkingEffort(minimaxBody));
 
 		if (!response.ok) {
 			const errorPayload = CompletionErrorMapper.miniMaxErrorPayload(response, context);
@@ -49,7 +50,8 @@ export class MiniMaxChatHandler {
 			inputTokens: context.inputTokens ?? 0,
 			outputTokens: context.outputTokens ?? 0,
 			stream: false,
-			latencyMs
+			latencyMs,
+			thinking: context.thinking
 		});
 
 		return reply.send(openaiResponse);

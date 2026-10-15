@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { ThinkingStats } from 'src/metrics';
 import { ResponsesNonStreamSynthesizer, ResponsesStreamSynthesizer } from 'src/orchestration/responses';
 
 const requestsRecordMock = vi.fn();
@@ -364,10 +365,61 @@ describe('Responses synthesizers', () => {
 			input_tokens_details: { cached_tokens: 16, cache_creation_tokens: 0 }
 		});
 		expect(requestsRecordMock).toHaveBeenLastCalledWith(
-			expect.objectContaining({ source: 'openai', inputTokens: 37, outputTokens: 5 }),
+			expect.objectContaining({ source: 'openai', inputTokens: 37, outputTokens: 5, reasoningTokens: 3 }),
 			16,
 			0
 		);
+	});
+
+	it('counts reasoning deltas into thinking stats without storing the text', async () => {
+		const thinking = new ThinkingStats('high');
+
+		await ResponsesStreamSynthesizer.collectStreamResponse({
+			source: 'openai',
+			response: sseResponse([
+				'{"choices":[{"delta":{"reasoning_content":"abc"},"finish_reason":null}]}',
+				'{"choices":[{"delta":{"reasoning_content":"de"},"finish_reason":null}]}',
+				'{"choices":[{"delta":{"content":"OK"},"finish_reason":null}]}',
+				'{"choices":[{"delta":{"reasoning_content":"xyz"},"finish_reason":"stop"}]}',
+				'[DONE]'
+			]),
+			requestId: 'thinking_stats',
+			model: 'gpt-6.1-sol',
+			context: { ...context(), thinking }
+		});
+
+		expect(thinking).toMatchObject({ blocks: 2, chars: 8, redactedBlocks: 0 });
+		const [stored] = requestsRecordMock.mock.lastCall as [Record<string, unknown>];
+		expect(stored).not.toHaveProperty('thinking');
+		expect(stored.reasoningTokens).toBeNull();
+	});
+
+	it('counts Anthropic thinking and redacted blocks from the stream', async () => {
+		const thinking = new ThinkingStats('adaptive');
+
+		await ResponsesStreamSynthesizer.collectStreamResponse({
+			source: 'claude',
+			response: sseResponse([
+				'{"type":"message_start","message":{"usage":{"input_tokens":5,"output_tokens":1}}}',
+				'{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}',
+				'{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"hmm, "}}',
+				'{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"ok"}}',
+				'{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig"}}',
+				'{"type":"content_block_stop","index":0}',
+				'{"type":"content_block_start","index":1,"content_block":{"type":"redacted_thinking","data":"enc"}}',
+				'{"type":"content_block_stop","index":1}',
+				'{"type":"content_block_start","index":2,"content_block":{"type":"text","text":""}}',
+				'{"type":"content_block_delta","index":2,"delta":{"type":"text_delta","text":"Hi"}}',
+				'{"type":"content_block_stop","index":2}',
+				'{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":9}}',
+				'{"type":"message_stop"}'
+			]),
+			requestId: 'anthropic_thinking',
+			model: 'claude-opus-5-5',
+			context: { ...context(), source: 'claude' as const, thinking }
+		});
+
+		expect(thinking).toMatchObject({ blocks: 1, chars: 7, redactedBlocks: 1 });
 	});
 
 	it('maps a length finish into an incomplete Responses result', async () => {
