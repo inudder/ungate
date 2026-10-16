@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto';
+import { access } from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { createBridgeServer } from './cliproxy-namespace-bridge.mjs';
 import { createShellRouterServer } from './codex-model-shell-router.mjs';
+import { initialToolResults, runFunctionalChecks, SCENARIOS } from './codex-tool-test-scenarios.mjs';
 import { ensureToolsSnapshot, readToolsSnapshot, writeJsonAtomic } from './codex-tools-schema-cache.mjs';
 
 const CACHE_HELP = 'Перезапустите Beta через обновлённый launcher, отправьте сообщение и повторите TT.';
@@ -15,6 +17,15 @@ const LABELS = {
 	provider_error: 'ОШИБКА ПРОВАЙДЕРА/ТРАНСПОРТА',
 	invalid_response: 'НЕКОРРЕКТНЫЙ ОТВЕТ',
 	cancelled: 'ОТМЕНЕНО'
+};
+
+const STAGE_LABELS = {
+	accepted: 'OK',
+	passed: 'OK',
+	schema_rejected: 'ОТКАЗ',
+	failed: 'ОШИБКА',
+	blocked: 'ПРОПУЩЕНО ПО ЗАВИСИМОСТИ',
+	not_tested: 'НЕ ПРОВЕРЕНО'
 };
 
 export function individualTools(tools, prefix = '') {
@@ -50,7 +61,11 @@ export function classifyError(status, error) {
 	);
 	const schemaRejected = [200, 400, 422].includes(status) && !providerFailure && toolRelated && rejection;
 
-	return { status: schemaRejected ? 'schema_rejected' : 'provider_error', reason: message };
+	return {
+		status:
+			schemaRejected && !/tool_choice|max_output_tokens|stream_options/i.test(detail) ? 'schema_rejected' : 'provider_error',
+		reason: message
+	};
 }
 
 // No fetch/proxy environment: all diagnostic connections target servers owned by this process.
@@ -224,11 +239,23 @@ export function reportExitCode(report) {
 		results.some((result) => !['accepted', 'schema_rejected'].includes(result.status))
 	)
 		return 2;
+	if (report.version >= 2) {
+		const scenarios = report.models.flatMap((model) => model.executionChecks ?? []);
+		const incomplete = scenarios.some((check) => !['passed', 'failed', 'blocked'].includes(check.status));
+		const uncovered = report.models.some(
+			(model) => !model.runtime?.version || model.toolResults?.some((tool) => tool.call === 'not_tested')
+		);
+		if (incomplete || uncovered) return 2;
+		if (scenarios.some((check) => check.status === 'failed')) return 1;
+	}
 
 	return results.some((result) => result.status === 'schema_rejected') ? 1 : 0;
 }
 
-export async function runCompatibility(config, { signal, timeoutMs = 120000, log = console.log } = {}) {
+export async function runCompatibility(
+	config,
+	{ signal, timeoutMs = 120000, modelTimeoutMs = 1200000, log = console.log, execute = runFunctionalChecks } = {}
+) {
 	let snapshot;
 	try {
 		snapshot = await readToolsSnapshot(config.cachePath);
@@ -238,7 +265,7 @@ export async function runCompatibility(config, { signal, timeoutMs = 120000, log
 	if (!Array.isArray(config.models) || config.models.length === 0) throw new Error('No models selected.');
 	const checks = individualTools(snapshot.tools);
 	const report = {
-		version: 1,
+		version: 2,
 		startedAt: new Date().toISOString(),
 		completedAt: null,
 		snapshot: {
@@ -248,9 +275,13 @@ export async function runCompatibility(config, { signal, timeoutMs = 120000, log
 			...(snapshot.source ? { source: snapshot.source } : {})
 		},
 		cancelled: false,
+		counts: { tools: checks.length, schemaChecksPerModel: checks.length + 2, executionScenariosPerModel: SCENARIOS.length },
 		models: []
 	};
-	const reportPath = path.join(config.reportDirectory, `${report.startedAt.replace(/[:.]/g, '-')}-${randomUUID()}.json`);
+	const reportName = /^[a-f0-9]{32}$/.test(config.operationId ?? '')
+		? config.operationId
+		: `${report.startedAt.replace(/[:.]/g, '-')}-${randomUUID()}`;
+	const reportPath = path.join(config.reportDirectory, `${reportName}.json`);
 	const keys = config.models.map((model) => model.apiKey).filter(Boolean);
 	const sanitize = (text) => {
 		let safe = String(text);
@@ -258,24 +289,47 @@ export async function runCompatibility(config, { signal, timeoutMs = 120000, log
 
 		return safe.replace(/Bearer\s+[^\s"']+/gi, 'Bearer [REDACTED]').slice(0, 500);
 	};
+	const safeValue = (value) => {
+		if (typeof value === 'string') return sanitize(value);
+		if (Array.isArray(value)) return value.map(safeValue);
+		if (value && typeof value === 'object')
+			return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, safeValue(child)]));
+
+		return value;
+	};
+	let saving = Promise.resolve();
+	const save = () => {
+		const snapshot = safeValue(report);
+		saving = saving.then(() => writeJsonAtomic(reportPath, snapshot));
+
+		return saving;
+	};
+	const progress = (message) => log(sanitize(message));
 	log(`Снимок: ${snapshot.capturedAt} | ${snapshot.sourceModel} | ${checks.length} инструментов | SHA256 ${snapshot.schemaHash}`);
-	log('Проверяется принятие схем, а не выполнение инструментов.');
+	log(`Единая проверка: ${checks.length + 2} схемных проверок и ${SCENARIOS.length} функциональных сценариев на модель.`);
 	const hasExec = snapshot.tools.some((tool) => tool.type === 'custom' && tool.name === 'exec');
 	report.snapshot.hasCustomExec = hasExec;
 	log(
 		hasExec
-			? 'Custom exec присутствует в снимке; проверяется только принятие его схемы.'
+			? 'Custom exec присутствует в снимке; после схем проверяется настоящий исполнитель Codex.'
 			: 'Custom exec отсутствует в снимке — его поддержка этим тестом НЕ проверяется.'
 	);
 	log(`Отчёт: ${reportPath}`);
-	await writeJsonAtomic(reportPath, report);
+	await save();
 	try {
 		for (const definition of config.models) {
 			if (signal?.aborted) {
 				report.cancelled = true;
 				break;
 			}
-			const modelReport = { model: definition.model, displayName: definition.displayName, checks: [] };
+			const modelReport = {
+				model: definition.model,
+				displayName: definition.displayName,
+				checks: [],
+				toolResults: initialToolResults(checks)
+			};
+			const deadline = AbortSignal.timeout(config.modelTimeoutMs ?? modelTimeoutMs);
+			const modelSignal = signal ? AbortSignal.any([signal, deadline]) : deadline;
 			report.models.push(modelReport);
 			log(`\n${definition.displayName} [${definition.model}]`);
 			const servers = [];
@@ -306,15 +360,18 @@ export async function runCompatibility(config, { signal, timeoutMs = 120000, log
 					{ name: '(весь набор)', tools: snapshot.tools }
 				];
 				for (const [index, check] of allChecks.entries()) {
-					const result = await probeSchema(baseUrl, 'tool-compatibility', check.tools, { signal, timeoutMs });
+					const result = await probeSchema(baseUrl, 'tool-compatibility', check.tools, { signal: modelSignal, timeoutMs });
 					result.reason = sanitize(result.reason);
 					modelReport.checks.push({ tool: check.name, ...result });
 					log(
 						`[${index + 1}/${allChecks.length}] ${check.name}: ${LABELS[result.status]} (${result.durationMs} мс) — ${result.reason}`
 					);
-					await writeJsonAtomic(reportPath, report);
-					if (signal?.aborted) {
-						report.cancelled = true;
+					const row = modelReport.toolResults.find((tool) => tool.tool === check.name);
+					if (row) row.schema = result.status;
+					await save();
+					if (modelSignal.aborted) {
+						report.cancelled = Boolean(signal?.aborted);
+						if (deadline.aborted) modelReport.error = 'Model deadline exceeded.';
 						break;
 					}
 					if (index === 0 && result.status !== 'accepted') {
@@ -323,13 +380,33 @@ export async function runCompatibility(config, { signal, timeoutMs = 120000, log
 						break;
 					}
 				}
+				if (!modelReport.skipped && !modelSignal.aborted) {
+					await execute({
+						configuration: { ...config.runtime, ...definition.runtime },
+						modelReport,
+						snapshot,
+						baseUrl,
+						signal: modelSignal,
+						timeoutMs: config.scenarioTimeoutMs ?? 180000,
+						requestTimeoutMs: timeoutMs,
+						save,
+						log: progress
+					});
+				}
+				if (deadline.aborted) modelReport.error = 'Model deadline exceeded.';
+				for (const tool of modelReport.toolResults) {
+					progress(`${tool.tool} — ${tool.purpose}`);
+					progress(
+						`Схема: ${STAGE_LABELS[tool.schema] ?? LABELS[tool.schema] ?? tool.schema} | Вызов: ${STAGE_LABELS[tool.call] ?? tool.call} | Выполнение: ${STAGE_LABELS[tool.execution] ?? tool.execution} | Продолжение: ${STAGE_LABELS[tool.continuation] ?? tool.continuation}${tool.reason ? ` — ${tool.reason}` : ''}`
+					);
+				}
 			} catch (error) {
 				modelReport.error = sanitize(errorMessage(error));
 				log(`Ошибка: ${modelReport.error}`);
 			} finally {
 				for (const server of servers.reverse()) await closeServer(server);
 			}
-			await writeJsonAtomic(reportPath, report);
+			await save();
 		}
 	} finally {
 		report.cancelled ||= Boolean(signal?.aborted);
@@ -339,12 +416,12 @@ export async function runCompatibility(config, { signal, timeoutMs = 120000, log
 		for (const result of report.models.flatMap((model) => model.checks)) {
 			report.summary[result.status] = (report.summary[result.status] ?? 0) + 1;
 		}
-		await writeJsonAtomic(reportPath, report);
+		await save();
 	}
 	for (const [status, count] of Object.entries(report.summary)) log(`${LABELS[status]}: ${count}`);
 	log(`\nПроверка завершена. Код: ${report.exitCode}. Отчёт: ${reportPath}`);
 
-	return { report, reportPath, exitCode: report.exitCode };
+	return { report: safeValue(report), reportPath, exitCode: report.exitCode };
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
@@ -352,6 +429,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
 	const cancel = () => controller.abort();
 	process.once('SIGINT', cancel);
 	process.once('SIGTERM', cancel);
+	let cancelTimer;
 	try {
 		if (process.argv[2] === '--validate-cache') {
 			try {
@@ -374,8 +452,17 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
 			} catch {
 				throw new Error('Invalid diagnostic configuration JSON.');
 			}
-			const result = await runCompatibility(config, { signal: controller.signal });
 			const ndjson = process.argv.includes('--format') && process.argv[process.argv.indexOf('--format') + 1] === 'ndjson';
+			if (config.cancelPath) {
+				cancelTimer = setInterval(() => {
+					access(config.cancelPath).then(cancel, () => {});
+				}, 250);
+				cancelTimer.unref();
+			}
+			const result = await runCompatibility(config, {
+				signal: controller.signal,
+				log: ndjson ? (message) => process.stdout.write(`${JSON.stringify({ type: 'progress', message })}\n`) : console.log
+			});
 			if (ndjson) {
 				process.stdout.write(
 					JSON.stringify({ type: 'result', exitCode: result.exitCode, report: result.report }) + String.fromCharCode(10)
@@ -387,6 +474,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
 		console.error(errorMessage(error));
 		process.exitCode = 2;
 	} finally {
+		clearInterval(cancelTimer);
 		process.removeListener('SIGINT', cancel);
 		process.removeListener('SIGTERM', cancel);
 	}

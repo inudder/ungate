@@ -8,6 +8,7 @@ Import-Module (Join-Path $PSScriptRoot 'Memories.psm1') -DisableNameChecking -Er
 Import-Module (Join-Path $PSScriptRoot 'Logging.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'ProxyRuntime.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'LauncherLock.psm1') -DisableNameChecking -ErrorAction Stop
+Import-Module (Join-Path $PSScriptRoot 'ToolCompatibility.psm1') -DisableNameChecking -ErrorAction Stop
 
 # Constant field lists are functions: launcher modules keep no module-level state.
 function Get-LauncherVersionFields { return @('upstreamModel', 'displayName', 'contextWindow') }
@@ -641,6 +642,10 @@ function New-UngateRunnerConfiguration {
         if ($definition.PSObject.Properties['ParallelToolCallsOverride']) { $record.parallelToolCalls = [bool]$definition.ParallelToolCallsOverride }
         try { $record.apiKey = Resolve-ModelApiKey -Context $context -Definition $definition }
         catch { $record.error = 'Provider credentials are unavailable.' }
+        if ($Kind -eq 'tools') {
+            try { $record.runtime = Get-CodexToolTestRuntime -Context $context -Definition $definition }
+            catch { $record.runtime = @{ error = $_.Exception.Message } }
+        }
         $record
     }
     return @{ kind = $Kind; models = @($selected); reportDirectory = $(if ($Kind -eq 'tools') { Join-Path $BetaHome 'tool-compatibility/reports' } else { Join-Path $BetaHome 'model-capabilities/reports' }) }

@@ -19,7 +19,7 @@ Implementation lives in `scripts/codex-desktop-launcher/`.
 | Logging | Log preferences, menu, event formatting and live watch | Desktop |
 | Picker | Model selection, picker preferences and add-model wizard | Models, Logging, ToolCompatibility |
 | ProxyRuntime | Credentials, bridge/router lifecycle, provider preflight | Routing, existing common helpers |
-| ToolCompatibility | Diagnostic model selection, credentials and standalone schema runner | Models, ProxyRuntime |
+| ToolCompatibility | Diagnostic model selection, credentials and isolated Codex runtime discovery | Models, ProxyRuntime, Desktop, Catalog |
 | Catalog | Model catalog generation, catalog/config verification | Models, Routing, Toml, Desktop |
 | Profile | Initial config, MCP transaction/rollback, shared skills, AGENTS and auth | Routing, Toml, Desktop |
 | Launcher | Selection, transport, profile preparation and launch orchestration | Above modules, existing plugin-isolation module |
@@ -273,20 +273,52 @@ servers in finally. It never prepares profiles, launches/stops Beta, or
 restarts the working router. Provider services must already be available.
 Keys travel from PowerShell over stdin, not command-line arguments or files.
 
-Requests run sequentially: control without tools, each tool (preserving its
-namespace wrapper), then the complete set. Each request streams Responses,
-has a 120-second timeout and 512 output-token budget, disables tool use with
-`tool_choice: none`, and is not retried. No returned tool call is executed.
-A completed response or explicit output-token-limit terminal event proves
-only schema acceptance. SSE errors, missing terminal events, authentication,
-rate limits and timeouts remain distinct from explicit schema rejection.
-A failed control skips the remaining probes for that model.
+TT and `-TestTools` run schema probes and real execution in one action. The
+current snapshot has ten tools (including six `collaboration.*` tools), twelve
+schema probes and six functional scenarios. Counts follow the frozen snapshot.
+Each tool has a Russian purpose and separate schema, call, execution and
+continuation results. Schema probes remain sequential: control without tools,
+each tool preserving its namespace, then the full set. Each has a 120-second
+timeout and 512 output-token budget with `tool_choice: none`. These probes alone
+prove only schema acceptance. Authentication, network errors, unsupported
+diagnostic parameters and timeouts do not count as schema rejection. A failed
+control skips the remaining probes. An individually rejected schema blocks its
+dependent scenarios; rejection of the complete set still permits isolated groups.
 
-JSON reports in `CustomCodexHome/tool-compatibility/reports/` are updated
-after each probe; cancellation preserves partial results. Exit codes:
-`0` all accepted (or selection cancelled before testing), `1` explicit schema
-rejection, `2` technical failure/incomplete test/cancellation. Code 2 wins
-when errors are mixed. No tool blocklist is created or modified.
+`codex-tool-test-runtime.mjs` starts a real stdio Codex app-server in a temporary
+profile and workspace with Code Mode and collaboration v2. The executable is
+resolved from Beta's `CODEX_CLI_PATH` first, then the existing launcher resolver;
+its path and version are recorded. The selected catalogue model and route also
+apply to its one allowed child agent. Global profiles and the running Desktop
+are unchanged. The diagnostic gateway filters groups without rewriting schemas
+and checks each emitted input contract against the saved snapshot before
+forwarding. A missing tool or changed contract means execution is **not tested**.
+
+`codex-tool-test-scenarios.mjs` checks terminal/file read-write-readback through
+exec, yielding exec/wait cell IDs, a real Plan-mode question with automatic
+answer, all six collaboration tools with one child, live web search with a
+cited result, and a combined sequential/parallel task. Random fixture values
+must be obtained from actual results and used in continuation; runner checks
+file postconditions independently. An executor error or ignored result fails
+the corresponding stage. New tools without scenarios and arbitrary MCP tools
+never receive an automatic execution pass. The question window's appearance
+is outside this test. Synthetic executors exist only in offline tests.
+
+Version 2 JSON reports in `CustomCodexHome/tool-compatibility/reports/` preserve
+legacy schema `checks` and add `toolResults` with per-tool stages, dependencies, scenario results,
+skip reasons and runtime evidence. Reports are saved before and after each
+stage; cancellation preserves partial results. Failed runtime artifacts remain
+in the reported temporary directory. Models run sequentially with a 180-second
+scenario deadline and 20-minute model deadline. Cancellation interrupts turns,
+closes owned listeners and allows ten seconds for app-server shutdown before
+terminating its owned process tree. The control agent uses the same runner,
+NDJSON progress and final `type: result`, with a deadline based on model count.
+
+Exit codes: `0` all required schemas and execution/continuation checks confirmed
+(or selection cancelled before testing); `1` explicit schema or functional
+failure; `2` incomplete coverage, runtime mismatch, infrastructure error,
+timeout or cancellation. Code 2 wins when errors are mixed. No tool blocklist
+is created or modified.
 
 Run `pnpm --filter @ungate/scripts run tool-compatibility:test` for isolated
 Node tests; `launcher:test` also includes the TT PowerShell scenarios.

@@ -490,6 +490,7 @@ function Assert-UngateCodexConfig {
 }
 
 Export-ModuleMember -Function @(
+    'New-UngateCatalogModelInfo',
     'Write-UngateModelCatalog',
     'Assert-UngateCodexConfig'
 )

@@ -129,7 +129,7 @@ function New-Operation {
         registryIds = @($RegistryIds)
         startedAt = [DateTime]::UtcNow.ToString('o')
         finishedAt = $null
-        deadlineAt = [DateTime]::UtcNow.AddSeconds((120 * [Math]::Max($ProbeCount, 1)) + 30).ToString('o')
+        deadlineAt = [DateTime]::UtcNow.AddSeconds(($(if ($Kind -eq 'tools') { 1200 } else { 120 }) * [Math]::Max($ProbeCount, 1)) + 30).ToString('o')
         reportId = $null
         exitCode = $null
     }
@@ -162,6 +162,11 @@ function Complete-Job {
     }
     Save-Operation $operation
     $script:Jobs.Remove($Job.Id)
+    if ($Job.OutputSubscription) {
+        Unregister-Event -SourceIdentifier $Job.OutputSubscription -ErrorAction SilentlyContinue
+        Remove-Job -Name $Job.OutputSubscription -Force -ErrorAction SilentlyContinue
+    }
+    if ($Job.Process) { $Job.Process.Dispose() }
 }
 
 function Update-Jobs {
@@ -169,18 +174,31 @@ function Update-Jobs {
         $job = $script:Jobs[$id]
         if ($job.Kind -eq 'node') {
             if ($job.Cancel -or ([DateTime]::UtcNow -gt $job.Deadline)) {
-                if (-not $job.Process.HasExited) { Stop-Process -Id $job.Process.Id -Force -ErrorAction SilentlyContinue }
-                Complete-Job -Job $job -Status $(if ($job.Cancel) { 'cancelled' } else { 'failed' }) -Message $(if ($job.Cancel) { 'Cancelled.' } else { 'Deadline exceeded.' }) -ExitCode 2
+                if (-not $job.Process.HasExited -and $job.CancelPath) {
+                    if (-not $job.CancelRequestedAt) {
+                        [IO.File]::WriteAllText($job.CancelPath, 'cancel')
+                        $job.CancelRequestedAt = [DateTime]::UtcNow
+                    }
+                    if (([DateTime]::UtcNow - $job.CancelRequestedAt).TotalSeconds -lt 10) { continue }
+                }
+                if (-not $job.Process.HasExited) { $job.Process.Kill($true) }
+                $partialReport = if ($job.PartialReportPath) { Read-JsonFile $job.PartialReportPath } else { $null }
+                Complete-Job -Job $job -Status $(if ($job.Cancel) { 'cancelled' } else { 'failed' }) -Message $(if ($job.Cancel) { 'Cancelled.' } else { 'Deadline exceeded.' }) -Report $partialReport -ExitCode 2
                 continue
             }
             if ($job.Process.HasExited) {
+                $job.Process.WaitForExit()
                 $report = $null
                 $line = $job.LastLine
                 if ($line) {
                     try { $parsed = $line | ConvertFrom-Json -Depth 40; if ($parsed.type -eq 'result') { $report = $parsed.report } } catch { $report = $null }
                 }
+                if (-not $report -and $job.PartialReportPath) { $report = Read-JsonFile $job.PartialReportPath }
                 $status = if ($job.Process.ExitCode -eq 0) { 'succeeded' } else { 'failed' }
                 Complete-Job -Job $job -Status $status -Message $job.Stage -Report $report -ExitCode $job.Process.ExitCode
+            } else {
+                $operation = Read-JsonFile (Join-Path $operationsRoot ($job.Id + '.json'))
+                if ($operation -and $operation.stage -ne $job.Stage) { $operation.stage = $job.Stage; Save-Operation $operation }
             }
         } elseif ($job.Handle.IsCompleted) {
             try {
@@ -213,9 +231,18 @@ function Start-NodeJob {
     $process = [Diagnostics.Process]::new()
     $process.StartInfo = $start
     $process.EnableRaisingEvents = $true
-    $job = @{ Id = $Operation.id; Kind = 'node'; Process = $process; Cancel = $false; Deadline = [DateTime]::Parse($Operation.deadlineAt).ToUniversalTime(); Stage = 'starting'; LastLine = $null }
+    $cancelPath = $null
+    $partialReportPath = $null
+    if ($Operation.kind -eq 'tools') {
+        $cancelPath = Join-Path $operationsRoot ($Operation.id + '.cancel')
+        $Configuration.cancelPath = $cancelPath
+        $Configuration.operationId = $Operation.id
+        $partialReportPath = Join-Path $Configuration.reportDirectory ($Operation.id + '.json')
+    }
+    $job = @{ Id = $Operation.id; Kind = 'node'; Process = $process; Cancel = $false; CancelPath = $cancelPath; CancelRequestedAt = $null; PartialReportPath = $partialReportPath; Deadline = [DateTime]::Parse($Operation.deadlineAt).ToUniversalTime(); Stage = 'starting'; LastLine = $null }
     $script:Jobs[$Operation.id] = $job
-    Register-ObjectEvent -InputObject $process -EventName OutputDataReceived -MessageData $job -Action {
+    $job.OutputSubscription = 'ungate-diagnostic-' + $Operation.id
+    Register-ObjectEvent -InputObject $process -EventName OutputDataReceived -SourceIdentifier $job.OutputSubscription -MessageData $job -Action {
         if ($EventArgs.Data) {
             $Event.MessageData.LastLine = $EventArgs.Data
             try {
@@ -226,6 +253,7 @@ function Start-NodeJob {
     } | Out-Null
     [void]$process.Start()
     $process.BeginOutputReadLine()
+    $job.StderrRead = $process.StandardError.ReadToEndAsync()
     $process.StandardInput.Write(($Configuration | ConvertTo-Json -Depth 40 -Compress))
     $process.StandardInput.Close()
 }
@@ -308,7 +336,7 @@ try {
                     else { $body.status = 200; $body.body = Remove-SensitiveValue $record }
                 } elseif ($action -eq 'operations.cancel') {
                     $job = $script:Jobs[[string]$payload.operationId]
-                    if ($job) { $job.Cancel = $true; if ($job.Process -and -not $job.Process.HasExited) { Stop-Process -Id $job.Process.Id -Force } }
+                    if ($job) { $job.Cancel = $true }
                     $body.status = 202
                     $body.body = @{ operationId = [string]$payload.operationId }
                 } elseif ($action -eq 'diagnostics.start' -or ($action -eq 'memories.set' -and $payload.enabled -eq $true)) {

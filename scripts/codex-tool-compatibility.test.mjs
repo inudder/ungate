@@ -254,7 +254,7 @@ test('run freezes snapshot, covers direct/bridge/Mimo routes, disables tool use 
 	].map((model) => ({ ...model, displayName: model.model, apiKey: 'private-key' }));
 	const logs = [];
 	const result = await runCompatibility({ cachePath, reportDirectory: directory, models }, { log: (value) => logs.push(value) });
-	assert.equal(result.exitCode, 0);
+	assert.equal(result.exitCode, 2); // A schema-only fixture cannot establish execution coverage.
 	assert.equal(result.report.models.length, 3);
 	assert.equal(result.report.snapshot.schemaHash, originalSnapshot.schemaHash);
 	assert.equal(result.report.snapshot.hasCustomExec, false);
@@ -265,7 +265,7 @@ test('run freezes snapshot, covers direct/bridge/Mimo routes, disables tool use 
 		bodies.filter((body) => body.model === 'mimo').every((body) => !body.tools?.some((tool) => tool.type === 'namespace'))
 	);
 	const reportContent = await readFile(result.reportPath, 'utf8');
-	assert.equal(JSON.parse(reportContent).exitCode, 0);
+	assert.equal(JSON.parse(reportContent).exitCode, 2);
 	assert.doesNotMatch(await readFile(result.reportPath, 'utf8'), /private-key/);
 	assert.doesNotMatch(logs.join('\n'), /private-key/);
 });
@@ -298,7 +298,7 @@ test('exec snapshots use DeepSeek adapter and report only schema coverage', asyn
 		},
 		{ log: (value) => logs.push(value) }
 	);
-	assert.equal(result.exitCode, 0);
+	assert.equal(result.exitCode, 2);
 	assert.equal(result.report.snapshot.hasCustomExec, true);
 	assert.match(logs.join('\n'), /Custom exec присутствует/);
 	assert.ok(bodies.some((body) => body.tools?.some((tool) => tool.name === 'exec' && tool.type === 'function')));

@@ -1,6 +1,30 @@
 #requires -Version 7.4
 Import-Module (Join-Path $PSScriptRoot 'Models.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'ProxyRuntime.psm1') -DisableNameChecking -ErrorAction Stop
+Import-Module (Join-Path $PSScriptRoot 'Desktop.psm1') -DisableNameChecking -ErrorAction Stop
+Import-Module (Join-Path $PSScriptRoot 'Catalog.psm1') -DisableNameChecking -ErrorAction Stop
+
+function Get-CodexToolTestRuntime {
+    param([Parameter(Mandatory)][psobject]$Context, [Parameter(Mandatory)][object]$Definition)
+    $ErrorActionPreference = 'Stop'
+    $executable = $null
+    if (Test-Path -LiteralPath $Context.CustomConfigPath -PathType Leaf) {
+        $config = Get-Content -LiteralPath $Context.CustomConfigPath -Raw
+        $cliMatch = [regex]::Match($config, '(?m)^CODEX_CLI_PATH\s*=\s*[''"]([^''"]+)[''"]\s*$')
+        if ($cliMatch.Success -and (Test-Path -LiteralPath $cliMatch.Groups[1].Value -PathType Leaf)) {
+            $executable = (Resolve-Path -LiteralPath $cliMatch.Groups[1].Value).Path
+        }
+    }
+    if (-not $executable) { $executable = Get-CodexCliExecutable -Context $Context }
+    if (-not $executable) { throw 'Codex executable is unavailable.' }
+    $catalogPath = if (Test-Path -LiteralPath $Context.CustomModelCatalogPath -PathType Leaf) { $Context.CustomModelCatalogPath } else { $Context.DefaultModelCachePath }
+    $catalog = Get-Content -LiteralPath $catalogPath -Raw | ConvertFrom-Json -Depth 100
+    $template = $catalog.models | Where-Object { $_.display_name -eq $Definition.DisplayName } | Select-Object -First 1
+    if (-not $template) { $template = $catalog.models | Select-Object -First 1 }
+    if (-not $template) { throw 'Beta model catalogue is empty.' }
+    $modelInfo = New-UngateCatalogModelInfo -Definition $Definition -CatalogSlug ([string]$template.slug) -DefaultCatalog $catalog -FallbackModelTemplate $template
+    return @{ executable = $executable; modelInfo = $modelInfo }
+}
 
 function Read-ToolCompatibilityKey {
     $ErrorActionPreference = 'Stop'
@@ -90,6 +114,8 @@ function Invoke-CodexToolCompatibility {
                     $record.apiKey = Resolve-ModelApiKey -Context $Context -Definition $definition -ApiKey $Context.Options.ApiKey
                 }
                 catch { $record.error = 'Could not resolve provider credentials. Check the provider key configuration.' }
+                try { $record.runtime = Get-CodexToolTestRuntime -Context $Context -Definition $definition }
+                catch { $record.runtime = @{ error = $_.Exception.Message } }
                 $record
             }
         )
@@ -105,4 +131,4 @@ function Invoke-CodexToolCompatibility {
     }
 }
 
-Export-ModuleMember -Function @('Invoke-CodexToolCompatibility')
+Export-ModuleMember -Function @('Invoke-CodexToolCompatibility', 'Get-CodexToolTestRuntime')
