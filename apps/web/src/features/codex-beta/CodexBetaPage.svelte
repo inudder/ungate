@@ -228,6 +228,11 @@ function syncDrafts() {
 	}
 	capDraft = next;
 }
+function selectModel(registryId: string): void {
+	if (selectedId === registryId) return;
+	selectedId = registryId;
+	syncDrafts();
+}
 function applyState(next: LauncherState) {
 	page = next;
 	if (!next.models.some((model) => model.registryId === selectedId)) selectedId = next.models[0]?.registryId ?? '';
@@ -467,8 +472,7 @@ async function addModel() {
 
 		return;
 	}
-	selectedId = registryId;
-	syncDrafts();
+	selectModel(registryId);
 	query = '';
 	addDraft = blankAddDraft();
 	addOpen = false;
@@ -540,7 +544,7 @@ onMount(() => {
 							<li
 								><button
 									class="w-full rounded px-2 py-1 text-left {selectedId === model.registryId ? 'bg-primary-500/15' : ''}"
-									onclick={() => (selectedId = model.registryId)}
+									onclick={() => selectModel(model.registryId)}
 									>{model.displayName}<span class="block text-xs text-surface-400"
 										>{model.registryId} · {model.requestModel} · {model.inTemplate ? 'из шаблона' : 'своя'}</span
 									></button
