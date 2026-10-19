@@ -80,7 +80,9 @@ const ADJUSTMENT_DESCRIPTIONS = {
 		'matched after ignoring trailing whitespace and Unicode dash, quote, and space variants; file context was kept',
 	missing_context_marker_space:
 		'context lines were missing the marker space; matched them one space deeper and kept the file lines',
-	extra_space_after_marker: 'every - and + line had a space after the marker; removed that space from the + lines'
+	extra_space_after_marker: 'every - and + line had a space after the marker; removed that space from the + lines',
+	context_repeated_as_removed:
+		'a context line was repeated as the removed line right after it; treated the pair as one removed line'
 };
 const MAX_QUOTED_LINE_LENGTH = 160;
 
@@ -633,34 +635,41 @@ const MATCH_FALLBACKS = [
 	}
 ];
 
+const exactMatches = (entry, fileLine) => entry.text === fileLine;
+
+// Start lines, at most `limit`, where every context and removed line of the chunk matches.
+function matchingStarts(lines, chunk, cursor, matches, limit) {
+	const oldEntries = chunkOldEntries(chunk);
+	const firstStart = chunk.endOfFile ? lines.length - oldEntries.length : cursor;
+	const lastStart = chunk.endOfFile ? firstStart : lines.length - oldEntries.length;
+	const starts = [];
+	if (firstStart < cursor) {
+		return starts;
+	}
+	for (let start = firstStart; start <= lastStart && starts.length < limit; start += 1) {
+		if (oldEntries.every((entry, offset) => matches(entry, lines[start + offset]))) {
+			starts.push(start);
+		}
+	}
+
+	return starts;
+}
+
 function locateChunk(lines, chunk, cursor) {
 	const oldEntries = chunkOldEntries(chunk);
 	if (oldEntries.length === 0) {
 		return { index: chunk.endOfFile ? lines.length : cursor, length: 0, adjustment: null };
 	}
 
-	const firstStart = chunk.endOfFile ? lines.length - oldEntries.length : cursor;
-	const lastStart = chunk.endOfFile ? firstStart : lines.length - oldEntries.length;
-	if (firstStart < cursor) {
-		return null;
-	}
-	const matchesAt = (start, matches) => oldEntries.every((entry, offset) => matches(entry, lines[start + offset]));
-
-	for (let start = firstStart; start <= lastStart; start += 1) {
-		if (matchesAt(start, (entry, fileLine) => entry.text === fileLine)) {
-			return { index: start, length: oldEntries.length, adjustment: null };
-		}
+	const [exactStart] = matchingStarts(lines, chunk, cursor, exactMatches, 1);
+	if (exactStart !== undefined) {
+		return { index: exactStart, length: oldEntries.length, adjustment: null };
 	}
 	for (const fallback of MATCH_FALLBACKS) {
 		if (fallback.applies && !fallback.applies(chunk)) {
 			continue;
 		}
-		const starts = [];
-		for (let start = firstStart; start <= lastStart && starts.length < 2; start += 1) {
-			if (matchesAt(start, fallback.matches)) {
-				starts.push(start);
-			}
-		}
+		const starts = matchingStarts(lines, chunk, cursor, fallback.matches, 2);
 		if (starts.length === 1) {
 			return { index: starts[0], length: oldEntries.length, adjustment: fallback.adjustment };
 		}
@@ -669,7 +678,50 @@ function locateChunk(lines, chunk, cursor) {
 		}
 	}
 
+	return locateCollapsedChunk(lines, chunk, cursor);
+}
+
+// The collapsed hunk must match exactly one location, like every fallback. Only comparisons that
+// keep + lines as written are combined with it. An ambiguous collapse reports the original hunk.
+function locateCollapsedChunk(lines, chunk, cursor) {
+	const collapsed = collapseContextRepeatedAsRemoved(chunk);
+	if (!collapsed) {
+		return null;
+	}
+	for (const matches of [exactMatches, MATCH_FALLBACKS[0].matches]) {
+		const starts = matchingStarts(lines, collapsed, cursor, matches, 2);
+		if (starts.length === 1) {
+			return {
+				index: starts[0],
+				length: chunkOldEntries(collapsed).length,
+				adjustment: 'context_repeated_as_removed',
+				chunk: collapsed
+			};
+		}
+		if (starts.length > 1) {
+			return null;
+		}
+	}
+
 	return null;
+}
+
+// A hunk that lists the line it replaces twice, as " line" and then "-line", wants one removed
+// line. The exact match already succeeds when the file repeats the line, so this runs only after
+// every other match failed. Returns null when the hunk has no such pair.
+function collapseContextRepeatedAsRemoved(chunk) {
+	const lines = chunk.lines.filter((line, index) => {
+		const next = chunk.lines[index + 1];
+
+		return !(
+			line.marker === ' ' &&
+			next?.marker === '-' &&
+			line.text.trim() !== '' &&
+			looseLine(line.text) === looseLine(next.text)
+		);
+	});
+
+	return lines.length === chunk.lines.length ? null : { ...chunk, lines };
 }
 
 function findAnchor(lines, anchor, cursor) {
@@ -825,9 +877,10 @@ function applyUpdateChunks(textFile, chunks, displayPath) {
 			adjustments.push(`${displayPath} hunk ${hunkNumber}: ${ADJUSTMENT_DESCRIPTIONS[match.adjustment]}.`);
 		}
 
+		const matchedChunk = match.chunk ?? chunk;
 		const replacement = [];
 		let fileIndex = match.index;
-		for (const line of chunk.lines) {
+		for (const line of matchedChunk.lines) {
 			if (line.marker === ' ') {
 				replacement.push(records[fileIndex]);
 				fileIndex += 1;
@@ -840,7 +893,7 @@ function applyUpdateChunks(textFile, chunks, displayPath) {
 			}
 		}
 		records.splice(match.index, match.length, ...replacement);
-		const trailingContextCount = [...chunk.lines].reverse().findIndex((line) => line.marker !== ' ');
+		const trailingContextCount = [...matchedChunk.lines].reverse().findIndex((line) => line.marker !== ' ');
 		// A context-only section exists to skip past its lines; a changing hunk lets the next
 		// hunk reuse its trailing context.
 		const reusableContext = trailingContextCount < 0 ? 0 : trailingContextCount;

@@ -16,6 +16,8 @@ import {
 	unresolvedYieldCellId,
 	requestHasWaitTool,
 	applyUnresolvedYieldWait,
+	execFailureNote,
+	repairExecSyntax,
 	repairUnaryPlusPatchLines
 } from './cliproxy-namespace-bridge.mjs';
 
@@ -1325,4 +1327,288 @@ test('repairs exec patch arrays in the Chat SSE custom tool lifecycle', async ()
 	const completed = events.find((event) => event.type === 'response.completed');
 	assert.equal(completed.response.output.find((item) => item.type === 'custom_tool_call').input, expected);
 	assert.equal(logs.filter((line) => line.includes('repaired 1 unary-plus patch line')).length, 1);
+});
+
+function commandOf(source) {
+	const match = /command:\s*("(?:[^"\\]|\\.)*")/su.exec(source);
+	assert.ok(match, 'repaired source has a JSON string command');
+
+	return JSON.parse(match[1]);
+}
+
+test('turns a PowerShell here-string used as an exec value into a JavaScript string', () => {
+	const literal = [
+		'// @exec: {"yield_time_ms": 60000}',
+		'const r = await tools.shell_command({',
+		"  command: @'",
+		"$files = Get-ChildItem -LiteralPath 'J:\\Dev' -Filter '*.md'",
+		'"count: $($files.Count)"',
+		"'@,",
+		'  timeout_ms: 60000',
+		'});',
+		'text(typeof r === "string" ? r : JSON.stringify(r));'
+	].join('\n');
+
+	const result = repairExecSyntax(literal);
+
+	assert.deepEqual(result.repairs, ['here_string']);
+	assert.equal(
+		commandOf(result.source),
+		"$files = Get-ChildItem -LiteralPath 'J:\\Dev' -Filter '*.md'\n\"count: $($files.Count)\""
+	);
+	assert.deepEqual(repairExecSyntax(result.source), { source: result.source, repairs: [] });
+
+	// An expandable here-string resolves its backtick escapes as PowerShell would.
+	const expandable = [
+		'const r = await tools.shell_command({ command: @"',
+		'`$tokens = `$null',
+		'Write-Output "a`tb"',
+		'"@ });'
+	].join('\r\n');
+	assert.equal(commandOf(repairExecSyntax(expandable).source), '$tokens = $null\r\nWrite-Output "a\tb"');
+});
+
+test('ends a here-string value at the line that makes the script compile', () => {
+	// The PowerShell text holds its own here-string, so the value ends at the later closing line.
+	const nested = [
+		'const r = await tools.shell_command({',
+		"  command: @'",
+		"$script = @'",
+		'echo remote',
+		"'@",
+		"$script | ssh -o BatchMode=yes host 'bash -s'",
+		"'@,",
+		'  timeout_ms: 30000',
+		'});',
+		'text(JSON.stringify(r));'
+	].join('\n');
+	assert.equal(
+		commandOf(repairExecSyntax(nested).source),
+		"$script = @'\necho remote\n'@\n$script | ssh -o BatchMode=yes host 'bash -s'"
+	);
+
+	// A pipeline after the closing delimiter belongs to the command, here-string included.
+	const piped = [
+		'const r = await tools.shell_command({',
+		"  command: @'",
+		'set -eu',
+		'hostname',
+		"'@ | ssh host 'bash -s',",
+		'});'
+	].join('\n');
+	assert.equal(commandOf(repairExecSyntax(piped).source), "@'\nset -eu\nhostname\n'@ | ssh host 'bash -s'");
+
+	// "body" | Out-Null would compile as a JavaScript bitwise OR, so the pipeline is tried first.
+	const outNull = [
+		'await tools.shell_command({ command: @"',
+		'New-Item -ItemType Directory x',
+		'"@ | Out-Null, timeout_ms: 1 });'
+	].join('\n');
+	const outNullRepaired = repairExecSyntax(outNull).source;
+	assert.equal(commandOf(outNullRepaired), '@"\nNew-Item -ItemType Directory x\n"@ | Out-Null');
+	assert.match(outNullRepaired, /, timeout_ms: 1 \}\);$/u);
+
+	// The JavaScript resumes at a comma before a key, not at a comma inside the pipeline.
+	const commas = [
+		"await tools.shell_command({ command: @'",
+		'Get-ChildItem',
+		"'@ | Select-Object Name, Mode, timeout_ms: 1, workdir: 'J:/x' });"
+	].join('\n');
+	const commasRepaired = repairExecSyntax(commas).source;
+	assert.equal(commandOf(commasRepaired), "@'\nGet-ChildItem\n'@ | Select-Object Name, Mode");
+	assert.match(commasRepaired, /, timeout_ms: 1, workdir: 'J:\/x' \}\);$/u);
+});
+
+test('repairs a braced or quoted shorthand key in a nested tool call', () => {
+	const source = [
+		'const a = await tools.shell_command({command}: "rg -n x", timeout_ms: 10000});',
+		'const b = await tools.shell_command({command": "rg -n y", timeout_ms: 10000});',
+		'text([a, b].join("\\n"));'
+	].join('\n');
+
+	const result = repairExecSyntax(source);
+
+	assert.deepEqual(result.repairs, ['braced_key', 'stray_key_quote']);
+	assert.equal(
+		result.source,
+		[
+			'const a = await tools.shell_command({command: "rg -n x", timeout_ms: 10000});',
+			'const b = await tools.shell_command({command: "rg -n y", timeout_ms: 10000});',
+			'text([a, b].join("\\n"));'
+		].join('\n')
+	);
+});
+
+test('leaves compiling, embedded and unrepairable exec scripts unchanged', () => {
+	const unchanged = [
+		// Valid scripts, including look-alikes that are ordinary JavaScript.
+		'const pick = ok ? {command} : other;\ntext(pick);',
+		'const note = "({command}: x) and @\'";\ntext(note);',
+		"const lines = [\"@'\", 'print(1)', \"'@ | python -\"];\ntext(lines.join('\\n'));",
+		// Broken for another reason: the patterns inside a string or comment are not edited.
+		'const note = "({command}: x)";\n// command: @\'\ntext(note',
+		// The here-string never closes, or the script still fails after every candidate.
+		"const r = await tools.shell_command({ command: @'\necho hi\n",
+		"const r = await tools.shell_command({ command: @'\necho hi\n'@ | ssh host 'bash -s'\", timeout_ms: 1});",
+		// Raw PowerShell input is reported, not rewritten into a tool call.
+		"Get-ChildItem -LiteralPath 'J:\\Dev' -Directory | Select-Object Name"
+	];
+	for (const source of unchanged) {
+		assert.deepEqual(repairExecSyntax(source), { source, repairs: [] }, source);
+	}
+});
+
+test('repairs exec syntax in the Chat SSE custom tool lifecycle and logs it once', async () => {
+	const mapping = flattenResponsesRequest({ tools: [{ type: 'custom', name: 'exec', format: { type: 'text' } }] }).mapping;
+	const input = 'const r = await tools.shell_command({command}: "rg -n x", timeout_ms: 10000}); text(r);';
+	const logs = [];
+	const output = await transformResponsesChat(
+		[
+			sse('chat.completion.chunk', {
+				id: 'chat_syntax',
+				choices: [
+					{
+						index: 0,
+						delta: {
+							tool_calls: [
+								{
+									index: 0,
+									id: 'call_syntax',
+									type: 'function',
+									function: { name: 'exec', arguments: JSON.stringify({ input }) }
+								}
+							]
+						},
+						finish_reason: 'tool_calls'
+					}
+				]
+			}),
+			'data: [DONE]\n\n'
+		],
+		{ mapping, model: 'grok-4.7', logger: { error() {}, log: (line) => logs.push(line) } }
+	);
+	const events = eventData(output);
+	const expected = input.replace('({command}:', '({command:');
+
+	assert.equal(events.find((event) => event.type === 'response.custom_tool_call_input.done').input, expected);
+	assert.equal(events.find((event) => event.type === 'response.output_item.done').item.input, expected);
+	const completed = events.find((event) => event.type === 'response.completed');
+	assert.equal(completed.response.output.find((item) => item.type === 'custom_tool_call').input, expected);
+	assert.deepEqual(
+		logs.filter((line) => line.includes('repaired exec syntax')),
+		['[cliproxy-namespace-bridge] repaired exec syntax (braced_key) event=response.output_item.done model=grok-4.7']
+	);
+});
+
+test('locates exec syntax errors and names the likely cause', () => {
+	const failed = (message) => `Script failed\nWall time 0.0 seconds\nOutput:\nScript error:\n${message}`;
+
+	const hereString = "const r = await tools.shell_command({ command: @'\necho hi\n";
+	assert.equal(
+		execFailureNote(hereString, failed('SyntaxError: Invalid or unexpected token')),
+		[
+			'[ungate bridge] exec_main.mjs:1:48 SyntaxError: Invalid or unexpected token',
+			"const r = await tools.shell_command({ command: @'",
+			'                                               ^',
+			"[ungate bridge] A PowerShell here-string (@' ... '@) is not JavaScript. Build multi-line text as an array of strings joined with String.fromCharCode(10) and pass the joined string."
+		].join('\n')
+	);
+
+	const shell = "// @exec: {}\nGet-ChildItem -LiteralPath 'J:\\Dev' -Directory | Select-Object Name";
+	assert.match(
+		execFailureNote(shell, failed('SyntaxError: Unexpected string')),
+		/^\[ungate bridge\] exec_main\.mjs:2:28 SyntaxError/u
+	);
+	assert.match(execFailureNote(shell, failed('SyntaxError: Unexpected string')), /exec runs JavaScript, not a shell/u);
+	assert.match(
+		execFailureNote('ls -la /J/Dev', failed('ReferenceError: ls is not defined\n    at exec_main.mjs:1:1')),
+		/exec runs JavaScript, not a shell/u
+	);
+
+	const newline = 'const r = await tools.shell_command({ command: "python -c \\"\nimport json\nprint(1)\\"" });';
+	assert.match(execFailureNote(newline, failed('SyntaxError: Invalid or unexpected token')), /cannot contain a raw line break/u);
+
+	const powershell = "const r = await tools.shell_command({ command: 'x' });\nif (r.status -eq 'ok') { text(r) }";
+	assert.match(execFailureNote(powershell, failed('SyntaxError: Unexpected string')), /exec_main\.mjs:2:/u);
+	assert.match(execFailureNote(powershell, failed('SyntaxError: Unexpected string')), /uses PowerShell syntax/u);
+
+	const unclosed = 'const r = await tools.shell_command({ command: "x" ';
+	assert.match(
+		execFailureNote(unclosed, failed('SyntaxError: missing ) after argument list')),
+		/SyntaxError at the end of the script/u
+	);
+});
+
+test('names runtime causes Codex reports without context, only for failed outputs', () => {
+	const call = 'const r = await tools.mcp__node_repl__js({ code: "fs.writeFileSync(1)" }); text(JSON.stringify(r));';
+	const nodeRepl = (message) => `Script completed\nOutput:\n{"content":[{"type":"text","text":"${message}"}],"isError":true}`;
+
+	assert.match(execFailureNote(call, nodeRepl('fs is not defined')), /are not Node\.js: fs is not defined there/u);
+	assert.match(execFailureNote(call, nodeRepl("Identifier 'fsMod' has already been declared")), /keeps top-level const/u);
+	assert.match(
+		execFailureNote(
+			'await tools.web_search({ query: "x" });',
+			'Script failed\nScript error:\nTypeError: tools.web_search is not a function'
+		),
+		/tools\.web_search is not available inside exec/u
+	);
+	assert.match(
+		execFailureNote(
+			'const r = await tools.shell_command({ command: "rg -n x app/*.py" }); text(r);',
+			'Script failed\nScript error:\nExit code: 1\nOutput:\nrg: app/*.py: The filename, directory name, or volume label syntax is incorrect. (os error 123)\n'
+		),
+		/PowerShell passes \* to native commands unexpanded/u
+	);
+
+	// A successful search that prints these messages, or an output already annotated, gets no note.
+	assert.equal(execFailureNote(call, 'Script completed\nOutput:\nsrc/a.js:3: // require is not defined in workers'), null);
+	assert.equal(execFailureNote(call, `${nodeRepl('fs is not defined')}\n\n[ungate bridge] already noted`), null);
+	assert.equal(execFailureNote('text(1);', 'Script completed\nOutput:\n1'), null);
+});
+
+test('annotates failed exec outputs in upstream history with stable bytes', () => {
+	const tools = [{ type: 'custom', name: 'exec', format: { type: 'text' } }];
+	const brokenInput = "Get-ChildItem -LiteralPath 'J:\\Dev'";
+	const failure = 'Script failed\nWall time 0.0 seconds\nOutput:\n';
+	const request = {
+		model: 'grok-4.7',
+		tools,
+		input: [
+			{ type: 'custom_tool_call', call_id: 'call_array', name: 'exec', input: brokenInput },
+			{
+				type: 'custom_tool_call_output',
+				call_id: 'call_array',
+				output: [
+					{ type: 'input_text', text: failure },
+					{ type: 'input_text', text: 'Script error:\nSyntaxError: Unexpected string' }
+				]
+			},
+			{ type: 'custom_tool_call', call_id: 'call_string', name: 'exec', input: brokenInput },
+			{
+				type: 'custom_tool_call_output',
+				call_id: 'call_string',
+				output: `${failure}Script error:\nSyntaxError: Unexpected string`
+			},
+			{ type: 'custom_tool_call', call_id: 'call_ok', name: 'exec', input: 'text(1);' },
+			{ type: 'custom_tool_call_output', call_id: 'call_ok', output: 'Script completed\nOutput:\n1' },
+			{ type: 'function_call', call_id: 'call_other', name: 'shell', arguments: '{}' },
+			{ type: 'function_call_output', call_id: 'call_other', output: 'Script error:\nSyntaxError: Unexpected string' }
+		]
+	};
+	const original = JSON.stringify(request);
+
+	const first = flattenResponsesRequest(request).body;
+	const second = flattenResponsesRequest(JSON.parse(original)).body;
+
+	assert.equal(JSON.stringify(request), original);
+	assert.equal(JSON.stringify(first), JSON.stringify(second));
+	const arrayOutput = first.input[1].output;
+	assert.equal(first.input[1].type, 'function_call_output');
+	assert.equal(arrayOutput.length, 3);
+	assert.equal(arrayOutput[2].type, 'input_text');
+	assert.match(arrayOutput[2].text, /^\[ungate bridge\] exec_main\.mjs:1:28 SyntaxError: Unexpected string\n/u);
+	assert.match(arrayOutput[2].text, /exec runs JavaScript, not a shell/u);
+	assert.equal(first.input[3].output, `${failure}Script error:\nSyntaxError: Unexpected string\n\n${arrayOutput[2].text}`);
+	assert.equal(first.input[5].output, 'Script completed\nOutput:\n1');
+	assert.equal(first.input[7].output, 'Script error:\nSyntaxError: Unexpected string');
 });

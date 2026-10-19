@@ -789,6 +789,89 @@ test('matches trailing whitespace and typographic punctuation like native apply_
 	assert.equal(await readFile(join(root, 'source.txt'), 'utf8'), 'say(“hello”)   \nnew value\n');
 });
 
+test('treats a context line repeated as the removed line as one removed line', async (t) => {
+	const root = await temporaryDirectory(t);
+	const source = [
+		'import asyncio',
+		'from datetime import datetime, timezone',
+		'from typing import Any',
+		'',
+		'from app.database import get_db, get_frozen_hosts',
+		'from app.ssh_config import get_hosts',
+		''
+	].join('\n');
+	await writeFile(join(root, 'disk_usage.py'), source);
+
+	// Recorded Grok hunk: the import it replaces is listed as context and then again as removed.
+	const result = await applyPatchTransaction(
+		{
+			workingDirectory: root,
+			patch: [
+				'*** Begin Patch',
+				'*** Update File: disk_usage.py',
+				'@@',
+				' from datetime import datetime, timezone',
+				'-from datetime import datetime, timezone',
+				'+from datetime import datetime, timedelta, timezone',
+				' from typing import Any',
+				' ',
+				'-from app.database import get_db, get_frozen_hosts',
+				'+from app.database import get_db, get_frozen_hosts, is_host_frozen',
+				' from app.ssh_config import get_hosts',
+				'*** End Patch'
+			].join('\n')
+		},
+		unrestrictedOptions()
+	);
+
+	assert.equal(
+		await readFile(join(root, 'disk_usage.py'), 'utf8'),
+		[
+			'import asyncio',
+			'from datetime import datetime, timedelta, timezone',
+			'from typing import Any',
+			'',
+			'from app.database import get_db, get_frozen_hosts, is_host_frozen',
+			'from app.ssh_config import get_hosts',
+			''
+		].join('\n')
+	);
+	assert.equal(result.adjustments.length, 1);
+	assert.match(result.adjustments[0], /repeated as the removed line/u);
+});
+
+test('keeps the repeated context line when the file repeats it, and refuses an ambiguous collapse', async (t) => {
+	const root = await temporaryDirectory(t);
+	await writeFile(join(root, 'repeated.txt'), 'start\nvalue\nvalue\nend\n');
+
+	const repeated = await applyPatchTransaction(
+		{
+			workingDirectory: root,
+			patch: ['*** Begin Patch', '*** Update File: repeated.txt', '@@', ' value', '-value', '+changed', '*** End Patch'].join(
+				'\n'
+			)
+		},
+		unrestrictedOptions()
+	);
+	assert.equal(await readFile(join(root, 'repeated.txt'), 'utf8'), 'start\nvalue\nchanged\nend\n');
+	assert.equal('adjustments' in repeated, false);
+
+	await writeFile(join(root, 'ambiguous.txt'), 'value\nother\nvalue\n');
+	await assert.rejects(
+		applyPatchTransaction(
+			{
+				workingDirectory: root,
+				patch: ['*** Begin Patch', '*** Update File: ambiguous.txt', '@@', ' value', '-value', '+changed', '*** End Patch'].join(
+					'\n'
+				)
+			},
+			unrestrictedOptions()
+		),
+		errorCode('hunk_not_found')
+	);
+	assert.equal(await readFile(join(root, 'ambiguous.txt'), 'utf8'), 'value\nother\nvalue\n');
+});
+
 test('refuses a whitespace-tolerant match that is not unique', async (t) => {
 	const root = await temporaryDirectory(t);
 	await writeFile(join(root, 'source.txt'), 'value = 1 \nvalue = 1  \n');

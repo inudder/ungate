@@ -270,6 +270,23 @@ for the menu, validation stages and failure behavior.
   `apply_patch` (`repairUnaryPlusPatchLines`) in finished items it emits, so a
   misplaced diff marker no longer becomes `NaN`. Scripts with template literals
   are left unchanged.
+- It also repairs `exec` scripts that do not compile when the intent is clear
+  (`repairExecSyntax`): a PowerShell here-string used as a value
+  (`command: @'...'@`, also nested or followed by `| ssh host 'bash -s'`)
+  becomes a JSON string, and `({command}: "...")` or `({command": "...")`
+  becomes `({command: "...")`. A repair is kept only when the original fails to
+  compile and the result compiles; the log line is
+  `repaired exec syntax (<kinds>)`. Replayed over October 2026 sessions, it
+  repaired 35 of 69 compile failures and changed none of 6,500 compiling
+  scripts.
+- For failed `exec` calls in the history it sends upstream, the bridge appends
+  a `[ungate bridge]` note to the output (`annotateExecFailures`): the line,
+  column and caret of a compile error, which Codex omits, and the likely cause,
+  such as shell input sent as JavaScript, PowerShell syntax inside JavaScript,
+  Node.js globals, `mcp__node_repl__js` bindings that persist between calls, a
+  `tools.X` that exec does not provide, or an `rg` glob PowerShell did not
+  expand. The note depends only on the call and its output, so the prompt
+  cache stays valid; Codex's own history is unchanged.
 - The CLIProxy bridge is for CLIProxyAPI models, currently mode 3 Grok. It
   must not be inserted into direct Ungate or OmniRoute routes.
 - MiniMax tool compatibility is an `apps\api` concern and remains separate
@@ -335,7 +352,12 @@ expects:
 - Chat Completions SSE translated into Responses events;
 - unresolved `Script running with cell ID N` yields: if the model returns
   `stop` with no tool call, the bridge synthesizes native `wait` before
-  `response.completed`. A reasoning-only stop is not a finished turn.
+  `response.completed`. A reasoning-only stop is not a finished turn;
+- `exec` scripts that do not compile, and failed `exec` outputs, as described
+  under Main chat routes.
+
+The launcher restarts the bridge when the SHA256 of
+`cliproxy-namespace-bridge.mjs` changes, so bridge code stays in that one file.
 
 After changing the bridge, run `pnpm --filter @ungate/scripts run bridge:test`.
 The process on `8318` picks up code only after a Desktop launcher restart. Do

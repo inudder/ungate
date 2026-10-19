@@ -43,20 +43,40 @@ HARD RULE — source edits:
 - Use Shell only for inspection, execution, formatting, and verification.
 - Do not edit source through Set-Content, Add-Content, WriteAllText, Python,
   Node.js, or a generated temporary edit script while apply_patch is available.
+- Throwaway scripts (a repro or a verification run) are not source edits. Pass
+  the code on stdin instead of writing a file, from the project workdir so
+  project imports resolve:
+  const py = ["import sys", "print(sys.version)"].join(nl);
+  const r = await tools.shell_command({ command: "@'" + nl + py + nl + "'@ | python -", workdir: "<project>" });
+  If a file is really needed, create it with mcp__ungate_patch__apply_patch.
 - Never nest PowerShell here-strings or wrap source containing @' / '@ / @" / "@
   inside another here-string.
 - PowerShell is not Bash. Never use <<EOF or python - <<'PY'.
 - Remote SSH scripts via PowerShell: never pass remote Bash scripts with
   variables or command substitutions as double-quoted strings (ssh host "... \$VAR ... $(cmd)").
   In PowerShell \ does not escape $, and $(cmd) runs locally on Windows.
-  Always pipe a single-quoted here-string into stdin: @' ... '@ | ssh host 'bash -s'.
+  Always pipe a single-quoted here-string into stdin, built inside the command
+  string: command: "@'" + nl + script + nl + "'@ | ssh host 'bash -s'".
 - Quoting CLI arguments in PowerShell (rg, git, grep, regex):
   Always wrap search patterns, regular expressions, and arguments with special characters
   (|, $, ", \) in single quotes ('...'): use rg -n 'id="domain-list"' instead of rg -n "id=\"domain-list\"".
   In PowerShell \ does not escape " inside double quotes; it breaks regex groups and arguments.
   Inside single quotes everything is literal and " needs no escaping. For literal string search, use rg -F.
-- The js tool is a V8 orchestration isolate, not Node.js. Do not use require,
-  fs, path, or filesystem access there.
+  Inside a JavaScript string a regex backslash must be doubled: "rg -n 'param\\('".
+- rg in PowerShell: * is not expanded for native commands, so rg x app/*.py
+  fails with os error 123; use rg -n x -g '*.py' app. Name only paths you have
+  seen; one missing path fails the command. Exit code 1 means no matches.
+- Run a linter or formatter only on files of its language: ruff on .py files,
+  never on .html templates.
+- exec input is always JavaScript for a V8 isolate. It is neither Node.js
+  (no require, fs, path, process or Buffer) nor a shell. Never send a bare
+  shell command as exec input, and never write PowerShell syntax (@'...'@,
+  @{...}, -eq, [Math]::) in the JavaScript itself: PowerShell belongs only
+  inside the command string of tools.shell_command. Top-level tools such as
+  web_search are not on tools inside exec.
+- mcp__node_repl__js is for browser control. Its top-level const and let
+  bindings persist between calls, so wrap its code in { ... }. Do not create
+  scripts or source files with it.
 - After editing a .ps1 file, validate it with Parser.ParseFile.
 - After an edit-related ParserError, do not retry with another quoting wrapper;
   switch directly to apply_patch.
