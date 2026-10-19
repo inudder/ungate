@@ -1325,9 +1325,13 @@ Describe 'Ungate environment source-edit instructions' {
         $identity | Should -Match 'ok: true'
         $identity | Should -Match 'only patch path'
         $identity | Should -Match 'Remote SSH scripts via PowerShell'
-        $identity | Should -Match "@' \.\.\. '@ \| ssh host 'bash -s'"
+        $identity | Should -Match ([regex]::Escape('command: "@''" + nl + script + nl + "''@ | ssh host ''bash -s''"'))
         $identity | Should -Match 'Quoting CLI arguments in PowerShell'
         $identity | Should -Match "rg -n 'id=""domain-list""'"
+        $identity | Should -Match 'exec input is always JavaScript'
+        $identity | Should -Match ([regex]::Escape('"@''" + nl + py + nl + "''@ | python -"'))
+        $identity | Should -Match 'mcp__node_repl__js is for browser control'
+        $identity | Should -Match 'os error 123'
     }
 }
 

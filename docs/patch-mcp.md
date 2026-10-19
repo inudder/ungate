@@ -70,7 +70,7 @@ error.
 
 ## Context matching
 
-A hunk is first matched exactly. If that fails, three fallbacks are tried
+A hunk is first matched exactly. If that fails, four fallbacks are tried
 in order. Each must match exactly one location after the current position;
 an ambiguous fallback fails. Context lines always keep the live file text.
 
@@ -80,6 +80,10 @@ an ambiguous fallback fails. Context lines always keep the live file text.
    copied as is reads one space shallower than the file.
 3. Every non-blank `-` and `+` line has a space after its marker, as in
    `- old` / `+ new`. That space is removed from the `+` lines.
+4. A context line directly followed by a removed line with the same text,
+   as in ` import x` / `-import x` / `+import x, y`, is one removed line. It
+   is matched exactly or as in fallback 1. A file that repeats the line
+   matches the hunk exactly before this fallback is reached.
 
 A successful fallback adds a short line to the result's `adjustments`.
 

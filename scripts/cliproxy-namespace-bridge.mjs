@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { Transform, pipeline } from 'node:stream';
 import { StringDecoder } from 'node:string_decoder';
 import { pathToFileURL } from 'node:url';
+import vm from 'node:vm';
 
 const SERVICE_NAME = 'cliproxy-namespace-bridge';
 const DEFAULT_HOST = '127.0.0.1';
@@ -190,7 +191,7 @@ export function parseExecWaitCall(input) {
 	return args;
 }
 
-function execWaitInputFromToolCall(value) {
+function execInputFromToolCall(value) {
 	if (!isObject(value)) return null;
 	const name = typeof value.name === 'string' ? value.name : '';
 	if (name !== 'exec') return null;
@@ -271,45 +272,411 @@ export function repairUnaryPlusPatchLines(source) {
 	return { source: repaired + source.slice(copiedUpTo), repaired: repairs.length };
 }
 
+const EXEC_FILENAME = 'exec_main.mjs';
+const KEY_TYPO_RE = /^\{\s*([A-Za-z_$][\w$]*)\s*([}"])\s*:/u;
+const HERE_STRING_OPEN_RE = /^@(['"])[ \t]*\r?\n/u;
+const MAX_EXEC_REPAIR_COMPILES = 32;
+
+// Compiles exec input as the body of an async function, the script form closest to the module
+// Codex runs, without running it. Returns the SyntaxError, or null when the source compiles.
+// Module-only syntax such as a static import fails here too, so callers act on an error only
+// together with a specific repair or diagnosis.
+export function execSyntaxError(source) {
+	try {
+		void new vm.Script(`(async () => {\n${source}\n})`, { filename: EXEC_FILENAME, lineOffset: -1 });
+	} catch (error) {
+		if (error instanceof SyntaxError) return error;
+	}
+
+	return null;
+}
+
+// Index after a quoted string or template literal that starts at index. A quoted string also
+// ends at a line break, where JavaScript reports it unterminated.
+function quotedEnd(source, index) {
+	const quote = source[index];
+	let cursor = index + 1;
+	while (cursor < source.length && source[cursor] !== quote && (quote === '`' || source[cursor] !== '\n')) {
+		cursor += source[cursor] === '\\' ? 2 : 1;
+	}
+
+	return cursor + 1;
+}
+
+const POWERSHELL_ESCAPES = { 0: '\0', a: '\u0007', b: '\b', e: '\u001b', f: '\f', n: '\n', r: '\r', t: '\t', v: '\v' };
+
+// Backtick escapes of an expandable "@ here-string, resolved as PowerShell would: `$ is $, `n is a
+// line break, `u{263A} is that code point. $ variables are left for the command to evaluate, since
+// the script that defined them never ran.
+function resolvePowerShellEscapes(text) {
+	return text.replace(/`(?:u\{([0-9A-Fa-f]{1,6})\}|([\s\S]))/gu, (escape, codePoint, char) => {
+		if (codePoint !== undefined) return String.fromCodePoint(Number.parseInt(codePoint, 16));
+
+		return POWERSHELL_ESCAPES[char] ?? char;
+	});
+}
+
+// Offsets in a PowerShell pipeline tail where the JavaScript could resume, shortest first: a comma
+// before a key or a closing bracket, a closing bracket, or the end of the line. Quoted PowerShell
+// text is skipped. A trailing comma stays JavaScript.
+function pipelineResumeOffsets(tail) {
+	const offsets = [];
+	let quote = null;
+	for (let index = 0; index < tail.length; index += 1) {
+		const char = tail[index];
+		if (quote) {
+			if (char === '`' && quote === '"') index += 1;
+			else if (char === quote) quote = null;
+			continue;
+		}
+		if (char === "'" || char === '"') quote = char;
+		else if (char === ',' && /^\s*(?:[A-Za-z_$][\w$]*\s*:|[)}\]]|$)/u.test(tail.slice(index + 1))) offsets.push(index);
+		else if (char === ')' || char === '}' || char === ']') offsets.push(index);
+	}
+	if (!/,\s*$/u.test(tail)) offsets.push(tail.length);
+
+	return offsets;
+}
+
+// Possible ends of a PowerShell here-string written as a JavaScript value: @' or @" ending its line,
+// then a line that starts with the matching '@ or "@. Such a line ends the value with the body,
+// which PowerShell runs as the command. When the line goes on with a pipeline, as in
+// '@ | ssh host 'bash -s', the command is that pipeline with its here-string instead; the body
+// alone is not tried there, because "body" | Out-Null compiles as a JavaScript bitwise OR.
+// Lines are tried in order, so a here-string nested in the PowerShell text ends at a later line.
+function hereStringCandidates(source, start) {
+	const open = HERE_STRING_OPEN_RE.exec(source.slice(start, start + 64));
+	if (!open) return [];
+	const closing = `${open[1]}@`;
+	const bodyStart = start + open[0].length;
+	const candidates = [];
+	let lineStart = bodyStart;
+	while (lineStart < source.length) {
+		const newline = source.indexOf('\n', lineStart);
+		const lineEnd = newline < 0 ? source.length : newline;
+		const line = source.slice(lineStart, lineEnd);
+		const indent = line.length - line.trimStart().length;
+		if (line.startsWith(closing, indent)) {
+			const closeEnd = lineStart + indent + closing.length;
+			const tail = source.slice(closeEnd, lineEnd).replace(/\r$/u, '');
+			if (/^\s*\|/u.test(tail)) {
+				const hereString = source.slice(start, closeEnd);
+				for (const offset of pipelineResumeOffsets(tail)) {
+					candidates.push({ end: closeEnd + offset, text: JSON.stringify(hereString + tail.slice(0, offset).trimEnd()) });
+				}
+			} else {
+				const body = source.slice(bodyStart, lineStart).replace(/\r?\n$/u, '');
+				candidates.push({ end: closeEnd, text: JSON.stringify(open[1] === '"' ? resolvePowerShellEscapes(body) : body) });
+			}
+		}
+		if (newline < 0) break;
+		lineStart = newline + 1;
+	}
+
+	return candidates;
+}
+
+// The first place at or after `from` that a syntax repair addresses, outside comments, strings and
+// template literals, with the replacements to try there.
+function nextExecRepairSite(source, from) {
+	let lastCodeChar = '';
+	let index = from;
+	while (index < source.length) {
+		const char = source[index];
+		const next = source[index + 1];
+		if (char === '/' && next === '/') {
+			const end = source.indexOf('\n', index);
+			index = end < 0 ? source.length : end;
+			continue;
+		}
+		if (char === '/' && next === '*') {
+			const end = source.indexOf('*/', index + 2);
+			index = end < 0 ? source.length : end + 2;
+			continue;
+		}
+		if (char === '"' || char === "'" || char === '`') {
+			index = quotedEnd(source, index);
+			lastCodeChar = char;
+			continue;
+		}
+		if (char === '@' && (next === "'" || next === '"')) {
+			const candidates = hereStringCandidates(source, index);
+			if (candidates.length > 0) return { kind: 'here_string', start: index, candidates };
+		}
+		if (char === '{' && lastCodeChar === '(') {
+			const match = KEY_TYPO_RE.exec(source.slice(index, index + 128));
+			if (match) {
+				return {
+					kind: match[2] === '}' ? 'braced_key' : 'stray_key_quote',
+					start: index,
+					candidates: [{ end: index + match[0].length, text: `{${match[1]}:` }]
+				};
+			}
+		}
+		if (!/\s/u.test(char)) lastCodeChar = char;
+		index += 1;
+	}
+
+	return null;
+}
+
+// Every site must be repaired; the first combination of candidates that compiles wins.
+function resolveExecRepairs(source, from, budget) {
+	const site = nextExecRepairSite(source, from);
+	if (!site) {
+		budget.compiles -= 1;
+
+		return execSyntaxError(source) === null ? { source, repairs: [] } : null;
+	}
+	for (const candidate of site.candidates) {
+		if (budget.compiles <= 0) return null;
+		const edited = source.slice(0, site.start) + candidate.text + source.slice(candidate.end);
+		const result = resolveExecRepairs(edited, site.start + candidate.text.length, budget);
+		if (result) return { source: result.source, repairs: [site.kind, ...result.repairs] };
+	}
+
+	return null;
+}
+
+// Grok writes some exec scripts that do not compile but whose intent is clear:
+// - a PowerShell here-string as a value, command: @'...'@, becomes a JSON string literal;
+// - a broken shorthand key, tools.shell_command({command}: "...") or ({command": "..."), becomes
+//   ({command: "...".
+// Edits are made only outside comments, strings and template literals, only when the original
+// fails to compile, and only when the edited script compiles. Anything else is returned unchanged.
+export function repairExecSyntax(source) {
+	if (typeof source !== 'string' || execSyntaxError(source) === null) return { source, repairs: [] };
+	if (nextExecRepairSite(source, 0) === null) return { source, repairs: [] };
+
+	return resolveExecRepairs(source, 0, { compiles: MAX_EXEC_REPAIR_COMPILES }) ?? { source, repairs: [] };
+}
+
+function repairExecInput(input) {
+	const syntax = repairExecSyntax(input);
+	const unaryPlus = repairUnaryPlusPatchLines(syntax.source);
+
+	return { input: unaryPlus.source, unaryPlus: unaryPlus.repaired, syntax: syntax.repairs };
+}
+
 function repairExecItem(item) {
 	if (!isObject(item) || item.type !== 'custom_tool_call' || item.name !== 'exec' || typeof item.input !== 'string') {
-		return { item, repaired: 0 };
+		return { item, unaryPlus: 0, syntax: [] };
 	}
-	const result = repairUnaryPlusPatchLines(item.input);
+	const result = repairExecInput(item.input);
 
-	return { item: result.repaired > 0 ? { ...item, input: result.source } : item, repaired: result.repaired };
+	return {
+		item: result.input === item.input ? item : { ...item, input: result.input },
+		unaryPlus: result.unaryPlus,
+		syntax: result.syntax
+	};
 }
 
 // Repairs exec inputs in the event shapes Codex reads: a finished output item, the finished
 // custom input, and the output list of response.completed. Streaming deltas stay as sent.
-export function repairExecPatchPayload(data) {
-	if (!isObject(data)) return { data, repaired: 0 };
+// unaryPlus counts moved patch-line pluses; syntax lists the syntax repairs by kind.
+export function repairExecPayload(data) {
+	const unchanged = { data, unaryPlus: 0, syntax: [] };
+	if (!isObject(data)) return unchanged;
 	if (data.type === 'response.custom_tool_call_input.done' && typeof data.input === 'string') {
-		const result = repairUnaryPlusPatchLines(data.input);
+		const { input, unaryPlus, syntax } = repairExecInput(data.input);
 
-		return { data: result.repaired > 0 ? { ...data, input: result.source } : data, repaired: result.repaired };
+		return { data: input === data.input ? data : { ...data, input }, unaryPlus, syntax };
 	}
 	if (isObject(data.item)) {
-		const result = repairExecItem(data.item);
+		const { item, unaryPlus, syntax } = repairExecItem(data.item);
 
-		return { data: result.repaired > 0 ? { ...data, item: result.item } : data, repaired: result.repaired };
+		return { data: item === data.item ? data : { ...data, item }, unaryPlus, syntax };
 	}
 	const response = isObject(data.response) ? data.response : data;
-	if (!Array.isArray(response.output)) return { data, repaired: 0 };
-	let repaired = 0;
+	if (!Array.isArray(response.output)) return unchanged;
+	let unaryPlus = 0;
+	const syntax = [];
+	let changed = false;
 	const output = response.output.map((item) => {
 		const result = repairExecItem(item);
-		repaired += result.repaired;
+		unaryPlus += result.unaryPlus;
+		syntax.push(...result.syntax);
+		changed ||= result.item !== item;
 
 		return result.item;
 	});
-	if (repaired === 0) return { data, repaired: 0 };
+	if (!changed) return unchanged;
 
-	return { data: response === data ? { ...data, output } : { ...data, response: { ...response, output } }, repaired };
+	return {
+		data: response === data ? { ...data, output } : { ...data, response: { ...response, output } },
+		unaryPlus,
+		syntax
+	};
+}
+
+const EXEC_NOTE_PREFIX = '[ungate bridge]';
+const MAX_NOTE_SOURCE_LINE = 160;
+const CMDLET_RE = /\b[A-Z][a-z]+-[A-Z][A-Za-z]+\b/u;
+const SHELL_LINE_RE =
+	/^(?:[A-Z][a-z]+-[A-Z][A-Za-z]+|&\s*['"]|\.{1,2}[\\/]|(?:ls|dir|cat|cd|echo|rg|grep|git|python3?|py|node|npm|npx|pnpm|pytest|ruff|uv|pip|curl|ssh|docker|wsl|bash|pwsh|powershell)(?=\s|$))/u;
+const SHELL_INPUT_HINT =
+	'exec runs JavaScript, not a shell. Pass the command as a string: const r = await tools.shell_command({ command: "..." }); text(typeof r === "string" ? r : JSON.stringify(r));';
+const HERE_STRING_HINT =
+	"A PowerShell here-string (@' ... '@) is not JavaScript. Build multi-line text as an array of strings joined with String.fromCharCode(10) and pass the joined string.";
+const POWERSHELL_SYNTAX_RE =
+	/@[{(]|\s-(?:eq|ne|lt|le|gt|ge|like|match|and|or|not)\s|\[[A-Za-z][\w.]*\]::|\$[A-Za-z_]\w*\.[A-Za-z]|\b[A-Z][a-z]+-[A-Z][A-Za-z]+\b/u;
+const POWERSHELL_IN_JS_HINT =
+	'This line uses PowerShell syntax, but exec scripts are JavaScript. Keep PowerShell inside the command string passed to tools.shell_command.';
+const EXEC_FAILURE_RE = /^Script failed|Script error:|"isError"\s*:\s*true|Exit code: [1-9]/mu;
+const RAW_NEWLINE_HINT =
+	'A quoted JavaScript string cannot contain a raw line break. Build multi-line text as an array of strings joined with String.fromCharCode(10).';
+const NODE_REPL_BINDING_HINT =
+	'mcp__node_repl__js keeps top-level const, let and class bindings between calls. Wrap the code in a block { ... } or use a new name.';
+const RG_GLOB_HINT =
+	"PowerShell passes * to native commands unexpanded, so rg looked for a file named with a literal asterisk. Use a glob flag instead: rg -n PATTERN -g '*.py' DIR.";
+
+function nodeGlobalHint(name) {
+	return (
+		`exec and mcp__node_repl__js are not Node.js: ${name} is not defined there. Write files with mcp__ungate_patch__apply_patch. ` +
+		`Run a throwaway script through stdin instead of a file: tools.shell_command({ command: "@'" + nl + code + nl + "'@ | python -" }) with nl = String.fromCharCode(10).`
+	);
+}
+
+function firstCodeLine(source) {
+	for (const line of source.replace(/^﻿/u, '').split('\n')) {
+		const trimmed = line.trim();
+		if (trimmed !== '' && !trimmed.startsWith('//')) return trimmed;
+	}
+
+	return '';
+}
+
+// The input is a shell command line rather than JavaScript: it starts with a cmdlet or a common
+// command, or assigns a PowerShell variable from a cmdlet.
+function looksLikeShellInput(source) {
+	const line = firstCodeLine(source);
+
+	return SHELL_LINE_RE.test(line) || (/^\$[A-Za-z_]\w*\s*=/u.test(line) && CMDLET_RE.test(line));
+}
+
+// Line, column and text of an exec SyntaxError, from the "exec_main.mjs:LINE" header V8 puts in
+// the stack of a compile error. line is null when the error is past the last line.
+function execSyntaxLocation(error, source) {
+	const [header = '', text = '', caret = ''] = String(error.stack ?? '').split('\n');
+	const match = /^exec_main\.mjs:(\d+)$/u.exec(header);
+	if (!match) return null;
+	const line = Number(match[1]);
+	if (line < 1 || line > source.split('\n').length) return { line: null, column: null, text: '' };
+	const caretIndex = caret.indexOf('^');
+
+	return { line, column: caretIndex < 0 ? 1 : caretIndex + 1, text: text.replace(/\r$/u, '') };
+}
+
+function excerptWithCaret(text, column) {
+	const index = Math.max(0, column - 1);
+	if (text.length <= MAX_NOTE_SOURCE_LINE) return [text, `${' '.repeat(index)}^`];
+	const start = Math.max(0, Math.min(index - 60, text.length - MAX_NOTE_SOURCE_LINE));
+	const end = Math.min(text.length, start + MAX_NOTE_SOURCE_LINE);
+	const lead = start > 0 ? '…' : '';
+
+	return [`${lead}${text.slice(start, end)}${end < text.length ? '…' : ''}`, `${' '.repeat(index - start + lead.length)}^`];
+}
+
+function syntaxNotes(source, error, location) {
+	if (location.line === null) {
+		return [`${EXEC_NOTE_PREFIX} ${EXEC_FILENAME} SyntaxError at the end of the script: ${error.message}`];
+	}
+	const notes = [
+		`${EXEC_NOTE_PREFIX} ${EXEC_FILENAME}:${location.line}:${location.column} SyntaxError: ${error.message}`,
+		...excerptWithCaret(location.text, location.column)
+	];
+	const char = location.text[location.column - 1];
+	if (looksLikeShellInput(source)) notes.push(`${EXEC_NOTE_PREFIX} ${SHELL_INPUT_HINT}`);
+	else if (/@['"]/u.test(location.text)) notes.push(`${EXEC_NOTE_PREFIX} ${HERE_STRING_HINT}`);
+	else if (POWERSHELL_SYNTAX_RE.test(location.text)) notes.push(`${EXEC_NOTE_PREFIX} ${POWERSHELL_IN_JS_HINT}`);
+	else if ((char === '"' || char === "'") && error.message === 'Invalid or unexpected token') {
+		notes.push(`${EXEC_NOTE_PREFIX} ${RAW_NEWLINE_HINT}`);
+	}
+
+	return notes;
+}
+
+function rgUnexpandedGlob(outputText) {
+	if (!outputText.includes('(os error 123)')) return false;
+
+	return outputText.split('\n').some((line) => line.startsWith('rg: ') && line.includes('*') && line.includes('(os error 123)'));
+}
+
+// A short location and likely cause for a failed exec call. Codex reports a compile error without
+// its line, and a few runtime failures without their cause, so the model otherwise guesses. Returns
+// null when nothing is known beyond the output itself.
+export function execFailureNote(source, outputText) {
+	if (typeof source !== 'string' || typeof outputText !== 'string' || outputText.includes(EXEC_NOTE_PREFIX)) return null;
+	// Error texts in a successful output are search results or file content, not this call's failure.
+	if (!EXEC_FAILURE_RE.test(outputText)) return null;
+	const notes = [];
+	if (/Script error:\s*SyntaxError\b/u.test(outputText)) {
+		const error = execSyntaxError(source);
+		const location = error ? execSyntaxLocation(error, source) : null;
+		if (location) notes.push(...syntaxNotes(source, error, location));
+	} else if (
+		/Script error:\s*ReferenceError: [\w$]+ is not defined\s+at exec_main\.mjs:1:1\b/u.test(outputText) &&
+		looksLikeShellInput(source)
+	) {
+		notes.push(`${EXEC_NOTE_PREFIX} ${SHELL_INPUT_HINT}`);
+	}
+	const nodeGlobal = /\b(require|process|fs|path|Buffer|__dirname) is not defined\b/u.exec(outputText);
+	if (nodeGlobal) notes.push(`${EXEC_NOTE_PREFIX} ${nodeGlobalHint(nodeGlobal[1])}`);
+	if (
+		/Identifier '[^'\n]+' has already been declared/u.test(outputText) &&
+		!/Script error:\s*SyntaxError: Identifier/u.test(outputText)
+	) {
+		notes.push(`${EXEC_NOTE_PREFIX} ${NODE_REPL_BINDING_HINT}`);
+	}
+	const missingTool = /TypeError: tools\.([\w$]+) is not a function/u.exec(outputText);
+	if (missingTool) {
+		notes.push(
+			`${EXEC_NOTE_PREFIX} tools.${missingTool[1]} is not available inside exec. Only the nested tools listed in the exec tool description exist on tools.`
+		);
+	}
+	if (rgUnexpandedGlob(outputText)) notes.push(`${EXEC_NOTE_PREFIX} ${RG_GLOB_HINT}`);
+
+	return notes.length > 0 ? notes.join('\n') : null;
+}
+
+function appendOutputNote(output, note) {
+	if (typeof output === 'string') return `${output}\n\n${note}`;
+	if (Array.isArray(output)) return [...output, { type: 'input_text', text: note }];
+
+	return output;
+}
+
+// Adds execFailureNote to failed exec outputs in the history sent upstream. The note depends only
+// on the call input and its output, so every request repeats the same bytes and the prompt cache
+// stays valid. Codex keeps its own history unchanged.
+export function annotateExecFailures(input) {
+	if (!Array.isArray(input)) return input;
+	const execInputs = new Map();
+	for (const item of input) {
+		if (!isObject(item) || typeof item.call_id !== 'string') continue;
+		if (item.type !== 'custom_tool_call' && item.type !== 'function_call') continue;
+		const source = execInputFromToolCall(item);
+		if (source !== null) execInputs.set(item.call_id, source);
+	}
+	if (execInputs.size === 0) return input;
+
+	let changed = false;
+	const annotated = input.map((item) => {
+		if (!isObject(item) || (item.type !== 'custom_tool_call_output' && item.type !== 'function_call_output')) return item;
+		const source = execInputs.get(item.call_id);
+		if (source === undefined) return item;
+		const note = execFailureNote(source, toolOutputText(item.output));
+		if (note === null) return item;
+		changed = true;
+
+		return { ...item, output: appendOutputNote(item.output, note) };
+	});
+
+	return changed ? annotated : input;
 }
 
 export function rewriteExecWaitToolCall(value) {
-	const input = execWaitInputFromToolCall(value);
+	const input = execInputFromToolCall(value);
 	if (input === null) return value;
 	const args = parseExecWaitCall(input);
 	if (!args) return value;
@@ -607,7 +974,7 @@ export function flattenOpenAiRequest(body) {
 	};
 	const rewritten = { ...body };
 	if (Array.isArray(body.tools)) rewritten.tools = flattenedTools;
-	if (body.input !== undefined) rewritten.input = rewriteValueForUpstream(body.input, mapping);
+	if (body.input !== undefined) rewritten.input = rewriteValueForUpstream(annotateExecFailures(body.input), mapping);
 	if (body.messages !== undefined) rewritten.messages = rewriteValueForUpstream(body.messages, mapping);
 	if (body.tool_choice !== undefined) rewritten.tool_choice = rewriteToolChoiceForUpstream(body.tool_choice, mapping);
 
@@ -882,11 +1249,10 @@ export function convertChatCompletionToResponse(completion, mapping, usageOption
 
 function rewriteJsonResponse(parsed, protocol, mapping, usageOptions) {
 	if (protocol === 'responses' && Array.isArray(parsed.choices)) {
-		return repairExecPatchPayload(convertChatCompletionToResponse(parsed, mapping, usageOptions)).data;
+		return repairExecPayload(convertChatCompletionToResponse(parsed, mapping, usageOptions)).data;
 	}
 	if (protocol === 'responses') {
-		return repairExecPatchPayload(applyUnresolvedYieldWait(rewriteResponseForCodex(parsed, mapping, usageOptions), usageOptions))
-			.data;
+		return repairExecPayload(applyUnresolvedYieldWait(rewriteResponseForCodex(parsed, mapping, usageOptions), usageOptions)).data;
 	}
 
 	return rewriteChatCompletionForClient(parsed, mapping);
@@ -988,12 +1354,17 @@ class ChatCompletionsResponsesTransform extends Transform {
 	}
 
 	emitEvent(type, data) {
-		const { data: repaired, repaired: repairedLines } = repairExecPatchPayload(data);
+		const { data: repaired, unaryPlus, syntax } = repairExecPayload(data);
 		// The same input also appears in custom_tool_call_input.done and response.completed.
-		if (repairedLines > 0 && type === 'response.output_item.done') {
-			this.logger?.log?.(
-				`[${SERVICE_NAME}] repaired ${repairedLines} unary-plus patch line(s) in exec input event=${type} model=${this.model}`
-			);
+		if (type === 'response.output_item.done') {
+			if (unaryPlus > 0) {
+				this.logger?.log?.(
+					`[${SERVICE_NAME}] repaired ${unaryPlus} unary-plus patch line(s) in exec input event=${type} model=${this.model}`
+				);
+			}
+			if (syntax.length > 0) {
+				this.logger?.log?.(`[${SERVICE_NAME}] repaired exec syntax (${syntax.join(', ')}) event=${type} model=${this.model}`);
+			}
 		}
 		this.emitRaw(encodeSse(type, repaired));
 	}
