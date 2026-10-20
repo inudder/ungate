@@ -99,7 +99,7 @@ describe('minimax-client', () => {
 	it('treats default MiniMax reasoning effort as adaptive thinking without inventing omitted effort', () => {
 		const defaultBody = buildMiniMaxRequestBody({
 			...request([]),
-			reasoning: { effort: 'default' as OpenAIChatRequest['reasoning']['effort'] }
+			reasoning: { effort: 'default' as NonNullable<OpenAIChatRequest['reasoning']>['effort'] }
 		});
 		const omittedBody = buildMiniMaxRequestBody(request([]));
 

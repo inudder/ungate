@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import { AnthropicToOpenai } from 'src/adapter/anthropic-to-openai';
 
+import type { AnthropicResponse } from 'src/types/anthropic';
+
 function parseSseChunk(raw: string): Record<string, unknown> {
 	const line = raw
 		.trim()
@@ -112,7 +114,7 @@ describe('anthropic-to-openai', () => {
 				stop_sequence: null,
 				content: [],
 				usage: undefined
-			},
+			} as unknown as AnthropicResponse,
 			'gpt-5.4'
 		);
 

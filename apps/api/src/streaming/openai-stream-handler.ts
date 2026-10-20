@@ -60,6 +60,8 @@ export class OpenAIStreamHandler {
 					cache_creation_input_tokens: number;
 				} | null = null;
 
+				let stopReason: string | null = null;
+
 				const safeEnqueue = (data: Uint8Array) => {
 					try {
 						if (!cancelled) {
@@ -189,12 +191,17 @@ export class OpenAIStreamHandler {
 									};
 								}
 
+								if (event.type === 'message_delta' && event.delta?.stop_reason) {
+									stopReason = event.delta.stop_reason;
+								}
+
 								if (event.type === 'message_delta' && event.usage && finalUsage) {
 									finalUsage.output_tokens = event.usage.output_tokens ?? 0;
 								}
 
 								if (event.type === 'message_stop') {
-									const finishReason = toolCallIndex > 0 ? 'tool_calls' : 'stop';
+									const truncated = stopReason === 'max_tokens' || stopReason === 'model_context_window_exceeded';
+									const finishReason = truncated ? 'length' : toolCallIndex > 0 ? 'tool_calls' : 'stop';
 
 									safeEnqueue(
 										new TextEncoder().encode(AnthropicToOpenai.streamChunk(streamId, modelName, undefined, finishReason))

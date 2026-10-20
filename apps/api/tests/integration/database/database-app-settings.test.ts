@@ -6,7 +6,7 @@ import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 
 import { Settings } from 'src/database/app-settings';
 import { ModelMappings } from 'src/database/model-mappings';
-import { getDb, schema } from 'src/database';
+import { getDb } from 'src/database';
 
 import type { ModelMappingConfig } from '@ungate/shared';
 

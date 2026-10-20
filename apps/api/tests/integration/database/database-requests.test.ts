@@ -12,6 +12,7 @@ describe('database-requests', () => {
 			inputTokens: 10,
 			outputTokens: 20,
 			stream: false,
+			latencyMs: null,
 			error: 'boom'
 		});
 
@@ -44,7 +45,8 @@ describe('database-requests', () => {
 			source: 'claude',
 			inputTokens: 1,
 			outputTokens: 2,
-			stream: false
+			stream: false,
+			latencyMs: null
 		});
 
 		Requests.updateTokens(id, 100, 200);
@@ -61,7 +63,8 @@ describe('database-requests', () => {
 				source: 'claude',
 				inputTokens: 120,
 				outputTokens: 20,
-				stream: false
+				stream: false,
+				latencyMs: null
 			},
 			80,
 			30

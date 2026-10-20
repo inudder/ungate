@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import { normalizeModelName, openaiToAnthropic } from 'src/adapter/openai-to-anthropic';
 
+import type { ContentBlock } from 'src/types/anthropic';
+import type { OpenAIMessage } from 'src/types/openai';
+
 describe('openai-to-anthropic', () => {
 	it('normalizes legacy model names with reasoning budget', () => {
 		expect(normalizeModelName('claude-4.6-opus-high')).toEqual({
@@ -101,7 +104,7 @@ describe('openai-to-anthropic', () => {
 		const result = openaiToAnthropic({
 			model: 'claude-opus-4-6',
 			messages: [
-				{ role: 'assistant', content: [{ type: 'tool_use', id: 'x', name: 'Read', input: { path: 'a' } }] },
+				{ role: 'assistant', content: [{ type: 'tool_use', id: 'x', name: 'Read', input: { path: 'a' } }] as unknown as OpenAIMessage['content'] },
 				{
 					role: 'assistant',
 					content: 'broken args',
@@ -118,7 +121,7 @@ describe('openai-to-anthropic', () => {
 
 		const assistantMessages = result.messages.filter((message) => message.role === 'assistant');
 		const allBlocks = assistantMessages.flatMap((message) => (Array.isArray(message.content) ? message.content : []));
-		const toolUse = allBlocks.find((block) => (block as Record<string, unknown>).type === 'tool_use' && block.id === 'call_bad');
+		const toolUse = allBlocks.find((block) => block.type === 'tool_use' && block.id === 'call_bad');
 		expect(toolUse).toBeTruthy();
 		expect((toolUse as { input?: Record<string, unknown> }).input).toEqual({ raw: '{"broken"' });
 	});
@@ -148,7 +151,7 @@ describe('openai-to-anthropic', () => {
 		expect(result.messages[0]).toEqual({ role: 'user', content: 'Continue.' });
 		expect(result.messages[1].role).toBe('assistant');
 		expect(result.messages[2].role).toBe('user');
-		const toolResults = result.messages[2].content as Record<string, unknown>[];
+		const toolResults = result.messages[2].content as ContentBlock[];
 		expect(toolResults).toHaveLength(2);
 		expect(toolResults[0]).toMatchObject({ type: 'tool_result', tool_use_id: 'call_1', content: 'ok1' });
 		expect(toolResults[1]).toMatchObject({ type: 'tool_result', tool_use_id: 'call_2', content: 'ok2' });

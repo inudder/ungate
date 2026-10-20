@@ -104,6 +104,26 @@ describe('streaming-openai-stream-handler', () => {
 		expect(output).toContain('data: [DONE]');
 	});
 
+	it('maps max_tokens stop_reason to length', async () => {
+		const response = createResponseWithSse([
+			'data: {"type":"message_start","message":{"usage":{"input_tokens":1,"output_tokens":0}}}',
+			'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"cut"}}',
+			'data: {"type":"message_delta","delta":{"stop_reason":"max_tokens"},"usage":{"output_tokens":4}}',
+			'data: {"type":"message_stop"}'
+		]);
+
+		const { stream } = OpenAIStreamHandler.createStreamResponse(response, 'st4', 'model4', {
+			model: 'model4',
+			source: 'claude',
+			startTime: Date.now(),
+			reverseToolMapping: {}
+		});
+
+		const output = await readStream(stream);
+		expect(output).toContain('"finish_reason":"length"');
+		expect(output).not.toContain('"finish_reason":"stop"');
+	});
+
 	it('throws when upstream response has no body', () => {
 		expect(() =>
 			OpenAIStreamHandler.createStreamResponse(new Response(null), 'st3', 'model3', {

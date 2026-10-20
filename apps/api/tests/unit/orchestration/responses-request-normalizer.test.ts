@@ -110,7 +110,7 @@ describe('ResponsesRequestNormalizer', () => {
 				input: [{ type: 'reasoning', id: 'rs_only', summary: [{ type: 'summary_text', text: 'private' }] }]
 			})
 		).toThrow(
-			expect.objectContaining<ResponsesRequestValidationError>({
+			expect.objectContaining<Partial<ResponsesRequestValidationError>>({
 				code: 'empty_input',
 				message: 'Responses input must not be empty'
 			})
