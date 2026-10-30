@@ -377,6 +377,11 @@ function Start-CodexDesktopSession {
     foreach ($provider in (Get-ProviderDefinitions -Selection $Selection)) {
         $launchEnv[$provider.EnvKey] = $providerKeys[$provider.Name]
     }
+    # The router's client credential can name a provider absent from the picker.
+    # Upstream authentication still uses each route's own provider key.
+    if (-not $launchEnv.ContainsKey($Selection.LaunchProvider.EnvKey)) {
+        $launchEnv[$Selection.LaunchProvider.EnvKey] = $providerKeys[$Selection.SelectedModel.ProviderName]
+    }
     Start-CodexBetaDesktop -Context $Context `
         -PackageInfo $codexBeta `
         -LaunchEnvironment $launchEnv `
