@@ -5,6 +5,7 @@ import { pipeline, Transform } from 'node:stream';
 import { StringDecoder } from 'node:string_decoder';
 import { fileURLToPath } from 'node:url';
 
+import { messageFromAgentMessage } from './codex-agent-messages.mjs';
 import { createToolsCacheWriter } from './codex-tools-schema-cache.mjs';
 import { adaptDeepSeekRequest, createDeepSeekStreamAdapter, restoreDeepSeekResponse } from './deepseek-responses-adapter.mjs';
 import { flattenMimoResponsesRequest, restoreMimoResponsesValue } from './mimo-responses-namespace.mjs';
@@ -263,6 +264,9 @@ function prepareArgonResponsesRequest(body) {
 		body.max_output_tokens = 32768;
 	}
 	if (!Array.isArray(body.input)) return;
+	// OmniRoute's Chat conversion turns agent_message into assistant history or
+	// drops it when it carries encrypted_content. Normalize it before that hop.
+	body.input = body.input.map((item) => (item?.type === 'agent_message' ? messageFromAgentMessage(item) : item));
 	const last = body.input.findLast((item) => item?.type !== 'reasoning');
 	if (last?.role !== 'assistant' || (last.type && last.type !== 'message') || last.tool_calls?.length) return;
 	// Codex retries an incomplete response with the partial assistant message in

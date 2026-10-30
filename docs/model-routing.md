@@ -168,6 +168,15 @@ an explicit user continuation request, avoiding the provider's HTTP 400
 tool results are preserved. Incomplete SSE responses remain incomplete; the
 router never synthesizes a successful completion for them.
 
+Argon also rewrites Codex `agent_message` history items into user messages
+before OmniRoute, preserving the author, recipient and delivered text. OmniRoute's
+Chat conversion otherwise maps readable agent input to assistant history and
+drops messages containing `encrypted_content`, causing Gemini to reject a final
+model turn after subagent replies or follow-up tasks. The conversion is shared
+with the CLIProxy bridge in `scripts/codex-agent-messages.mjs`; it does not route
+Argon through that bridge. Parent/child messages are covered by a router
+integration regression and the bridge's content-preservation tests.
+
 ## Mimo four-chat profile (OmniRoute 3.8.50)
 
 The local override for registry ID `mimo-v2.5-pro` currently selects

@@ -386,6 +386,85 @@ test('Argon resumes an incomplete response without ending upstream history with 
 	}
 });
 
+test('Argon preserves parent and child agent messages across the OmniRoute Chat boundary', async () => {
+	const seen = [];
+	const upstream = http.createServer(async (request, response) => {
+		const chunks = [];
+		for await (const chunk of request) chunks.push(chunk);
+		const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+		seen.push(body);
+		// OmniRoute maps readable agent messages to assistant, and drops ones with
+		// encrypted_content. Both leave these histories ending in a model turn.
+		const messages = body.input.flatMap((item) => {
+			if (item.type !== 'agent_message' && item.role !== 'agent_message') return [item];
+			if (item.content.some((part) => part.type === 'encrypted_content')) return [];
+
+			return [{ role: 'assistant', content: item.content }];
+		});
+		if (messages.at(-1)?.role === 'assistant') {
+			response.writeHead(400, { 'content-type': 'application/json' });
+			response.end(JSON.stringify({ error: { message: 'Requests ending with a model turn are not supported.' } }));
+
+			return;
+		}
+		response.writeHead(200, { 'content-type': 'text/event-stream' });
+		response.end(sse('response.completed', { response: { status: 'completed', output: [] } }));
+	});
+	const upstreamPort = await listen(upstream);
+	const router = createShellRouterServer({
+		logger: () => {},
+		routes: [
+			{
+				clientModel: 'argon-shell',
+				upstreamModel: 'apikey-fan/gemini-4-argon',
+				upstreamBaseUrl: `http://127.0.0.1:${upstreamPort}`,
+				apiKey: 'fixture'
+			}
+		]
+	});
+	const routerPort = await listen(router);
+	try {
+		for (const delegated of [false, true]) {
+			const history = [
+				{ role: 'user', content: 'Review the implementation.' },
+				{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Waiting for review.' }] },
+				{
+					type: 'agent_message',
+					author: delegated ? '/root' : '/root/reviewer',
+					recipient: delegated ? '/root/reviewer' : '/root',
+					content: [
+						{ type: 'input_text', text: 'Review status received.' },
+						...(delegated ? [{ type: 'encrypted_content', encrypted_content: 'Please check the missing error handler.' }] : [])
+					]
+				}
+			];
+			const result = await fetch(`http://127.0.0.1:${routerPort}/v1/responses`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ model: 'argon-shell', stream: true, input: history }),
+				signal: AbortSignal.timeout(3000)
+			});
+			assert.equal(result.status, 200);
+			assert.match(await result.text(), /response.completed/);
+			const forwarded = seen.at(-1).input;
+			assert.deepEqual(forwarded.slice(0, -1), history.slice(0, -1));
+			assert.equal(forwarded.length, history.length, 'the agent input itself supplies the user turn');
+			assert.equal(forwarded.at(-1).role, 'user');
+			const text = forwarded
+				.at(-1)
+				.content.map((part) => part.text)
+				.join('\n');
+			assert.match(text, /Review status received/);
+			assert.ok(text.includes(history.at(-1).author));
+			assert.ok(text.includes(history.at(-1).recipient));
+			if (delegated) assert.match(text, /Please check the missing error handler/);
+		}
+	} finally {
+		await close(router);
+		await close(upstream);
+	}
+});
+
 test('drops the encrypted schema keyword for Gemini and keeps it for other upstreams', async () => {
 	const seen = [];
 	const upstream = http.createServer(async (request, response) => {
