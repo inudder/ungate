@@ -132,6 +132,20 @@
         { "effort": "high", "description": "High Thinking" },
         { "effort": "max", "description": "Max Thinking" }
       ]
+    },
+    {
+      "slug": "apikey-fan/gemini-4-argon",
+      "displayName": "Gemini 4 Argon (OmniRoute)",
+      "upstreamModel": "apikey-fan/gemini-4-argon",
+      "aliases": [],
+      "transport": "omniroute",
+      "defaultReasoningLevel": "high",
+      "supportsImageInput": false,
+      "supportsImageDetailOriginal": false,
+      "supportsReasoningSummaries": false,
+      "supportsParallelToolCalls": true,
+      "contextWindow": 1000000,
+      "maxContextWindow": 1000000
     }
   ]
 }

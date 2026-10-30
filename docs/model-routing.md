@@ -43,7 +43,7 @@ Native `/v1/messages`, OmniRoute, and CLIProxyAPI are outside this contract.
 | --- | --- | --- | --- |
 | Ungate Responses proxy | `http://127.0.0.1:47821` | `J:\Dev\ungate-local\apps\api` | Direct Ungate and MiniMax Responses routes |
 | CLIProxyAPI upstream | `http://127.0.0.1:8317` | `J:\Sandbox\CLIProxyAPI` | External CLIProxyAPI server and Grok upstream |
-| CLIProxy namespace bridge | `http://127.0.0.1:8318` | `J:\Dev\ungate-local\scripts\cliproxy-namespace-bridge.mjs` | Converts Codex namespace tools to flat CLIProxy function tools and restores responses |
+| CLIProxy namespace bridge | `http://127.0.0.1:8318` | `J:\Dev\ungate-local\scripts\cliproxy-namespace-bridge.mjs` | Converts Codex namespace tools to flat CLIProxy function tools, rewrites `agent_message` history items to user messages, and restores responses |
 | Codex model-shell router | `http://127.0.0.1:8319` | `J:\Dev\ungate-local\scripts\codex-model-shell-router.mjs` | Selects the route, rewrites model id, and enables only the configured stream adapter |
 | OmniRoute | `http://127.0.0.1:20128` | `%APPDATA%\omniroute` | OmniRoute provider/combo routing and call logs |
 
@@ -134,6 +134,7 @@ Never store either secret in this repository or in diagnostic output.
 | 7 | Mimo v2.5 Pro (OmniRoute) | `mimo-v2.5-pro` | OmniRoute `20128` | `mimo-textual-tools` via `scripts\mimo-responses-stream-adapter.mjs`; 1M context window (official, unsqueezed) |
 | — | DeepSeek V4 Pro (OmniRoute) | `deepseek/deepseek-v4-pro` | OmniRoute `20128` | `deepseek-responses` adapter; 1M context window (official DeepSeek) |
 | — | DeepSeek V4 Flash (OmniRoute) | `deepseek/deepseek-v4-flash` | OmniRoute `20128` | `deepseek-responses` adapter; 1M context window (official DeepSeek) |
+| — | Gemini 4 Argon (OmniRoute) | `apikey-fan/gemini-4-argon` | OmniRoute `20128` | No route-specific stream adapter; the shell router drops `encrypted` tool-schema keywords and normalizes continuation requests; 1M context window |
 | 9 | Provider fallback (opt-in) | `codex-fallback` | OmniRoute `20128` | Fallback policy chooses the configured upstream; verify the generated route before debugging a provider |
 
 Mode 8 only opens the Desktop model picker. Mode 10 adds a model definition;
@@ -144,6 +145,28 @@ discovered in `/v1/models` without changing code. Overrides are persisted in
 `~/.codex-ungate/ungate-model-overrides.json`.
 DeepSeek V4 Pro and DeepSeek V4 Flash can be selected via the Desktop model picker (Mode 8)
 or via `-Model deepseek-v4-pro` / `-Model deepseek-v4-flash` (alias `deepseek-flash`).
+Gemini 4 Argon is the first Desktop picker slot, in place of MiniMax M3, or
+`-Model apikey-fan/gemini-4-argon`. MiniMax M3 stays in the registry and is not
+in the picker.
+
+Argon keeps its declared 1M context and default Codex compaction policy.
+On 2026-10-30, read-only management API and database checks found no Argon
+input/context/output override in OmniRoute; its Gemini context fallback is
+1000000. The upstream provider intermittently rejected input above 131072
+tokens while neighboring requests around 150k succeeded. No local 128k cap
+was found. Codex had not reached its 1M-based compaction threshold at 150k.
+An optional registry `autoCompactTokenLimit` is emitted as the catalog's
+`auto_compact_token_limit`, but is not set for Argon without a confirmed
+route limit. Changing it takes effect when Beta next loads the catalog.
+
+For Argon `/v1/responses` requests, the router supplies `max_output_tokens: 32768`
+when the caller has no explicit output budget. The observed failure first
+produced `response.incomplete` at exactly 8192 output tokens. When Codex resumes
+with a trailing assistant message, the router preserves that message and appends
+an explicit user continuation request, avoiding the provider's HTTP 400
+`Requests ending with a model turn are not supported`. Pending tool calls and
+tool results are preserved. Incomplete SSE responses remain incomplete; the
+router never synthesizes a successful completion for them.
 
 ## Mimo four-chat profile (OmniRoute 3.8.50)
 

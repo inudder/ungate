@@ -11,6 +11,20 @@ model/provider matrix and external-directory map are maintained in
 `~/.codex-ungate/ungate-model-registry.json`. The git template is
 `scripts/codex-desktop-launcher/models.default.json`.
 
+## Launcher gates and service CLI
+
+The Desktop launcher fails only on physical blockers: a missing Beta package or
+executable, an invalid custom config or model catalog, a missing provider key or a
+failed Desktop start. Every other preparation step is a soft gate — its failure is
+printed as a warning, listed in the closing summary and the launch continues. A
+normal launch returns `0` with warnings; `PrepareOnly` returns `2`. The service CLI
+is the launcher's own SHA-256-verified copy of the CLI shipped with the Beta package
+in `~/.codex-ungate/.launcher-cli/<package-version>/`; the package CLI cannot run
+from `WindowsApps` and the shared extracted binaries change when either package
+updates. Codex Beta provisions the Windows sandbox itself, so the launcher only
+reports readiness. See `docs/adr/0001-soft-launch-gates.md` and
+`docs/adr/0002-service-cli-from-beta-package.md`.
+
 ## PowerShell paths
 
 `$HOME` is the Windows user profile. PowerShell treats `$home`, `$Home`,
@@ -308,3 +322,20 @@ Do not report the code change as complete until validation and `ungate-local pus
 записать меньший граф: `graphify update . --force`
 Не используй `--force` без такой причины.
 <!-- END MANAGED GRAPHIFY INSTRUCTIONS -->
+
+<!-- BEGIN MANAGED CODEBASE MEMORY INSTRUCTIONS -->
+## Codebase Memory — обязательный workflow
+
+Проект подключён к MCP-серверу Codebase Memory (`codebase-memory-mcp`).
+
+- Ключ проекта для инструментов: `J-Dev-ungate-local`
+- Корень проекта: `J:\Dev\ungate-local`
+- Индекс: `C:\Users\kalvinclein\.cache\codebase-memory-mcp\J-Dev-ungate-local.db`
+
+Все инструменты Codebase Memory требуют аргумент `project` — всегда передавай ключ проекта:
+`search_graph`, `query_graph`, `trace_path`, `get_code_snippet`, `get_file_outline`,
+`get_architecture`, `index_status`, `check_index_coverage`, `detect_changes`.
+
+- Список доступных проектов: `codebase-memory-mcp cli list_projects --format json`.
+- Индекс устаревает после коммита; актуальный статус показывает колонка `CBM` в панели.
+<!-- END MANAGED CODEBASE MEMORY INSTRUCTIONS -->

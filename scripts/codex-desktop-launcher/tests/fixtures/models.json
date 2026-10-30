@@ -10,10 +10,6 @@
       "IdentitySha256": "84a03da2511b74872ace942f59230e53c258400720f711709001a9e77fee8448",
       "DefaultReasoningLevel": "high",
       "Priority": 0,
-      "InputModalities": [
-        "text",
-        "image"
-      ],
       "SupportsImageDetailOriginal": true,
       "WebSearchToolType": "text_and_image",
       "ProviderName": "ungate_proxy",
@@ -23,12 +19,17 @@
       "RequiresUngate": true,
       "ContextWindow": 1000000,
       "MaxContextWindow": 1000000,
+      "AutoCompactTokenLimit": null,
       "EffectiveContextWindowPercent": null,
       "SupportsReasoningSummaries": null,
       "SupportsParallelToolCalls": null,
       "ResponsesAdapter": null,
       "TruncationPolicy": null,
-      "SupportedReasoningLevels": null
+      "SupportedReasoningLevels": null,
+      "InputModalities": [
+        "text",
+        "image"
+      ]
     },
     {
       "Slug": "ungate-fable-5",
@@ -40,10 +41,6 @@
       "IdentitySha256": "84a03da2511b74872ace942f59230e53c258400720f711709001a9e77fee8448",
       "DefaultReasoningLevel": "high",
       "Priority": 1,
-      "InputModalities": [
-        "text",
-        "image"
-      ],
       "SupportsImageDetailOriginal": true,
       "WebSearchToolType": "text_and_image",
       "ProviderName": "ungate_proxy",
@@ -53,12 +50,17 @@
       "RequiresUngate": true,
       "ContextWindow": 1000000,
       "MaxContextWindow": 1000000,
+      "AutoCompactTokenLimit": null,
       "EffectiveContextWindowPercent": null,
       "SupportsReasoningSummaries": null,
       "SupportsParallelToolCalls": null,
       "ResponsesAdapter": null,
       "TruncationPolicy": null,
-      "SupportedReasoningLevels": null
+      "SupportedReasoningLevels": null,
+      "InputModalities": [
+        "text",
+        "image"
+      ]
     },
     {
       "Slug": "miniMax-M3",
@@ -70,10 +72,6 @@
       "IdentitySha256": "7ebab0b33aa4eb92fbcf3becf16958d8ffcffb6be8282a3ec0beed10a3bcf0d4",
       "DefaultReasoningLevel": "xhigh",
       "Priority": 2,
-      "InputModalities": [
-        "text",
-        "image"
-      ],
       "SupportsImageDetailOriginal": true,
       "WebSearchToolType": "text_and_image",
       "ProviderName": "ungate_proxy",
@@ -83,12 +81,17 @@
       "RequiresUngate": true,
       "ContextWindow": 1000000,
       "MaxContextWindow": 1000000,
+      "AutoCompactTokenLimit": null,
       "EffectiveContextWindowPercent": null,
       "SupportsReasoningSummaries": null,
       "SupportsParallelToolCalls": null,
       "ResponsesAdapter": null,
       "TruncationPolicy": null,
-      "SupportedReasoningLevels": null
+      "SupportedReasoningLevels": null,
+      "InputModalities": [
+        "text",
+        "image"
+      ]
     },
     {
       "Slug": "grok-4.7",
@@ -100,10 +103,6 @@
       "IdentitySha256": "06e4bf9eee923720c50a37f6f3342b47fa6124206562219d94976a06d6984629",
       "DefaultReasoningLevel": "high",
       "Priority": 3,
-      "InputModalities": [
-        "text",
-        "image"
-      ],
       "SupportsImageDetailOriginal": true,
       "WebSearchToolType": "text_and_image",
       "ProviderName": "cliproxyapi",
@@ -113,12 +112,17 @@
       "RequiresUngate": false,
       "ContextWindow": 500000,
       "MaxContextWindow": 500000,
+      "AutoCompactTokenLimit": null,
       "EffectiveContextWindowPercent": null,
       "SupportsReasoningSummaries": null,
       "SupportsParallelToolCalls": null,
       "ResponsesAdapter": null,
       "TruncationPolicy": null,
-      "SupportedReasoningLevels": null
+      "SupportedReasoningLevels": null,
+      "InputModalities": [
+        "text",
+        "image"
+      ]
     },
     {
       "Slug": "apikey-fun/kimi-k3",
@@ -130,10 +134,6 @@
       "IdentitySha256": "1f3353a5c8a4125c95b10a1e6cdddf65fa53d750a4895bbaa8f71fe20722f4df",
       "DefaultReasoningLevel": "high",
       "Priority": 4,
-      "InputModalities": [
-        "text",
-        "image"
-      ],
       "SupportsImageDetailOriginal": true,
       "WebSearchToolType": "text_and_image",
       "ProviderName": "omniroute",
@@ -143,12 +143,17 @@
       "RequiresUngate": false,
       "ContextWindow": null,
       "MaxContextWindow": null,
+      "AutoCompactTokenLimit": null,
       "EffectiveContextWindowPercent": null,
       "SupportsReasoningSummaries": null,
       "SupportsParallelToolCalls": null,
       "ResponsesAdapter": null,
       "TruncationPolicy": null,
-      "SupportedReasoningLevels": null
+      "SupportedReasoningLevels": null,
+      "InputModalities": [
+        "text",
+        "image"
+      ]
     },
     {
       "Slug": "apikey-fun/grok-4.5",
@@ -160,10 +165,6 @@
       "IdentitySha256": "b9f366ca32176b6ab1311cfa1ef474850bcb147f550b536f1932134f30ced1e7",
       "DefaultReasoningLevel": "high",
       "Priority": 5,
-      "InputModalities": [
-        "text",
-        "image"
-      ],
       "SupportsImageDetailOriginal": true,
       "WebSearchToolType": "text_and_image",
       "ProviderName": "omniroute",
@@ -173,12 +174,17 @@
       "RequiresUngate": false,
       "ContextWindow": null,
       "MaxContextWindow": null,
+      "AutoCompactTokenLimit": null,
       "EffectiveContextWindowPercent": null,
       "SupportsReasoningSummaries": null,
       "SupportsParallelToolCalls": null,
       "ResponsesAdapter": null,
       "TruncationPolicy": null,
-      "SupportedReasoningLevels": null
+      "SupportedReasoningLevels": null,
+      "InputModalities": [
+        "text",
+        "image"
+      ]
     },
     {
       "Slug": "apikey-fun/claude-opus-5",
@@ -190,10 +196,6 @@
       "IdentitySha256": "84a03da2511b74872ace942f59230e53c258400720f711709001a9e77fee8448",
       "DefaultReasoningLevel": "high",
       "Priority": 6,
-      "InputModalities": [
-        "text",
-        "image"
-      ],
       "SupportsImageDetailOriginal": true,
       "WebSearchToolType": "text_and_image",
       "ProviderName": "omniroute",
@@ -203,12 +205,17 @@
       "RequiresUngate": false,
       "ContextWindow": null,
       "MaxContextWindow": null,
+      "AutoCompactTokenLimit": null,
       "EffectiveContextWindowPercent": null,
       "SupportsReasoningSummaries": null,
       "SupportsParallelToolCalls": null,
       "ResponsesAdapter": null,
       "TruncationPolicy": null,
-      "SupportedReasoningLevels": null
+      "SupportedReasoningLevels": null,
+      "InputModalities": [
+        "text",
+        "image"
+      ]
     },
     {
       "Slug": "mimo-v2.5-pro",
@@ -220,9 +227,6 @@
       "IdentitySha256": "e3d7c55a33500e4471f61e8c87405ebd98cdb2b937eb9dd4dd3cfeedd5a91f48",
       "DefaultReasoningLevel": "high",
       "Priority": 7,
-      "InputModalities": [
-        "text"
-      ],
       "SupportsImageDetailOriginal": false,
       "WebSearchToolType": "text",
       "ProviderName": "omniroute",
@@ -232,6 +236,7 @@
       "RequiresUngate": false,
       "ContextWindow": 1000000,
       "MaxContextWindow": 1000000,
+      "AutoCompactTokenLimit": null,
       "EffectiveContextWindowPercent": null,
       "SupportsReasoningSummaries": true,
       "SupportsParallelToolCalls": false,
@@ -242,13 +247,16 @@
       },
       "SupportedReasoningLevels": [
         {
-          "effort": "none",
-          "description": "Disable Thinking"
+          "description": "Disable Thinking",
+          "effort": "none"
         },
         {
-          "effort": "high",
-          "description": "Enabled Thinking"
+          "description": "Enabled Thinking",
+          "effort": "high"
         }
+      ],
+      "InputModalities": [
+        "text"
       ]
     },
     {
@@ -264,9 +272,6 @@
       "IdentitySha256": "1fd1951f8856e6b66155e9cd17967bcbec3931b3de8a97d93f7a245c92e5ec43",
       "DefaultReasoningLevel": "high",
       "Priority": 8,
-      "InputModalities": [
-        "text"
-      ],
       "SupportsImageDetailOriginal": false,
       "WebSearchToolType": "text",
       "ProviderName": "omniroute",
@@ -276,6 +281,7 @@
       "RequiresUngate": false,
       "ContextWindow": 1000000,
       "MaxContextWindow": 1000000,
+      "AutoCompactTokenLimit": null,
       "EffectiveContextWindowPercent": null,
       "SupportsReasoningSummaries": true,
       "SupportsParallelToolCalls": true,
@@ -283,21 +289,24 @@
       "TruncationPolicy": null,
       "SupportedReasoningLevels": [
         {
-          "effort": "none",
-          "description": "Disable Thinking"
+          "description": "Disable Thinking",
+          "effort": "none"
         },
         {
-          "effort": "low",
-          "description": "Low Thinking"
+          "description": "Low Thinking",
+          "effort": "low"
         },
         {
-          "effort": "high",
-          "description": "High Thinking"
+          "description": "High Thinking",
+          "effort": "high"
         },
         {
-          "effort": "max",
-          "description": "Max Thinking"
+          "description": "Max Thinking",
+          "effort": "max"
         }
+      ],
+      "InputModalities": [
+        "text"
       ]
     },
     {
@@ -315,9 +324,6 @@
       "IdentitySha256": "504cc890f8d4f0bb6c12de54fa2120287c78f25255e77b608bcaa25b6f0c5855",
       "DefaultReasoningLevel": "high",
       "Priority": 9,
-      "InputModalities": [
-        "text"
-      ],
       "SupportsImageDetailOriginal": false,
       "WebSearchToolType": "text",
       "ProviderName": "omniroute",
@@ -327,6 +333,7 @@
       "RequiresUngate": false,
       "ContextWindow": 1000000,
       "MaxContextWindow": 1000000,
+      "AutoCompactTokenLimit": null,
       "EffectiveContextWindowPercent": null,
       "SupportsReasoningSummaries": true,
       "SupportsParallelToolCalls": true,
@@ -334,21 +341,54 @@
       "TruncationPolicy": null,
       "SupportedReasoningLevels": [
         {
-          "effort": "none",
-          "description": "Disable Thinking"
+          "description": "Disable Thinking",
+          "effort": "none"
         },
         {
-          "effort": "low",
-          "description": "Low Thinking"
+          "description": "Low Thinking",
+          "effort": "low"
         },
         {
-          "effort": "high",
-          "description": "High Thinking"
+          "description": "High Thinking",
+          "effort": "high"
         },
         {
-          "effort": "max",
-          "description": "Max Thinking"
+          "description": "Max Thinking",
+          "effort": "max"
         }
+      ],
+      "InputModalities": [
+        "text"
+      ]
+    },
+    {
+      "Slug": "apikey-fan/gemini-4-argon",
+      "DisplayName": "Gemini 4 Argon (OmniRoute)",
+      "Description": "Gemini 4 Argon (OmniRoute) maps to upstream model 'apikey-fan/gemini-4-argon' through the local OmniRoute proxy.",
+      "UpstreamModel": "apikey-fan/gemini-4-argon",
+      "Aliases": null,
+      "TransportDescription": "the local OmniRoute proxy",
+      "IdentitySha256": "e81e1be2a9e40fb71e013669c16120473f04eabc1f25c41d5e5110f0b24673dd",
+      "DefaultReasoningLevel": "high",
+      "Priority": 10,
+      "SupportsImageDetailOriginal": false,
+      "WebSearchToolType": "text",
+      "ProviderName": "omniroute",
+      "ProviderDisplayName": "OmniRoute",
+      "ProxyBaseUrl": "http://127.0.0.1:20128",
+      "EnvKey": "OMNIROUTE_API_KEY",
+      "RequiresUngate": false,
+      "ContextWindow": 1000000,
+      "MaxContextWindow": 1000000,
+      "AutoCompactTokenLimit": null,
+      "EffectiveContextWindowPercent": null,
+      "SupportsReasoningSummaries": false,
+      "SupportsParallelToolCalls": true,
+      "ResponsesAdapter": null,
+      "TruncationPolicy": null,
+      "SupportedReasoningLevels": null,
+      "InputModalities": [
+        "text"
       ]
     }
   ],

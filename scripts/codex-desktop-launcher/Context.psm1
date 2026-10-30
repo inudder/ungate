@@ -206,6 +206,8 @@ function New-CodexDesktopLaunchContext {
         CustomCodexHome = $CustomCodexHome
         UngateEnvironmentInstruction = $UngateEnvironmentInstruction
         SkipWorkspaceRestore = $SkipWorkspaceRestore
+        ServiceCliPath = $null
+        ServiceCliVersion = $null
     }
 }
 

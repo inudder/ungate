@@ -1,5 +1,6 @@
 #requires -Version 7.4
 # Desktop: internal Desktop launcher module. No per-launch module state.
+Import-Module (Join-Path $PSScriptRoot 'ServiceCli.psm1') -DisableNameChecking -ErrorAction Stop
 
 
 function Get-CodexCliExecutable {
@@ -7,6 +8,14 @@ function Get-CodexCliExecutable {
         [Parameter(Mandatory)][psobject]$Context
     )
     $ErrorActionPreference = 'Stop'
+
+    # The service CLI resolved for this launch wins over every discovered binary.
+    if ($Context.PSObject.Properties['ServiceCliPath'] -and $Context.ServiceCliPath) {
+        $resolvedServiceCli = [string]$Context.ServiceCliPath
+        if (Test-Path -LiteralPath $resolvedServiceCli -PathType Leaf) {
+            return $resolvedServiceCli
+        }
+    }
 
     $candidatePaths = [System.Collections.Generic.List[string]]::new()
 
@@ -82,42 +91,103 @@ function Get-CodexCliExecutable {
     return $null
 }
 
-function Initialize-CodexWindowsSandbox {
+# The service CLI must belong to the package the launcher starts: its version decides the plugin
+# store format and the CLI subcommands. The Beta package CLI cannot run from WindowsApps, so the
+# launcher keeps a verified copy inside the Beta profile.
+function Resolve-CodexServiceCli {
     param(
-        [Parameter(Mandatory)][psobject]$Context
+        [Parameter(Mandatory)][psobject]$Context,
+        [Parameter(Mandatory)][psobject]$PackageInfo
     )
     $ErrorActionPreference = 'Stop'
 
-    $config = Get-Content -LiteralPath $Context.CustomConfigPath -Raw
-    if ($config -match '(?m)^sandbox_mode\s*=\s*["'']danger-full-access["'']\s*$') {
+    $serviceCli = Get-CodexBetaServiceCli -Context $Context -PackageInfo $PackageInfo
+    if ($serviceCli) {
+        $Context.ServiceCliPath = $serviceCli
+        $Context.ServiceCliVersion = Get-CodexCliVersion -ExecutablePath $serviceCli
+        return $serviceCli
+    }
+
+    $fallbackCli = Get-CodexCliExecutable -Context $Context
+    if (-not $fallbackCli) {
         Write-Host `
-            '[ungate] Windows sandbox initialization skipped (sandbox_mode=danger-full-access).' `
+            '[ungate] Warning: no Codex CLI is available for service commands.' `
+            -ForegroundColor Yellow
+        return $null
+    }
+
+    $Context.ServiceCliPath = $fallbackCli
+    $Context.ServiceCliVersion = Get-CodexCliVersion -ExecutablePath $fallbackCli
+    Write-Host (
+        "[ungate] Warning: using Codex CLI $fallbackCli instead of the Beta package CLI; " +
+        'the plugin store and the model catalog are verified against a different build.'
+    ) -ForegroundColor Yellow
+    return $fallbackCli
+}
+
+# Codex Beta provisions the Windows sandbox itself from its own package, so the launcher reports
+# readiness instead of preparing it.
+function Test-CodexSandboxReadiness {
+    param(
+        [Parameter(Mandatory)][psobject]$Context,
+        [Parameter(Mandatory)][psobject]$PackageInfo
+    )
+    $ErrorActionPreference = 'Stop'
+
+    if (Test-Path -LiteralPath $Context.CustomConfigPath -PathType Leaf) {
+        $config = Get-Content -LiteralPath $Context.CustomConfigPath -Raw
+        if ($config -match '(?m)^sandbox_mode\s*=\s*["'']danger-full-access["'']\s*$') {
+            Write-Host `
+                '[ungate] Windows sandbox not required (sandbox_mode=danger-full-access).' `
+                -ForegroundColor DarkGray
+            return
+        }
+    }
+
+    $serviceCliVersion = [string]$Context.ServiceCliVersion
+    if (-not $serviceCliVersion -and $Context.ServiceCliPath) {
+        $serviceCliVersion = [string](Get-CodexCliVersion -ExecutablePath ([string]$Context.ServiceCliPath))
+    }
+    if (-not $serviceCliVersion) {
+        Write-Host `
+            '[ungate] Warning: the Codex CLI version is unknown, so sandbox readiness cannot be verified.' `
+            -ForegroundColor Yellow
+        return
+    }
+
+    $runnerPath = Join-Path `
+        $Context.CustomCodexHome `
+        (".sandbox-bin\codex-command-runner-$serviceCliVersion.exe")
+    if (Test-Path -LiteralPath $runnerPath -PathType Leaf) {
+        Write-Host `
+            "[ungate] Windows sandbox ready (command runner $serviceCliVersion)." `
             -ForegroundColor DarkGray
         return
     }
 
-    $codexExecutable = Get-CodexCliExecutable -Context $Context
-    if (-not $codexExecutable) {
-        throw 'Codex CLI is required to prepare the Windows sandbox.'
+    $serviceCliDirectory = ''
+    if ($Context.ServiceCliPath) {
+        $serviceCliDirectory = Split-Path -Parent ([string]$Context.ServiceCliPath)
     }
-
-    $previousCodexHome = $env:CODEX_HOME
-    try {
-        $env:CODEX_HOME = $Context.CustomCodexHome
-        & $codexExecutable sandbox cmd.exe /d /c exit 0 *> $null
-        if ($LASTEXITCODE -ne 0) {
-            throw "Codex Windows sandbox preparation failed with exit code $LASTEXITCODE."
-        }
+    $packageHelper = ''
+    if ($PackageInfo.PSObject.Properties['InstallLocation']) {
+        $packageHelper = Join-Path `
+            ([string]$PackageInfo.InstallLocation) `
+            'app\resources\codex-windows-sandbox-setup.exe'
     }
-    finally {
-        if ($null -eq $previousCodexHome) {
-            Remove-Item Env:\CODEX_HOME -ErrorAction SilentlyContinue
-        } else {
-            $env:CODEX_HOME = $previousCodexHome
-        }
+    $prepareCommand = ''
+    if ($serviceCliDirectory -and $packageHelper -and $Context.ServiceCliPath) {
+        $prepareCommand = (
+            "To prepare it eagerly: `$env:CODEX_HOME='$($Context.CustomCodexHome)'; " +
+            "Copy-Item -LiteralPath '$packageHelper' -Destination '$serviceCliDirectory'; " +
+            "& '$($Context.ServiceCliPath)' sandbox cmd.exe /d /c exit 0"
+        )
     }
-
-    Write-Host '[ungate] Windows sandbox ready.' -ForegroundColor DarkGray
+    Write-Host (
+        "[ungate] Warning: the sandbox command runner for Codex CLI $serviceCliVersion is missing " +
+        "at $runnerPath. Codex Beta prepares the sandbox itself on the first sandboxed command. " +
+        $prepareCommand
+    ) -ForegroundColor Yellow
 }
 
 function Get-CodexBetaPackageInfo {
@@ -405,7 +475,7 @@ function Stop-CodexBeta {
 
     $runningProcesses = @(Get-CodexBetaProcesses -ExecutablePath $ExecutablePath)
     if ($runningProcesses.Count -eq 0) {
-        return
+        return $true
     }
 
     $initialCount = $runningProcesses.Count
@@ -429,7 +499,7 @@ function Stop-CodexBeta {
 
     if ($runningProcesses.Count -eq 0) {
         Write-Host '[ungate] Previous Codex Beta instance closed.' -ForegroundColor Green
-        return
+        return $true
     }
 
     # Normal path for Electron multi-process apps: finish residual helpers cleanly.
@@ -447,10 +517,15 @@ function Stop-CodexBeta {
     } while ($runningProcesses.Count -gt 0 -and (Get-Date) -lt $forcedDeadline)
 
     if ($runningProcesses.Count -gt 0) {
-        throw "Codex Beta is still running after the automatic close attempt ($($runningProcesses.Count) process(es))."
+        Write-Host (
+            "[ungate] Warning: Codex Beta is still running after the automatic close attempt " +
+            "($($runningProcesses.Count) process(es))."
+        ) -ForegroundColor Yellow
+        return $false
     }
 
     Write-Host '[ungate] Previous Codex Beta instance closed.' -ForegroundColor Green
+    return $true
 }
 
 function Normalize-WorkspaceRootPath {
@@ -575,7 +650,8 @@ function Restore-CodexWorkspaceRoots {
 
 Export-ModuleMember -Function @(
     'Get-CodexCliExecutable',
-    'Initialize-CodexWindowsSandbox',
+    'Resolve-CodexServiceCli',
+    'Test-CodexSandboxReadiness',
     'Get-CodexBetaPackageInfo',
     'Start-CodexBetaDesktop',
     'Get-CodexBetaProcesses',

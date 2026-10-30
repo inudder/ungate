@@ -11,6 +11,7 @@ $testPaths = @(
     (Join-Path $moduleRoot 'tests/OmniRouteContextLimit.Tests.ps1'),
     (Join-Path $moduleRoot 'tests/Management.Tests.ps1'),
     (Join-Path $moduleRoot 'tests/Registry.Tests.ps1'),
+    (Join-Path $moduleRoot 'tests/Argon.Tests.ps1'),
     (Join-Path $moduleRoot 'tests/ToolCompatibility.Tests.ps1'),
     (Join-Path $moduleRoot 'tests/Capabilities.Tests.ps1'),
     (Join-Path $moduleRoot 'tests/Logging.Tests.ps1'),

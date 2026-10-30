@@ -83,18 +83,39 @@ existing common preflight behavior.
    profile, or changing the shared router. A smaller context window or
    `max_input_tokens` limit exits `1` for a normal launch and for `PrepareOnly`.
    An unconfirmed limit is a warning, not a passed check.
-3. Discover the Beta package and close it unless `PrepareOnly`. Resolve provider
-   keys, ensure the required bridge/router, then preflight. Normal preflight has
-   two attempts; fallback has one. Preflight failure remains a warning and does
-   not skip profile preparation.
-4. Initialize config, write the model catalog **before** MCP validation,
-   synchronize MCP/skills/instructions/auth, prepare isolated plugins, verify
-   the config, initialize sandbox and restore workspace roots.
+3. Discover the Beta package and close it unless `PrepareOnly`. A Beta instance that
+   refuses to close is a warning: the launcher does not open a second instance, and the
+   updated profile applies after a manual restart. Resolve provider keys, ensure the
+   required bridge/router, then preflight. Normal preflight has two attempts; fallback
+   has one. Preflight failure remains a warning and does not skip profile preparation.
+4. Resolve the service CLI, initialize config, write the model catalog **before** MCP
+   validation, synchronize MCP/skills/instructions/auth, prepare isolated plugins,
+   verify the config and the catalog load, report sandbox readiness and restore
+   workspace roots.
 5. `PrepareOnly` returns `0` on success, `1` when the OmniRoute context limit is
-   smaller than the launcher window, or `2` after a preflight warning.
+   smaller than the launcher window, or `2` after a preflight or preparation warning.
    Normal execution starts Desktop and optionally watches logs. `NoLogWatch`
    overrides log preferences; otherwise a nonempty explicit level overrides
    persisted preferences. `Off` starts Desktop without watching.
+
+### Fatal and soft gates
+
+Only physical blockers stop the launch: a missing Beta package or executable, an
+invalid custom config or model catalog, a missing provider key, an unavailable model
+or a failed Desktop start. Every other preparation step is a soft gate: its failure is
+printed as a warning, listed in the closing summary and the launch continues. A normal
+launch returns `0` with warnings; `PrepareOnly` returns `2`.
+
+The service CLI is the launcher's own copy of the CLI that ships with the Beta package,
+kept in `<beta-home>/.launcher-cli/<package-version>/` and verified by SHA-256 against
+the package. The package CLI cannot run from `WindowsApps`, and the shared extracted
+binaries change when either package updates, so the copy is what keeps the plugin store
+and the model catalog verified against the build that later reads them.
+
+Codex Beta provisions the Windows sandbox itself from its own package, so the launcher
+only reports readiness: the sandbox is ready when the command runner of the exact
+Beta CLI version exists in `<beta-home>/.sandbox-bin/`. A missing runner is a warning
+with the command that prepares it eagerly; it never blocks the launch.
 
 Except for the additive `TestTools` mode, existing public parameters, persisted file formats, model order, shell
 mapping and [routing matrix](model-routing.md) are unchanged. Normal Codex

@@ -317,6 +317,138 @@ function sse(type, data) {
 	return `event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`;
 }
 
+test('Argon resumes an incomplete response without ending upstream history with a model turn', async () => {
+	const seen = [];
+	const incomplete = sse('response.incomplete', {
+		response: { id: 'partial', status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' }, output: [] }
+	});
+	const upstream = http.createServer(async (request, response) => {
+		const chunks = [];
+		for await (const chunk of request) chunks.push(chunk);
+		const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+		seen.push(body);
+		if (body.input.at(-1)?.role === 'assistant') {
+			response.writeHead(400, { 'content-type': 'application/json' });
+			response.end(JSON.stringify({ error: { message: 'Requests ending with a model turn are not supported.' } }));
+
+			return;
+		}
+		response.writeHead(200, { 'content-type': 'text/event-stream' });
+		response.end(seen.length === 1 ? incomplete : sse('response.completed', { response: { status: 'completed', output: [] } }));
+	});
+	const upstreamPort = await listen(upstream);
+	const router = createShellRouterServer({
+		logger: () => {},
+		routes: [
+			{
+				clientModel: 'argon-shell',
+				upstreamModel: 'apikey-fan/gemini-4-argon',
+				upstreamBaseUrl: `http://127.0.0.1:${upstreamPort}`,
+				apiKey: 'fixture'
+			}
+		]
+	});
+	const routerPort = await listen(router);
+	try {
+		const input = [{ role: 'user', content: 'Implement the next step.' }];
+		const send = (history, extra = {}) =>
+			fetch(`http://127.0.0.1:${routerPort}/v1/responses`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ model: 'argon-shell', stream: true, input: history, ...extra }),
+				signal: AbortSignal.timeout(3000)
+			});
+		const first = await send(input);
+		assert.equal(await first.text(), incomplete, 'an incomplete response must never be reported as completed');
+		const partial = { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'First, create the file...' }] };
+		const retry = await send([...input, partial]);
+		assert.equal(retry.status, 200);
+		assert.match(await retry.text(), /response.completed/);
+		assert.deepEqual(seen[1].input.slice(0, -1), [...input, partial]);
+		assert.equal(seen[1].input.at(-1).role, 'user');
+		assert.equal(seen[0].max_output_tokens, 32768);
+		const explicitBudget = await send(input, { max_output_tokens: 4096 });
+		await explicitBudget.text();
+		assert.equal(seen[2].max_output_tokens, 4096);
+		for (const tail of [
+			{ type: 'function_call', call_id: 'pending', name: 'exec', arguments: '{}' },
+			{ type: 'function_call_output', call_id: 'done', output: 'ok' },
+			{ type: 'custom_tool_call_output', call_id: 'done', output: 'ok' }
+		]) {
+			const history = [...input, tail];
+			const toolHistory = await send(history);
+			await toolHistory.text();
+			assert.deepEqual(seen.at(-1).input, history);
+		}
+	} finally {
+		await close(router);
+		await close(upstream);
+	}
+});
+
+test('drops the encrypted schema keyword for Gemini and keeps it for other upstreams', async () => {
+	const seen = [];
+	const upstream = http.createServer(async (request, response) => {
+		const chunks = [];
+		for await (const chunk of request) chunks.push(chunk);
+		seen.push(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+		const payload = JSON.stringify({ object: 'response', output: [] });
+		response.writeHead(200, { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) });
+		response.end(payload);
+	});
+	const upstreamPort = await listen(upstream);
+	const router = createShellRouterServer({
+		routes: [
+			{
+				clientModel: 'apikey-fan/gemini-4-argon',
+				upstreamModel: 'apikey-fan/gemini-4-argon',
+				upstreamBaseUrl: `http://127.0.0.1:${upstreamPort}`,
+				apiKey: 'target-key'
+			},
+			{
+				clientModel: 'grok-shell',
+				upstreamModel: 'grok-4.7',
+				upstreamBaseUrl: `http://127.0.0.1:${upstreamPort}`,
+				apiKey: 'target-key'
+			}
+		]
+	});
+	const routerPort = await listen(router);
+	const tools = [
+		{
+			type: 'function',
+			name: 'collaboration.send_message',
+			parameters: {
+				type: 'object',
+				properties: {
+					message: { type: 'string', description: 'Message text to send to the target agent.', encrypted: true },
+					target: { type: 'string' }
+				},
+				required: ['message', 'target']
+			}
+		}
+	];
+
+	try {
+		for (const model of ['apikey-fan/gemini-4-argon', 'grok-shell']) {
+			const response = await fetch(`http://127.0.0.1:${routerPort}/v1/responses`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ model, tools, stream: false })
+			});
+			assert.equal(response.status, 200);
+			await response.json();
+		}
+		assert.equal(seen[0].tools[0].parameters.properties.message.encrypted, undefined);
+		assert.equal(seen[0].tools[0].parameters.properties.message.description, 'Message text to send to the target agent.');
+		assert.equal(seen[1].tools[0].parameters.properties.message.encrypted, true);
+		assert.equal(tools[0].parameters.properties.message.encrypted, true);
+	} finally {
+		await close(router);
+		await close(upstream);
+	}
+});
+
 test('lists shells and rewrites a Responses request to its upstream model', async () => {
 	let upstreamRequest;
 	const upstream = http.createServer(async (request, response) => {

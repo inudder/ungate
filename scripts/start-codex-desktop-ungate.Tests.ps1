@@ -234,9 +234,9 @@ Describe 'Custom launcher model registry' {
     It 'creates the template registry when none exists' {
         $definitions = @(Get-UngateModelDefinitions -Context $script:Context)
 
-        $definitions | Should -HaveCount 10
+        $definitions | Should -HaveCount 11
         $definitions[0].Slug | Should -BeExactly 'ungate-opus-4-8'
-        $definitions[-1].Slug | Should -BeExactly 'deepseek-v4-flash'
+        $definitions[-1].Slug | Should -BeExactly 'apikey-fan/gemini-4-argon'
     }
 
     It 'appends custom models after the template with the next priorities' {
@@ -253,13 +253,13 @@ Describe 'Custom launcher model registry' {
 
         $definitions = @(Get-UngateModelDefinitions -Context $script:Context -SkipOverrides)
 
-        $definitions | Should -HaveCount 12
-        $definitions[10].Slug | Should -BeExactly 'ungate-opus-5'
-        $definitions[10].Priority | Should -Be 10
-        $definitions[11].Slug | Should -BeExactly 'custom-text-model'
+        $definitions | Should -HaveCount 13
+        $definitions[11].Slug | Should -BeExactly 'ungate-opus-5'
         $definitions[11].Priority | Should -Be 11
-        @($definitions[11].InputModalities) | Should -Be @('text')
-        $definitions[11].WebSearchToolType | Should -BeExactly 'text'
+        $definitions[12].Slug | Should -BeExactly 'custom-text-model'
+        $definitions[12].Priority | Should -Be 12
+        @($definitions[12].InputModalities) | Should -Be @('text')
+        $definitions[12].WebSearchToolType | Should -BeExactly 'text'
     }
 
     It 'rejects an existing, empty, or whitespace model ID' {
@@ -352,7 +352,7 @@ Describe 'Custom launcher model registry' {
         Test-Path -LiteralPath (Join-Path $customHome 'ungate-models.json') | Should -BeFalse
         $registry = Get-Content -LiteralPath $registryPath -Raw -Encoding utf8 |
             ConvertFrom-Json -Depth 20
-        @($registry.models) | Should -HaveCount 11
+        @($registry.models) | Should -HaveCount 12
         @($registry.models)[-1].slug | Should -BeExactly 'ungate-opus-5'
         @($registry.models)[-1].upstreamModel | Should -BeExactly 'claude-opus-5'
     }
@@ -1052,7 +1052,9 @@ Describe 'Launcher profile preparation order and logging' {
             [pscustomobject]@{ Changed = $true; SyncReasons = @('package changed'); Action = 'Synced'; PluginIds = @('browser'); BrowserSha256 = 'test-hash'; UnsupportedBundledPluginIds = @() }
         }
         Mock -ModuleName Launcher Assert-UngateCodexConfig { $script:profileEvents.Add('validate') }
-        Mock -ModuleName Launcher Initialize-CodexWindowsSandbox {}
+        Mock -ModuleName Launcher Assert-CodexCatalogLoad {}
+        Mock -ModuleName Launcher Resolve-CodexServiceCli { 'C:\test\codex.exe' }
+        Mock -ModuleName Launcher Test-CodexSandboxReadiness {}
         Mock -ModuleName Launcher Restore-CodexWorkspaceRoots {}
         Mock -ModuleName Launcher Write-Host { param($Object) $script:profileEvents.Add([string]$Object) }
     }
@@ -1076,6 +1078,46 @@ Describe 'Launcher profile preparation order and logging' {
         $reason.Count | Should -Be 1
         $result.Count | Should -Be 1
         $script:profileEvents.IndexOf($reason[0]) | Should -BeLessThan $script:profileEvents.IndexOf($result[0])
+    }
+
+    It 'keeps preparing and reports a warning when MCP synchronization fails' {
+        Mock -ModuleName Launcher Sync-CodexMcpServers { throw 'mcp configuration rejected' }
+        $result = & (Get-Module Launcher) {
+            param($context, $selection)
+            Initialize-CodexDesktopProfile -Context $context -Selection $selection -codexBeta ([pscustomobject]@{ExecutablePath='test.exe';BundledMarketplacePath='test';Version='1'}) -providerKeys @{} -selectedKey 'test'
+        } $script:Context $script:Selection
+        @($result.Warnings).Count | Should -BeGreaterThan 0
+        ($result.Warnings -join ' ') | Should -BeLike '*MCP servers were not synchronized*'
+    }
+
+    It 'keeps preparing and reports a warning when plugin isolation fails' {
+        Mock -ModuleName Launcher Initialize-CodexBetaPluginIsolation { throw 'isolated plugin store unavailable' }
+        $result = & (Get-Module Launcher) {
+            param($context, $selection)
+            Initialize-CodexDesktopProfile -Context $context -Selection $selection -codexBeta ([pscustomobject]@{ExecutablePath='test.exe';BundledMarketplacePath='test';Version='1'}) -providerKeys @{} -selectedKey 'test'
+        } $script:Context $script:Selection
+        @($result.Warnings).Count | Should -BeGreaterThan 0
+        ($result.Warnings -join ' ') | Should -BeLike '*Beta plugin isolation was not applied*'
+    }
+
+    It 'keeps preparing and reports a warning when Codex does not confirm the catalog load' {
+        Mock -ModuleName Launcher Assert-CodexCatalogLoad { throw 'Codex did not load the model catalog' }
+        $result = & (Get-Module Launcher) {
+            param($context, $selection)
+            Initialize-CodexDesktopProfile -Context $context -Selection $selection -codexBeta ([pscustomobject]@{ExecutablePath='test.exe';BundledMarketplacePath='test';Version='1'}) -providerKeys @{} -selectedKey 'test'
+        } $script:Context $script:Selection
+        @($result.Warnings).Count | Should -BeGreaterThan 0
+        ($result.Warnings -join ' ') | Should -BeLike '*model catalog load*'
+    }
+
+    It 'still terminates when the custom Codex config is invalid' {
+        Mock -ModuleName Launcher Assert-UngateCodexConfig { throw 'Custom Codex config failed validation' }
+        {
+            & (Get-Module Launcher) {
+                param($context, $selection)
+                Initialize-CodexDesktopProfile -Context $context -Selection $selection -codexBeta ([pscustomobject]@{ExecutablePath='test.exe';BundledMarketplacePath='test';Version='1'}) -providerKeys @{} -selectedKey 'test'
+            } $script:Context $script:Selection
+        } | Should -Throw '*failed validation*'
     }
 }
 

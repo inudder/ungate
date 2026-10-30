@@ -136,6 +136,59 @@ test('flattens namespace tools, history, schemas, and tool choice', () => {
 	});
 });
 
+test('rewrites Codex agent_message items to user messages before CLIProxy', () => {
+	const request = {
+		model: 'grok-4.7',
+		input: [
+			{
+				type: 'agent_message',
+				id: 'amsg_child',
+				author: '/root/child',
+				recipient: '/root',
+				content: [
+					{ type: 'input_text', text: 'child reported: done' },
+					{ type: 'output_text', text: 'and this' },
+					{ type: 'encrypted_content', encrypted_content: 'plain follow-up' }
+				],
+				internal_chat_message_metadata_passthrough: { turn_id: 't1' }
+			},
+			{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'continue' }] },
+			{ type: 'agent_message', content: 'status only' },
+			{ type: 'agent_message', author: 'a', recipient: 'b', content: [{ type: 'image', url: 'http://x' }] }
+		]
+	};
+
+	const { body } = flattenResponsesRequest(request);
+
+	assert.deepEqual(body.input[0], {
+		type: 'message',
+		role: 'user',
+		content: [
+			{ type: 'input_text', text: 'Agent message from "/root/child" to "/root":\n' },
+			{ type: 'input_text', text: 'child reported: done' },
+			{ type: 'input_text', text: 'and this' },
+			{ type: 'input_text', text: 'plain follow-up' }
+		]
+	});
+	assert.equal(JSON.stringify(body.input[0]).includes('amsg_child'), false);
+	assert.equal(JSON.stringify(body.input[0]).includes('turn_id'), false);
+	assert.deepEqual(body.input[1], request.input[1]);
+	assert.deepEqual(body.input[2], {
+		type: 'message',
+		role: 'user',
+		content: [
+			{ type: 'input_text', text: 'Agent message from "unknown" to "unknown":\n' },
+			{ type: 'input_text', text: 'status only' }
+		]
+	});
+	assert.deepEqual(body.input[3].content[1], {
+		type: 'input_text',
+		text: '[agent message content omitted: unsupported part types]'
+	});
+	assert.equal(JSON.stringify(body.input[3]).includes('http://x'), false);
+	assert.deepEqual(flattenResponsesRequest(body).body.input, body.input);
+});
+
 test('adapts Responses custom tools and history to function calls for CLIProxyAPI', () => {
 	const { body, mapping } = flattenResponsesRequest({
 		tools: [

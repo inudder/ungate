@@ -91,3 +91,5 @@ local-config/secrets/
 /graphify-out/reflections/
 # Dev Project Manager: Graphify output is local-only
 /graphify-out/
+# Dev Project Manager: Codebase Memory MCP config is local-only
+/.mcp.json

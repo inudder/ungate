@@ -239,6 +239,46 @@ async function readBody(stream, maxBodyBytes) {
 	return Buffer.concat(chunks);
 }
 
+// Codex marks some tool arguments with encrypted: true. That flag is not JSON Schema,
+// and Gemini's function declaration converter rejects it as an unknown field.
+function stripEncryptedSchemaKeywords(value) {
+	if (Array.isArray(value)) {
+		for (const item of value) stripEncryptedSchemaKeywords(item);
+
+		return;
+	}
+	if (!value || typeof value !== 'object') return;
+	if (typeof value.encrypted === 'boolean') delete value.encrypted;
+	for (const child of Object.values(value)) stripEncryptedSchemaKeywords(child);
+}
+
+function routeRejectsEncryptedSchemaKeyword(route) {
+	return /gemini/i.test(route.upstreamModel);
+}
+
+function prepareArgonResponsesRequest(body) {
+	// Avoid relying on the upstream default: the observed incomplete response had
+	// exactly 8192 output tokens. Preserve any explicit caller budget.
+	if (body.max_output_tokens == null && body.max_tokens == null) {
+		body.max_output_tokens = 32768;
+	}
+	if (!Array.isArray(body.input)) return;
+	const last = body.input.findLast((item) => item?.type !== 'reasoning');
+	if (last?.role !== 'assistant' || (last.type && last.type !== 'message') || last.tool_calls?.length) return;
+	// Codex retries an incomplete response with the partial assistant message in
+	// history. Gemini rejects a final model turn; retain it and request continuation
+	// explicitly. Tool calls/results remain untouched and incompletes stay failures.
+	body.input.push({
+		role: 'user',
+		content: [
+			{
+				type: 'input_text',
+				text: 'Continue from where the previous response stopped. Do not repeat completed work. If a tool call was interrupted, issue a complete tool call.'
+			}
+		]
+	});
+}
+
 function normalizeRoute(route) {
 	if (!route || typeof route !== 'object') {
 		throw new Error('A shell router route must be an object.');
@@ -612,6 +652,12 @@ export function createShellRouterServer(options = {}) {
 			body.model = route.upstreamModel;
 			if (requestUrl.pathname === '/v1/responses' && route.parallelToolCalls !== undefined) {
 				body.parallel_tool_calls = route.parallelToolCalls;
+			}
+			if (routeRejectsEncryptedSchemaKeyword(route)) {
+				stripEncryptedSchemaKeywords(body.tools);
+			}
+			if (requestUrl.pathname === '/v1/responses' && /(?:^|\/)gemini-4-argon$/i.test(route.upstreamModel)) {
+				prepareArgonResponsesRequest(body);
 			}
 			const upstreamBody = Buffer.from(JSON.stringify(body));
 			const targetUrl = new URL(`${requestUrl.pathname}${requestUrl.search}`, route.upstreamUrl);

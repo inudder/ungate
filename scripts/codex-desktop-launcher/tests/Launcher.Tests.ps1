@@ -277,6 +277,42 @@ Describe 'Orchestration without production side effects' {
     }
 }
 
+Describe 'Soft preparation gates do not stop the launcher' {
+    BeforeEach {
+        $script:events = [System.Collections.Generic.List[string]]::new()
+        Mock -ModuleName Launcher Get-CodexBetaPackageInfo {
+            [pscustomobject]@{ ExecutablePath='test.exe'; InstallLocation='C:\test\package'; Version='1' }
+        }
+        Mock -ModuleName Launcher Stop-CodexBeta { $script:events.Add('stop'); $true }
+        Mock -ModuleName Launcher Initialize-CodexDesktopTransport {
+            [pscustomobject]@{ProviderKeys=@{};SelectedKey='test';PreflightFailure=$null}
+        }
+        Mock -ModuleName Launcher Initialize-CodexDesktopProfile {
+            [pscustomobject]@{ Warnings = @('Beta plugin isolation was not applied: isolated store unavailable') }
+        }
+        Mock -ModuleName Launcher Start-CodexDesktopSession { $script:events.Add('launch') }
+        Mock -ModuleName Launcher Write-Host {}
+        Mock -ModuleName Launcher Write-CodexHistoryProfileDiagnostics {}
+        Mock -ModuleName Launcher Assert-OmniRouteDesktopContextLimit { [pscustomobject]@{ Status = 'ok' } }
+    }
+
+    It 'launches Desktop and returns zero when preparation produced warnings' {
+        Invoke-CodexDesktopLauncher -Context (New-TestContext @{Model='grok-4.7';NoLogWatch=$true}) | Should -Be 0
+        Should -Invoke -ModuleName Launcher Start-CodexDesktopSession -Times 1 -Exactly
+    }
+
+    It 'returns two from PrepareOnly when preparation produced warnings' {
+        Invoke-CodexDesktopLauncher -Context (New-TestContext @{PrepareOnly=$true}) | Should -Be 2
+        Should -Invoke -ModuleName Launcher Start-CodexDesktopSession -Times 0
+    }
+
+    It 'does not open a second instance when Codex Beta stays running' {
+        Mock -ModuleName Launcher Stop-CodexBeta { $script:events.Add('stop'); $false }
+        Invoke-CodexDesktopLauncher -Context (New-TestContext @{Model='grok-4.7';NoLogWatch=$true}) | Should -Be 0
+        Should -Invoke -ModuleName Launcher Start-CodexDesktopSession -Times 0
+    }
+}
+
 Describe 'Local memories remain disabled' {
     It 'disables inherited memory settings without modifying the normal profile' {
         $context = New-TestContext @{Model='grok-4.7'}
@@ -328,6 +364,7 @@ Describe 'Complete preparation on disposable profiles' {
         Mock -ModuleName Launcher Invoke-CliProxyPreflight {}
         Mock -ModuleName Launcher Invoke-DesktopOmniRoutePreflight {}
         Mock -ModuleName Launcher Get-CodexCliExecutable { 'fixture.exe' }
+        Mock -ModuleName Launcher Resolve-CodexServiceCli { 'fixture.exe' }
         Mock -ModuleName Profile Get-CodexCliExecutable { 'fixture.exe' }
         Mock -ModuleName Profile Test-CodexMcpConfiguration { @('fixture', 'ungate_patch') }
         $script:catalogCli = Join-Path $PSScriptRoot 'fixtures/catalog-cli.ps1'
@@ -351,9 +388,9 @@ Describe 'Complete preparation on disposable profiles' {
 
     It 'writes and validates the complete <Mode> profile without live services' -ForEach @(
         @{Mode='router';Options=@{PrepareOnly=$true;Model='grok-4.7'};Memory=$false;ExpectedProvider='ungate_model_shell_router';ExpectedCount=7;ExpectedHidden=1;ExpectedModel='gpt-5.5'},
-        @{Mode='fallback';Options=@{PrepareOnly=$true;EnableProviderFallback=$true};Memory=$false;ExpectedProvider='omniroute';ExpectedCount=11;ExpectedHidden=0;ExpectedModel='codex-fallback'},
+        @{Mode='fallback';Options=@{PrepareOnly=$true;EnableProviderFallback=$true};Memory=$false;ExpectedProvider='omniroute';ExpectedCount=12;ExpectedHidden=0;ExpectedModel='codex-fallback'},
         @{Mode='memory-router';Options=@{PrepareOnly=$true;Model='grok-4.7'};Memory=$true;ExpectedProvider='ungate_model_shell_router';ExpectedCount=8;ExpectedHidden=2;ExpectedModel='gpt-5.5'},
-        @{Mode='memory-fallback';Options=@{PrepareOnly=$true;EnableProviderFallback=$true};Memory=$true;ExpectedProvider='ungate_model_shell_router';ExpectedCount=12;ExpectedHidden=1;ExpectedModel='codex-fallback'}
+        @{Mode='memory-fallback';Options=@{PrepareOnly=$true;EnableProviderFallback=$true};Memory=$true;ExpectedProvider='ungate_model_shell_router';ExpectedCount=13;ExpectedHidden=1;ExpectedModel='codex-fallback'}
     ) {
         $context = New-TestContext $Options $Mode
         $context.DefaultCodexHome = $script:sourceHome
@@ -802,14 +839,16 @@ Describe 'Environment restoration on failure' {
         }
     }
 
-    It 'restores an absent CODEX_HOME after sandbox CLI failure' {
+    It 'reports sandbox readiness without running the Codex CLI' {
         $previous = $env:CODEX_HOME
         $context = New-TestContext
-        Mock -ModuleName Desktop Get-Content { 'sandbox_mode = "workspace-write"' }
-        Mock -ModuleName Desktop Get-CodexCliExecutable { 'missing-test-command.exe' }
+        $context.ServiceCliVersion = '0.146.0-alpha.9.2'
+        $context.ServiceCliPath = 'C:\test\codex.exe'
+        $packageInfo = [pscustomobject]@{ InstallLocation = 'C:\test\package' }
+        Mock -ModuleName Desktop Write-Host {}
         try {
             Remove-Item Env:\CODEX_HOME -ErrorAction SilentlyContinue
-            { Initialize-CodexWindowsSandbox -Context $context } | Should -Throw
+            { Test-CodexSandboxReadiness -Context $context -PackageInfo $packageInfo } | Should -Not -Throw
             Test-Path Env:\CODEX_HOME | Should -BeFalse
         }
         finally {

@@ -17,11 +17,11 @@ BeforeAll {
 }
 
 Describe 'Model template contract' {
-    It 'loads ten unique template models in file order' {
+    It 'loads eleven unique template models in file order' {
         $context = New-RegistryContext
         $definitions = @(Get-UngateTemplateModelDefinitions -Context $context)
-        $definitions | Should -HaveCount 10
-        @($definitions.Slug | Select-Object -Unique) | Should -HaveCount 10
+        $definitions | Should -HaveCount 11
+        @($definitions.Slug | Select-Object -Unique) | Should -HaveCount 11
         for ($index = 0; $index -lt $definitions.Count; $index++) {
             $definitions[$index].Priority | Should -Be $index
         }
@@ -90,7 +90,7 @@ Describe 'Model registry migration' {
 
         Initialize-UngateModelRegistry -Context $context | Should -BeTrue
         @((Get-UngateModelRegistryRecords -Context $context).slug) | Should -Not -Contain 'grok-4.7'
-        @(Get-UngateModelRegistryRecords -Context $context) | Should -HaveCount 9
+        @(Get-UngateModelRegistryRecords -Context $context) | Should -HaveCount 10
         (Get-FileHash -LiteralPath $hiddenPath -Algorithm SHA256).Hash | Should -BeExactly $before
     }
 
@@ -102,7 +102,7 @@ Describe 'Model registry migration' {
 
         Initialize-UngateModelRegistry -Context $context | Should -BeTrue
         $records = @(Get-UngateModelRegistryRecords -Context $context)
-        $records | Should -HaveCount 11
+        $records | Should -HaveCount 12
         $records[-1].slug | Should -BeExactly 'custom-legacy'
         $records[-1].upstreamModel | Should -BeExactly 'custom-legacy-upstream'
         (Get-FileHash -LiteralPath $legacyPath -Algorithm SHA256).Hash | Should -BeExactly $before

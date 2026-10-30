@@ -78,7 +78,7 @@ function New-UngateCatalogModelInfo {
         context_window = $contextWindow.ContextWindow
         max_context_window = $contextWindow.MaxContextWindow
         effective_context_window_percent = $contextWindow.EffectiveContextWindowPercent
-        auto_compact_token_limit = $null
+        auto_compact_token_limit = $definition.AutoCompactTokenLimit
         comp_hash = $null
         supports_search_tool = $false
         use_responses_lite = $false
@@ -426,64 +426,82 @@ function Assert-UngateCodexConfig {
         }
     }
 
+    Assert-CodexCatalogLoad -Context $Context -Selection $Selection -ProviderKeys $ProviderKeys
+}
+
+# Verifies that Codex itself loaded the prepared catalog. A failure here degrades the model picker
+# but does not stop the desktop, so the caller treats it as a soft gate.
+function Assert-CodexCatalogLoad {
+    param(
+        [Parameter(Mandatory)][psobject]$Context,
+        [Parameter(Mandatory)][psobject]$Selection,
+        [Parameter(Mandatory = $true)][hashtable]$ProviderKeys
+    )
+    $ErrorActionPreference = 'Stop'
+
+    $backgroundDefinition = Get-CodexBackgroundDefinition -Selection $Selection
+    $expectedCatalogCount = $Selection.Definitions.Count + $(if ($Selection.MemoryEnabled) { 1 } else { 0 }) + $(if ($backgroundDefinition) { 1 } else { 0 })
+
     $codexExecutable = Get-CodexCliExecutable -Context $Context
-    if ($codexExecutable) {
-        $previousCodexHome = $env:CODEX_HOME
-        $previousEnv = @{}
+    if (-not $codexExecutable) {
+        throw 'Codex CLI is required to verify the model catalog load.'
+    }
+
+    $previousCodexHome = $env:CODEX_HOME
+    $previousEnv = @{}
+    foreach ($provider in (Get-ProviderDefinitions -Selection $Selection)) {
+        $previousEnv[$provider.EnvKey] = [System.Environment]::GetEnvironmentVariable($provider.EnvKey)
+        [System.Environment]::SetEnvironmentVariable($provider.EnvKey, $ProviderKeys[$provider.Name])
+    }
+    try {
+        $env:CODEX_HOME = $Context.CustomCodexHome
+
+        $supportsModelDebug = (& $codexExecutable debug models --help 2>$null) -match 'raw model catalog'
+        if ($supportsModelDebug) {
+            $rawCatalog = & $codexExecutable debug models 2>&1
+            if ($LASTEXITCODE -eq 0) {
+                $resolvedCatalog = ($rawCatalog -join "`n") | ConvertFrom-Json -Depth 100
+                $resolvedModels = @($resolvedCatalog.models)
+                if ($resolvedModels.Count -ne $expectedCatalogCount) {
+                    throw "Codex loaded an unexpected model catalog: expected $expectedCatalogCount models, got $($resolvedModels.Count)."
+                }
+                if ($Selection.MemoryEnabled -and @($resolvedModels | Where-Object { $_.slug -eq 'ungate-memory' -and $_.visibility -eq 'hide' }).Count -ne 1) {
+                    throw 'Codex did not load the dedicated memory model as hidden.'
+                }
+                if ($backgroundDefinition -and @($resolvedModels | Where-Object { $_.slug -eq $backgroundDefinition.ShellSlug -and $_.visibility -eq 'hide' }).Count -ne 1) {
+                    throw 'Codex did not load the background task model as hidden.'
+                }
+                foreach ($definition in $Selection.Definitions) {
+                    $catalogSlug = Get-CodexCatalogModelSlug -Selection $Selection -Definition $definition
+                    $resolvedModel = $resolvedModels |
+                        Where-Object { $_.slug -eq $catalogSlug } |
+                        Select-Object -First 1
+                    if (-not $resolvedModel -or $resolvedModel.display_name -ne $definition.DisplayName) {
+                        throw "Codex did not load model '$($definition.DisplayName)' as expected."
+                    }
+                }
+            }
+        } else {
+            & $codexExecutable features list *> $null
+        }
+
+        if ($LASTEXITCODE -ne 0) {
+            throw "Codex rejected the custom config with exit code $LASTEXITCODE."
+        }
+    }
+    finally {
+        if ($null -eq $previousCodexHome) {
+            Remove-Item Env:\CODEX_HOME -ErrorAction SilentlyContinue
+        } else {
+            $env:CODEX_HOME = $previousCodexHome
+        }
+
         foreach ($provider in (Get-ProviderDefinitions -Selection $Selection)) {
-            $previousEnv[$provider.EnvKey] = [System.Environment]::GetEnvironmentVariable($provider.EnvKey)
-            [System.Environment]::SetEnvironmentVariable($provider.EnvKey, $ProviderKeys[$provider.Name])
-        }
-        try {
-            $env:CODEX_HOME = $Context.CustomCodexHome
-
-            $supportsModelDebug = (& $codexExecutable debug models --help 2>$null) -match 'raw model catalog'
-            if ($supportsModelDebug) {
-                $rawCatalog = & $codexExecutable debug models 2>&1
-                if ($LASTEXITCODE -eq 0) {
-                    $resolvedCatalog = ($rawCatalog -join "`n") | ConvertFrom-Json -Depth 100
-                    $resolvedModels = @($resolvedCatalog.models)
-                    if ($resolvedModels.Count -ne $expectedCatalogCount) {
-                        throw "Codex loaded an unexpected model catalog: expected $expectedCatalogCount models, got $($resolvedModels.Count)."
-                    }
-                    if ($Selection.MemoryEnabled -and @($resolvedModels | Where-Object { $_.slug -eq 'ungate-memory' -and $_.visibility -eq 'hide' }).Count -ne 1) {
-                        throw 'Codex did not load the dedicated memory model as hidden.'
-                    }
-                    if ($backgroundDefinition -and @($resolvedModels | Where-Object { $_.slug -eq $backgroundDefinition.ShellSlug -and $_.visibility -eq 'hide' }).Count -ne 1) {
-                        throw 'Codex did not load the background task model as hidden.'
-                    }
-                    foreach ($definition in $Selection.Definitions) {
-                        $catalogSlug = Get-CodexCatalogModelSlug -Selection $Selection -Definition $definition
-                        $resolvedModel = $resolvedModels |
-                            Where-Object { $_.slug -eq $catalogSlug } |
-                            Select-Object -First 1
-                        if (-not $resolvedModel -or $resolvedModel.display_name -ne $definition.DisplayName) {
-                            throw "Codex did not load model '$($definition.DisplayName)' as expected."
-                        }
-                    }
-                }
+            $previousValue = $previousEnv[$provider.EnvKey]
+            if ($null -eq $previousValue) {
+                Remove-Item -LiteralPath "Env:$($provider.EnvKey)" -ErrorAction SilentlyContinue
             } else {
-                & $codexExecutable features list *> $null
-            }
-
-            if ($LASTEXITCODE -ne 0) {
-                throw "Codex rejected the custom config with exit code $LASTEXITCODE."
-            }
-        }
-        finally {
-            if ($null -eq $previousCodexHome) {
-                Remove-Item Env:\CODEX_HOME -ErrorAction SilentlyContinue
-            } else {
-                $env:CODEX_HOME = $previousCodexHome
-            }
-
-            foreach ($provider in (Get-ProviderDefinitions -Selection $Selection)) {
-                $previousValue = $previousEnv[$provider.EnvKey]
-                if ($null -eq $previousValue) {
-                    Remove-Item -LiteralPath "Env:$($provider.EnvKey)" -ErrorAction SilentlyContinue
-                } else {
-                    [System.Environment]::SetEnvironmentVariable($provider.EnvKey, $previousValue)
-                }
+                [System.Environment]::SetEnvironmentVariable($provider.EnvKey, $previousValue)
             }
         }
     }
@@ -492,5 +510,6 @@ function Assert-UngateCodexConfig {
 Export-ModuleMember -Function @(
     'New-UngateCatalogModelInfo',
     'Write-UngateModelCatalog',
-    'Assert-UngateCodexConfig'
+    'Assert-UngateCodexConfig',
+    'Assert-CodexCatalogLoad'
 )

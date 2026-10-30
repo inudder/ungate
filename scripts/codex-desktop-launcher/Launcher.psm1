@@ -300,6 +300,12 @@ function Initialize-CodexDesktopProfile {
         [Parameter(Mandatory)][string]$selectedKey
     )
     $ErrorActionPreference = 'Stop'
+    $warnings = [System.Collections.Generic.List[string]]::new()
+
+    # The service CLI is resolved first: plugin isolation, MCP synchronization and the catalog
+    # verification all run it, so every later step uses the same build as Codex Beta.
+    $null = Resolve-CodexServiceCli -Context $Context -PackageInfo $codexBeta
+
     Initialize-UngateCodexConfig -Context $Context -Selection $Selection
     Write-UngateModelCatalog -Context $Context -Selection $Selection
     $betaOnlyMcpContent = @'
@@ -308,53 +314,81 @@ command = 'C:\Program Files\nodejs\node.exe'
 args = ['J:\Dev\ungate-local\scripts\ungate-patch-mcp.mjs', "--allow-root", "*"]
 '@
 
-    Sync-CodexMcpServers -Context $Context `
-        -SourceCodexHome $Context.DefaultCodexHome `
-        -TargetCodexHome $Context.CustomCodexHome `
-        -BetaOnlyMcpContent $betaOnlyMcpContent
+    try {
+        Sync-CodexMcpServers -Context $Context `
+            -SourceCodexHome $Context.DefaultCodexHome `
+            -TargetCodexHome $Context.CustomCodexHome `
+            -BetaOnlyMcpContent $betaOnlyMcpContent
+    }
+    catch {
+        $warnings.Add("MCP servers were not synchronized: $($_.Exception.Message)")
+    }
     Ensure-SharedDirectory -Context $Context -Name 'skills'
     Sync-CodexGlobalInstructions -Context $Context
     Sync-CodexAuthentication -Context $Context
-    $codexExecutable = Get-CodexCliExecutable -Context $Context
-    if (-not $codexExecutable) {
-        throw 'Codex CLI is required to prepare the isolated Codex Beta plugin store.'
-    }
-    $betaIsRunning = @(Get-CodexBetaProcesses -ExecutablePath $codexBeta.ExecutablePath).Count -gt 0
-    $pluginIsolation = Initialize-CodexBetaPluginIsolation `
-        -DefaultCodexHome $Context.DefaultCodexHome `
-        -CustomCodexHome $Context.CustomCodexHome `
-        -CodexExecutable $codexExecutable `
-        -BetaBundledMarketplace $codexBeta.BundledMarketplacePath `
-        -BetaPackageVersion $codexBeta.Version `
-        -BetaIsRunning $betaIsRunning
-    if ($pluginIsolation.Changed) {
-        $syncReasons = @($pluginIsolation.SyncReasons)
-        if ($syncReasons.Count -gt 0) {
-            Write-Host `
-                "[ungate] Plugin isolation will sync because: $($syncReasons -join '; ')." `
-                -ForegroundColor Yellow
+    try {
+        $codexExecutable = Get-CodexCliExecutable -Context $Context
+        if (-not $codexExecutable) {
+            throw 'Codex CLI is required to prepare the isolated Codex Beta plugin store.'
         }
-        Write-Host `
-            "[ungate] Codex Beta plugins $($pluginIsolation.Action.ToLowerInvariant()) and isolated ($($pluginIsolation.PluginIds.Count) installed)." `
-            -ForegroundColor Green
+        $betaIsRunning = @(Get-CodexBetaProcesses -ExecutablePath $codexBeta.ExecutablePath).Count -gt 0
+        $pluginIsolation = Initialize-CodexBetaPluginIsolation `
+            -DefaultCodexHome $Context.DefaultCodexHome `
+            -CustomCodexHome $Context.CustomCodexHome `
+            -CodexExecutable $codexExecutable `
+            -BetaBundledMarketplace $codexBeta.BundledMarketplacePath `
+            -BetaPackageVersion $codexBeta.Version `
+            -BetaIsRunning $betaIsRunning
+        if ($pluginIsolation.Changed) {
+            $syncReasons = @($pluginIsolation.SyncReasons)
+            if ($syncReasons.Count -gt 0) {
+                Write-Host `
+                    "[ungate] Plugin isolation will sync because: $($syncReasons -join '; ')." `
+                    -ForegroundColor Yellow
+            }
+            Write-Host `
+                "[ungate] Codex Beta plugins $($pluginIsolation.Action.ToLowerInvariant()) and isolated ($($pluginIsolation.PluginIds.Count) installed)." `
+                -ForegroundColor Green
+        }
+        else {
+            Write-Host `
+                "[ungate] Isolated Codex Beta plugins verified ($($pluginIsolation.PluginIds.Count) installed)." `
+                -ForegroundColor DarkGray
+        }
+        Write-Host "[ungate] Browser plugin SHA256: $($pluginIsolation.BrowserSha256)" -ForegroundColor DarkGray
+        $unsupportedBundledPluginIds = @($pluginIsolation.UnsupportedBundledPluginIds)
+        if ($unsupportedBundledPluginIds.Count -gt 0) {
+            Write-Warning (
+                '[ungate] Codex Beta does not provide bundled plugins from the normal profile: ' +
+                ($unsupportedBundledPluginIds -join ', ')
+            )
+        }
     }
-    else {
-        Write-Host `
-            "[ungate] Isolated Codex Beta plugins verified ($($pluginIsolation.PluginIds.Count) installed)." `
-            -ForegroundColor DarkGray
-    }
-    Write-Host "[ungate] Browser plugin SHA256: $($pluginIsolation.BrowserSha256)" -ForegroundColor DarkGray
-    $unsupportedBundledPluginIds = @($pluginIsolation.UnsupportedBundledPluginIds)
-    if ($unsupportedBundledPluginIds.Count -gt 0) {
-        Write-Warning (
-            '[ungate] Codex Beta does not provide bundled plugins from the normal profile: ' +
-            ($unsupportedBundledPluginIds -join ', ')
-        )
+    catch {
+        $warnings.Add("Beta plugin isolation was not applied: $($_.Exception.Message)")
     }
     Assert-UngateCodexConfig -Context $Context -Selection $Selection -Key $selectedKey -ProviderKeys $providerKeys
-    Initialize-CodexWindowsSandbox -Context $Context
+    try {
+        Assert-CodexCatalogLoad -Context $Context -Selection $Selection -ProviderKeys $providerKeys
+    }
+    catch {
+        $warnings.Add("Codex did not confirm the model catalog load: $($_.Exception.Message)")
+    }
+    try {
+        Test-CodexSandboxReadiness -Context $Context -PackageInfo $codexBeta
+    }
+    catch {
+        $warnings.Add("Sandbox readiness could not be verified: $($_.Exception.Message)")
+    }
     Write-Host "[ungate] Custom CODEX_HOME ready: $($Context.CustomCodexHome)" -ForegroundColor Green
-    Restore-CodexWorkspaceRoots -Context $Context
+    try {
+        Restore-CodexWorkspaceRoots -Context $Context
+    }
+    catch {
+        $warnings.Add("Workspace roots were not restored: $($_.Exception.Message)")
+    }
+
+    return [pscustomobject]@{ Warnings = @($warnings) }
 }
 
 function Start-CodexDesktopSession {
@@ -494,17 +528,43 @@ function Invoke-CodexDesktopLauncher {
         return 1
     }
     $codexBeta = Get-CodexBetaPackageInfo
+    $betaStillRunning = $false
     if (-not $Context.Options.PrepareOnly) {
-        Stop-CodexBeta -ExecutablePath $codexBeta.ExecutablePath
+        $betaStopped = Stop-CodexBeta -ExecutablePath $codexBeta.ExecutablePath
+        if ($betaStopped -eq $false) {
+            Write-Host (
+                '[ungate] Warning: Codex Beta is still running, so a second instance is not opened. ' +
+                'Restart Codex Beta manually to apply the updated profile.'
+            ) -ForegroundColor Yellow
+            $betaStillRunning = $true
+        }
     }
     $transport = Initialize-CodexDesktopTransport -Context $Context -Selection $selection
-    Initialize-CodexDesktopProfile -Context $Context -Selection $selection -codexBeta $codexBeta -providerKeys $transport.ProviderKeys -selectedKey $transport.SelectedKey
+    $profile = Initialize-CodexDesktopProfile -Context $Context -Selection $selection -codexBeta $codexBeta -providerKeys $transport.ProviderKeys -selectedKey $transport.SelectedKey
+    $profileWarnings = @()
+    if ($profile -and $profile.PSObject.Properties['Warnings']) {
+        $profileWarnings = @($profile.Warnings)
+    }
+    if ($profileWarnings.Count -gt 0) {
+        Write-Host "[ungate] Preparation completed with $($profileWarnings.Count) warning(s):" -ForegroundColor Yellow
+        foreach ($profileWarning in $profileWarnings) {
+            Write-Host "        $profileWarning" -ForegroundColor DarkYellow
+        }
+    }
     if ($Context.Options.PrepareOnly) {
         if ($transport.PreflightFailure -or $transport.MemoryFailure) {
             Write-Host '[ungate] Preparation finished with preflight warning. Desktop launch skipped.' -ForegroundColor Yellow
             return 2
         }
+        if ($profileWarnings.Count -gt 0) {
+            Write-Host '[ungate] Preparation finished with warnings. Desktop launch skipped.' -ForegroundColor Yellow
+            return 2
+        }
         Write-Host '[ungate] Preparation passed. Desktop launch skipped.' -ForegroundColor Green
+        return 0
+    }
+    if ($betaStillRunning) {
+        Write-Host '[ungate] Desktop launch skipped because Codex Beta is still running.' -ForegroundColor Yellow
         return 0
     }
     # Start the control agent before the session: Start-CodexDesktopSession blocks while streaming logs.

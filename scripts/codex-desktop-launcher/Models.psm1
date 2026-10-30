@@ -294,6 +294,10 @@ function ConvertTo-UngateRegistryDefinition {
     $contextWindow = ConvertTo-UngateOptionalWindow -Record $Record -Name 'contextWindow' -Slug $slug
     $maxContextWindow = ConvertTo-UngateOptionalWindow -Record $Record -Name 'maxContextWindow' -Slug $slug
     if ($null -ne $contextWindow -and $null -eq $maxContextWindow) { $maxContextWindow = $contextWindow }
+    $autoCompactTokenLimit = ConvertTo-UngateOptionalWindow -Record $Record -Name 'autoCompactTokenLimit' -Slug $slug
+    if ($null -ne $autoCompactTokenLimit -and $null -ne $contextWindow -and $autoCompactTokenLimit -gt $contextWindow) {
+        throw "Model '$slug' autoCompactTokenLimit cannot exceed contextWindow."
+    }
     $effectivePercent = ConvertTo-UngateOptionalWindow -Record $Record -Name 'effectiveContextWindowPercent' -Slug $slug
     $summaries = ConvertTo-UngateOptionalBool -Record $Record -Name 'supportsReasoningSummaries' -Slug $slug
     $parallel = ConvertTo-UngateOptionalBool -Record $Record -Name 'supportsParallelToolCalls' -Slug $slug
@@ -343,6 +347,7 @@ function ConvertTo-UngateRegistryDefinition {
         RequiresUngate = [bool]$profile.RequiresUngate
         ContextWindow = $contextWindow
         MaxContextWindow = $maxContextWindow
+        AutoCompactTokenLimit = $autoCompactTokenLimit
         EffectiveContextWindowPercent = $effectivePercent
         SupportsReasoningSummaries = $summaries
         SupportsParallelToolCalls = $parallel
@@ -605,7 +610,7 @@ function ConvertTo-UngatePersistentModelRecord {
     }
     if ($null -ne $Definition.ContextWindow) { $persistent.contextWindow = [int]$Definition.ContextWindow }
     foreach ($name in @(
-        'maxContextWindow', 'effectiveContextWindowPercent', 'supportsImageDetailOriginal', 'description',
+        'maxContextWindow', 'effectiveContextWindowPercent', 'autoCompactTokenLimit', 'supportsImageDetailOriginal', 'description',
         'aliases', 'responsesAdapter', 'truncationPolicy', 'supportedReasoningLevels',
         'supportsReasoningSummaries', 'supportsParallelToolCalls', 'defaultReasoningSummary',
         'supportVerbosity', 'defaultVerbosity'
@@ -729,6 +734,7 @@ function ConvertTo-UngateCamelModelRecord {
     $optional = @{
         ContextWindow = 'contextWindow'
         MaxContextWindow = 'maxContextWindow'
+        AutoCompactTokenLimit = 'autoCompactTokenLimit'
         EffectiveContextWindowPercent = 'effectiveContextWindowPercent'
         SupportsImageDetailOriginal = 'supportsImageDetailOriginal'
         Description = 'description'
