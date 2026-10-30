@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { createShellRouterServer, SERVICE_NAME } from './codex-model-shell-router.mjs';
+import { safeFailureDetails } from './codex-shell-router-supervisor.mjs';
 
 const runtimeDirectory = path.dirname(fileURLToPath(import.meta.url));
 const defaultRoot = 'C:\\ProgramData\\Ungate\\shell-router';
@@ -16,9 +17,12 @@ function log(event, fields = {}) {
 	console.log(JSON.stringify({ timestamp: new Date().toISOString(), service: SERVICE_NAME, event, ...fields }));
 }
 
-function fatal(event) {
+function fatal(event, error) {
 	try {
-		writeSync(1, `${JSON.stringify({ timestamp: new Date().toISOString(), service: SERVICE_NAME, event })}\n`);
+		writeSync(
+			1,
+			`${JSON.stringify({ timestamp: new Date().toISOString(), service: SERVICE_NAME, event, ...safeFailureDetails(error) })}\n`
+		);
 	} catch {
 		/* NSSM will still observe the failing exit. */
 	}
@@ -202,12 +206,12 @@ export async function startShellRouterService({ root = defaultRoot, port = 8319,
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-	process.on('uncaughtException', () => fatal('uncaught_exception'));
-	process.on('unhandledRejection', () => fatal('unhandled_rejection'));
+	process.on('uncaughtException', (error) => fatal('uncaught_exception', error));
+	process.on('unhandledRejection', (error) => fatal('unhandled_rejection', error));
 	startShellRouterService()
 		.then((server) => {
-			server.on('error', () => fatal('listener_error'));
+			server.on('error', (error) => fatal('listener_error', error));
 			for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => server.close(() => process.exit(0)));
 		})
-		.catch(() => fatal('startup_failed'));
+		.catch((error) => fatal('startup_failed', error));
 }

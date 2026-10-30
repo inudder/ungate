@@ -9,7 +9,7 @@ import { PassThrough } from 'node:stream';
 import test from 'node:test';
 
 import { decryptEnvelope, startShellRouterService } from './codex-model-shell-router-service.mjs';
-import { runRouter } from './codex-shell-router-supervisor.mjs';
+import { runRouter, safeFailureDetails } from './codex-shell-router-supervisor.mjs';
 
 const listen = (server) =>
 	new Promise((resolve, reject) => {
@@ -56,6 +56,25 @@ test('supervisor merges both streams and reports a failed child exit', async () 
 	assert.equal(code, 1);
 	assert.match(captured, /fixture-stdout/);
 	assert.match(captured, /fixture-stderr/);
+});
+
+test('fatal diagnostics retain safe error details without exception messages or secrets', () => {
+	const error = new TypeError('synthetic-private-key');
+	error.code = 'EADDRINUSE';
+	error.stack =
+		'TypeError: synthetic-private-key\n' +
+		'    at handler (file:///C:/runtime/codex-model-shell-router-service.mjs:123:45)\n' +
+		'    at private (file:///C:/synthetic-private-key.mjs:1:2)';
+	const details = safeFailureDetails(error);
+	assert.deepEqual(details, {
+		error_type: 'TypeError',
+		error_code: 'EADDRINUSE',
+		stack_frames: [{ file: 'codex-model-shell-router-service.mjs', line: 123, column: 45 }]
+	});
+	assert.doesNotMatch(JSON.stringify(details), /synthetic-private-key/);
+	error.code = 'synthetic-private-key';
+	assert.equal(safeFailureDetails(error).error_code, null);
+	assert.equal(safeFailureDetails('synthetic-private-key').error_type, 'unknown');
 });
 
 test(

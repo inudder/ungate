@@ -154,7 +154,9 @@ pipe. NSSM online rotation is enabled at 10 MiB and does not delete archives.
 Request records contain timestamp, model, request ID, status, duration and an
 error category; request bodies and keys are not logged. `response_completed`
 is `null` when the router did not observe a Responses stream lifecycle, rather
-than an indication that the response was incomplete. The NSSM panel reads
+than an indication that the response was incomplete. Fatal records include an
+allowlisted exception type, system error code and runtime source locations;
+exception messages and arbitrary stack text are not recorded. The NSSM panel reads
 the current combined log as stdout; archived files are on disk.
 
 With NSSM 2.24, setting `AppStdout` and `AppStderr` to the same online-rotated
