@@ -1,5 +1,13 @@
 # Codex Beta Launcher Model Routing
 
+Output budget inspection is available in launcher menu **O** or
+`-CheckOutputLimits`; paid acceptance/full-length probes use `-TestOutputLimits`.
+See [output diagnostics](desktop-launcher.md#output-budget-diagnostics) for
+commands, evidence freshness and the distinction between configured budgets,
+accepted parameters and measured output. Context-window values in this matrix
+are not output ceilings. Current documented output evidence covers
+`deepseek/deepseek-flash` (393216); unknown model/provider maxima stay unknown.
+
 This is the canonical operational map for models exposed by
 `start-codex-desktop-ungate.ps1`. It tells an AI agent which local component
 and which external directory to inspect first. The launcher source remains the

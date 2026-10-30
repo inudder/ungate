@@ -60,6 +60,25 @@
     Test the cached Codex Beta tool schemas without launching or stopping Desktop.
     With -Model, test one registry model noninteractively; otherwise select models.
 
+.PARAMETER CheckOutputLimits
+    Inspect configured output budgets and saved evidence for the picker or one
+    -Model. Makes no model inference requests and does not launch/stop Desktop.
+
+.PARAMETER TestOutputLimits
+    Run paid, bounded Responses probes for one -Model through an isolated router
+    and its configured gateway/bridge. Save sanitized evidence without changing limits.
+
+.PARAMETER OutputTokenBudget
+    Candidate budget for the explicit probe; otherwise use a fresh documented
+    maximum if known. This is a test parameter, not a saved client setting.
+
+.PARAMETER FullOutputTest
+    Request generation to the candidate budget instead of short acceptance.
+    May consume the entire budget; early completion is inconclusive.
+
+.PARAMETER OutputTestTimeoutSeconds
+    Per-request deadline for explicit output tests (default 180, maximum 3600).
+
 .PARAMETER SkipWorkspaceRestore
     Skip restoring active-workspace-roots from project-order / saved roots.
 
@@ -108,6 +127,11 @@ param(
     [switch]$TestModelCapabilities,
     [string]$SetUpstreamModel,
     [switch]$TestTools,
+    [switch]$CheckOutputLimits,
+    [switch]$TestOutputLimits,
+    [ValidateRange(1, 2147483647)][int]$OutputTokenBudget,
+    [switch]$FullOutputTest,
+    [ValidateRange(10, 3600)][int]$OutputTestTimeoutSeconds = 180,
     [switch]$PrepareOnly,
     [switch]$SkipWorkspaceRestore,
     [switch]$EnableProviderFallback,

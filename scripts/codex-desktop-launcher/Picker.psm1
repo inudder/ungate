@@ -6,6 +6,7 @@ Import-Module (Join-Path $PSScriptRoot 'Logging.psm1') -DisableNameChecking -Err
 Import-Module (Join-Path $PSScriptRoot 'Models.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'LauncherLock.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'Capabilities.psm1') -DisableNameChecking -ErrorAction Stop
+Import-Module (Join-Path $PSScriptRoot 'OutputLimits.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'ToolCompatibility.psm1') -DisableNameChecking -ErrorAction Stop
 
 function Get-DefaultUngatePickerModelSlugs {
@@ -876,6 +877,7 @@ function Select-UngateDesktopModel {
         $memoryState = if ($memorySettings.Enabled) { 'On' } else { 'Off' }
         Write-Host ("  {0}) Настройки памяти [Current: {1}; {2} / {3}]" -f $memoryMenuIndex, $memoryState, $memorySettings.Provider, $memorySettings.Model) -ForegroundColor DarkCyan
         Write-Host '  [TT] Тестирование совместимости инструментов (чекбоксы)' -ForegroundColor Yellow
+        Write-Host '  [O] Бюджет выхода: настройки и тест лимита' -ForegroundColor DarkCyan
         $capabilitiesMenuIndex = $memoryMenuIndex + 1
         Write-Host ("  {0}) Возможности моделей [C]" -f $capabilitiesMenuIndex) -ForegroundColor DarkCyan
         $backgroundSlug = Read-UngateBackgroundModelSetting -Context $Context
@@ -890,12 +892,16 @@ function Select-UngateDesktopModel {
         Write-Host ''
 
         $fallbackHint = if ($IncludeProviderFallback) { ' or F' } else { '' }
-        $choicePrompt = "Mode [1-$capabilitiesMenuIndex$fallbackHint or V or L or M or TT or C or B or R] (default: 1)"
+        $choicePrompt = "Mode [1-$capabilitiesMenuIndex$fallbackHint or V or L or M or TT or C or B or R or O] (default: 1)"
         $choice = Read-Host $choicePrompt
         if ([string]::IsNullOrWhiteSpace($choice)) {
             return $pickerDefinitions[0].Slug
         }
 
+        if ($choice.Trim() -match '^(o|output)$') {
+            Invoke-UngateOutputLimitsMenu -Context $Context -Definitions $pickerDefinitions
+            continue
+        }
         if ($choice.Trim() -match '^(tt|tools|compat|testtools)$') {
             $null = Invoke-CodexToolCompatibility -Context $Context -Definitions $Definitions
             $null = Read-Host 'Нажмите Enter для возврата в меню'

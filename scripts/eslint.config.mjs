@@ -18,6 +18,7 @@ export default [
 			'cliproxy-namespace-bridge*.mjs',
 			'codex-model-shell-router*.mjs',
 			'codex-model-capabilities*.mjs',
+			'codex-output-limits*.mjs',
 			'codex-memory-preflight*.mjs',
 			'codex-tool*.mjs',
 			'deepseek-responses*.mjs',

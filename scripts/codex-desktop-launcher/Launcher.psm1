@@ -16,6 +16,7 @@ Import-Module (Join-Path $PSScriptRoot 'BackgroundModel.psm1') -DisableNameCheck
 Import-Module (Join-Path $PSScriptRoot 'Capabilities.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'codex-plugin-isolation.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'OmniRouteContextLimit.psm1') -DisableNameChecking -ErrorAction Stop
+Import-Module (Join-Path $PSScriptRoot 'OutputLimits.psm1') -DisableNameChecking -ErrorAction Stop
 
 function Get-ActiveDesktopModelDefinitions {
     param(
@@ -467,6 +468,23 @@ function Invoke-CodexDesktopLauncher {
     param([Parameter(Mandatory)][psobject]$Context)
 
     $ErrorActionPreference = 'Stop'
+    $budgetParameters = @('CheckOutputLimits', 'TestOutputLimits', 'OutputTokenBudget', 'FullOutputTest', 'OutputTestTimeoutSeconds')
+    if (@($budgetParameters | Where-Object { $Context.BoundParameterNames.Contains($_) }).Count -gt 0) {
+        if (-not $Context.Options.CheckOutputLimits -and -not $Context.Options.TestOutputLimits) { throw 'Use -CheckOutputLimits or -TestOutputLimits.' }
+        if ($Context.Options.CheckOutputLimits -and $Context.Options.TestOutputLimits) { throw 'Choose one output-limit command.' }
+        if (-not $Context.Options.TestOutputLimits -and @('OutputTokenBudget', 'FullOutputTest', 'OutputTestTimeoutSeconds', 'ApiKey').Where({ $Context.BoundParameterNames.Contains($_) }).Count) { throw 'Probe options require -TestOutputLimits.' }
+        $conflicts = @('PrepareOnly', 'AddModel', 'TestTools', 'ConfigureModel', 'SetUpstreamModel', 'ConfigureMemories', 'ConfigureCapabilities', 'SetModelCapabilities', 'TestModelCapabilities', 'EnableProviderFallback') | Where-Object { $Context.BoundParameterNames.Contains($_) }
+        if ($conflicts.Count) { throw "Output-limit commands cannot be combined with: $($conflicts -join ', ')." }
+        $definitions = @(Get-UngateModelDefinitions -Context $Context)
+        if ($Context.BoundParameterNames.Contains('Model')) {
+            $definitions = @($definitions | Where-Object { $_.Slug -eq $Context.Options.Model -or $_.UpstreamModel -eq $Context.Options.Model -or $Context.Options.Model -in @($_.Aliases) })
+            if ($definitions.Count -ne 1) { throw 'Unknown or ambiguous model. Use its registry ID.' }
+        } else {
+            if ($Context.Options.TestOutputLimits) { throw '-TestOutputLimits requires -Model (one paid probe sequence at a time).' }
+            $definitions = @(Get-UngatePickerModelDefinitions -Definitions $definitions -SettingsPath $Context.PickerModelSelectionPath -Capacity $Context.CodexDesktopPickerCapacity)
+        }
+        return Invoke-UngateOutputLimits -Context $Context -Definitions $definitions -Probe:$Context.Options.TestOutputLimits
+    }
     if ($Context.Options.ConfigureCapabilities -or $Context.Options.TestModelCapabilities -or $Context.BoundParameterNames.Contains('SetModelCapabilities')) {
         $modes = @('ConfigureCapabilities', 'TestModelCapabilities', 'SetModelCapabilities') | Where-Object { $Context.BoundParameterNames.Contains($_) }
         if ($modes.Count -gt 1) { throw 'Choose only one capability command.' }
@@ -544,6 +562,10 @@ function Invoke-CodexDesktopLauncher {
     $historyProfile = Get-CodexHistoryProfileInfo -HomePath $Context.CustomCodexHome -CanonicalHomePath $Context.CanonicalCodexHome -ModelSlug $selectedModelId -ProviderName $selection.SelectedModel.ProviderName
     Write-CodexHistoryProfileDiagnostics -Context $Context -Profile $historyProfile
 
+    $outputLimitWarning = $false
+    try { $outputLimitWarning = (Invoke-UngateOutputLimits -Context $Context -Definitions @($selection.SelectedModel)) -ne 0 }
+    catch { Write-Warning 'Бюджет выхода не удалось проверить; запуск продолжается.'; $outputLimitWarning = $true }
+
     $contextLimit = Assert-OmniRouteDesktopContextLimit -Context $Context -Selection $selection
     if ($contextLimit.Status -eq 'blocked') {
         return 1
@@ -585,8 +607,9 @@ function Invoke-CodexDesktopLauncher {
         }
     }
     $profileWarnings = @()
+    if ($outputLimitWarning) { $profileWarnings += 'Output budget or provider maximum is unconfirmed; use -CheckOutputLimits / -TestOutputLimits.' }
     if ($profile -and $profile.PSObject.Properties['Warnings']) {
-        $profileWarnings = @($profile.Warnings)
+        $profileWarnings += @($profile.Warnings)
     }
     if ($profileWarnings.Count -gt 0) {
         Write-Host "[ungate] Preparation completed with $($profileWarnings.Count) warning(s):" -ForegroundColor Yellow

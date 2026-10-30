@@ -89,6 +89,11 @@ function New-CodexDesktopLaunchContext {
         LogLevel = ''
         AddModel = $false
         TestTools = $false
+        CheckOutputLimits = $false
+        TestOutputLimits = $false
+        OutputTokenBudget = 0
+        FullOutputTest = $false
+        OutputTestTimeoutSeconds = 180
         PrepareOnly = $false
         SkipWorkspaceRestore = $false
         EnableProviderFallback = $false

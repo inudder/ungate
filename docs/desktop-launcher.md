@@ -24,6 +24,7 @@ Implementation lives in `scripts/codex-desktop-launcher/`.
 | Catalog | Model catalog generation, catalog/config verification | Models, Routing, Toml, Desktop |
 | Profile | Initial config, MCP transaction and backup, shared skills, AGENTS and auth | Routing, Toml, Desktop |
 | Launcher | Selection, transport, profile preparation and launch orchestration | Above modules, existing plugin-isolation module |
+| OutputLimits | Configured budgets, evidence freshness and opt-in output tests | Models, ProxyRuntime |
 
 Modules use explicit local imports and explicit exports; internal helpers
 remain private. Importing a module does not prepare a profile, discover an
@@ -41,6 +42,69 @@ diagnostic contract](patch-mcp.md), including JavaScript numeric coercion
 when patch markers are placed outside string literals.
 
 ## Internal interfaces
+
+### Output budget diagnostics
+
+The main menu's **O** entry inspects the active picker and offers a test for one
+model. Normal launch also checks the selected model before Desktop preparation.
+Unknown budgets/maxima, stale or missing evidence, and inspection failures are
+soft warnings: normal launch continues; `PrepareOnly` returns `2` with warnings.
+Inspection makes no inference requests and changes no gateway/model settings.
+It exercises router code against a local synthetic upstream, reads OmniRoute
+SQLite in read-only mode, and checks CLIProxy configuration for payload rules.
+The inferred budget is labelled **configured**, not final upstream. Complex
+rules, conflicting provider defaults, unsupported executors or unresolved
+aliases/combos remain unconfirmed, never unlimited.
+
+```powershell
+pwsh -NoProfile -File J:\Dev\ungate-local\scripts\start-codex-desktop-ungate.ps1 -CheckOutputLimits
+pwsh -NoProfile -File J:\Dev\ungate-local\scripts\start-codex-desktop-ungate.ps1 -TestOutputLimits -Model deepseek-flash
+pwsh -NoProfile -File J:\Dev\ungate-local\scripts\start-codex-desktop-ungate.ps1 -TestOutputLimits -Model apikey-fan/gemini-4-argon -OutputTokenBudget 32768
+# Explicit, potentially expensive generation to a candidate limit:
+pwsh -NoProfile -File J:\Dev\ungate-local\scripts\start-codex-desktop-ungate.ps1 -TestOutputLimits -Model deepseek-flash -FullOutputTest -OutputTestTimeoutSeconds 1800
+```
+
+Paid tests require one explicit model (or a menu selection). They use a temporary
+exclusive loopback router on an OS-assigned port, the same model/adapters, and the
+configured live gateway/CLIProxy bridge. Shared router and Desktop are untouched.
+A local tap records only budget fields leaving the router; it cannot see the
+gateway's final upstream payload. Owned connections/listeners close on completion
+or failure. Every request has a deadline. No tools are executed.
+
+The sequence tests omitted budget, explicit `max_output_tokens=32`, then a candidate
+from `-OutputTokenBudget` or fresh documented evidence. Selected reasoning effort
+is retained. Without a candidate only the first two run and exit is `2`.
+Short acceptance proves neither full capacity nor absence of silent clamping.
+`-FullOutputTest` requests long generation; only reported `usage.output_tokens ==
+requestedBudget` counts as reaching that budget. Earlier completion is inconclusive,
+not a smaller proven maximum. HTTP errors, missing/failed terminal events, timeout
+and output exceeding an explicit cap are preserved as failures. Probe exit `0`
+means requested checks passed, not that the absolute maximum was proved.
+
+Receipts live in `<CustomCodexHome>/output-limits/reports/`, contain no prompts,
+response text or credentials, and preserve failures. They record exact route,
+reasoning, configured fields, maximum/source/date, code and settings fingerprints,
+terminal events and usage. Evidence expires after seven days or an input change.
+Upstream changes invisible to local settings cannot be detected automatically.
+Running-build comparison checks router code, not an existing chat's selection.
+
+Documented maxima live separately from context and enforcement in
+`scripts/codex-desktop-launcher/output-limits.default.json`. Optional profile file
+`<CustomCodexHome>/ungate-output-limits.json` uses the same schema; the last exact
+transport/model/endpoint entry wins. Entries require integer `maximum`, HTTPS
+`source`, ISO `checkedAt`. Sources older than 30 days are unconfirmed. These are
+evidence records, **not request settings**. Do not refresh dates without checking
+the provider. New models with no record remain unknown.
+
+A higher-default recommendation requires a larger documented limit and a fresh
+successful probe at that limit. Otherwise the message recommends testing first.
+Explicit client caps are never changed. Inspection cannot predict the cap supplied
+by a future client request. Context, quota and reasoning still constrain output.
+
+Focused validation: `pnpm --filter @ungate/scripts output-limits:test` and the
+launcher Pester suite (`tests/OutputLimits.Tests.ps1`).
+
+### Context and orchestration
 
 - `New-CodexDesktopLaunchContext -CustomCodexHome ... -LaunchParameters ...
   -ScriptsRoot ...` returns an object with resolved paths, endpoint/provider

@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "models": [
+    {
+      "transport": "omniroute",
+      "model": "deepseek/deepseek-flash",
+      "upstreamBaseUrl": "http://127.0.0.1:20128",
+      "maximum": 393216,
+      "source": "https://api-docs.deepseek.com/api/create-chat-completion",
+      "checkedAt": "2026-10-30T12:00:00Z",
+      "note": "Includes thinking. Local verification: J:/Tools/omniroute/omniroute-context.md section 24. This is a documented maximum, not a measured full-length response."
+    }
+  ]
+}

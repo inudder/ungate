@@ -161,7 +161,10 @@ if ($before -cne $after) { throw 'Import changed environment' }
         $selection = Get-TestSelection $context
         $content = "model = 'old'`r`n[other]`r`nkeep = true`r`n[model_providers.omniroute]`r`nname = 'old'`r`n"
         $expected = "model = 'old'`r`n[other]`r`nkeep = true`r`n[model_providers.ungate_model_shell_router]`nname = `"Ungate Codex Model Router`"`nbase_url = `"http://127.0.0.1:8319/v1`"`nenv_key = `"UNGATE_API_KEY`"`nwire_api = `"responses`"`r`n"
-        Ensure-ModelProvidersInConfig -Context $context -Selection $selection -Content $content | Should -BeExactly $expected
+        $actual = Ensure-ModelProvidersInConfig -Context $context -Selection $selection -Content $content
+        # The new block inherits the checked-out module's EOL; existing tables stay byte-exact.
+        $actual.StartsWith("model = 'old'`r`n[other]`r`nkeep = true`r`n") | Should -BeTrue
+        $actual.Replace("`r`n", "`n") | Should -BeExactly $expected.Replace("`r`n", "`n")
     }
 
     It 'distinguishes omitted Model from explicitly passing the default' {
@@ -202,6 +205,7 @@ if ($before -cne $after) { throw 'Import changed environment' }
 
 Describe 'Orchestration without production side effects' {
     BeforeEach {
+        Mock -ModuleName Launcher Invoke-UngateOutputLimits { return 0 }
         $script:events = [System.Collections.Generic.List[string]]::new()
         Mock -ModuleName Launcher Get-CodexBetaPackageInfo { [pscustomobject]@{ ExecutablePath='test.exe' } }
         Mock -ModuleName Launcher Stop-CodexBeta { $script:events.Add('stop') }
@@ -231,6 +235,19 @@ Describe 'Orchestration without production side effects' {
         Invoke-CodexDesktopLauncher -Context (New-TestContext @{PrepareOnly=$true}) | Should -Be 2
         Should -Invoke -ModuleName Launcher Initialize-CodexDesktopProfile -Times 1 -Exactly
         Should -Invoke -ModuleName Launcher Start-CodexDesktopSession -Times 0
+    }
+
+    It 'keeps output-budget warnings soft and returns two only for preparation' {
+        Mock -ModuleName Launcher Invoke-UngateOutputLimits { return 2 }
+        Invoke-CodexDesktopLauncher -Context (New-TestContext @{PrepareOnly=$true}) | Should -Be 2
+        Invoke-CodexDesktopLauncher -Context (New-TestContext @{Model='grok-4.7';NoLogWatch=$true}) | Should -Be 0
+        Should -Invoke -ModuleName Launcher Start-CodexDesktopSession -Times 1 -Exactly
+    }
+
+    It 'continues normal launch when output-budget inspection throws' {
+        Mock -ModuleName Launcher Invoke-UngateOutputLimits { throw 'Unavailable local settings' }
+        Invoke-CodexDesktopLauncher -Context (New-TestContext @{Model='grok-4.7';NoLogWatch=$true}) | Should -Be 0
+        Should -Invoke -ModuleName Launcher Start-CodexDesktopSession -Times 1 -Exactly
     }
 
     It 'closes Desktop before transport preparation and launches after profile preparation' {
@@ -312,6 +329,7 @@ Describe 'Orchestration without production side effects' {
 
 Describe 'Soft preparation gates do not stop the launcher' {
     BeforeEach {
+        Mock -ModuleName Launcher Invoke-UngateOutputLimits { return 0 }
         $script:events = [System.Collections.Generic.List[string]]::new()
         Mock -ModuleName Launcher Get-CodexBetaPackageInfo {
             [pscustomobject]@{ ExecutablePath='test.exe'; InstallLocation='C:\test\package'; Version='1' }
@@ -380,6 +398,7 @@ Describe 'Local memories remain disabled' {
 
 Describe 'Complete preparation on disposable profiles' {
     BeforeEach {
+        Mock -ModuleName Launcher Invoke-UngateOutputLimits { return 0 }
         $script:sourceHome = Join-Path $TestDrive 'normal'
         $null = New-Item -ItemType Directory -Path $script:sourceHome -Force
         [IO.File]::WriteAllText((Join-Path $script:sourceHome 'config.toml'), "sandbox_mode = 'danger-full-access'`n[mcp_servers.fixture]`ncommand = 'fixture-command'`n")
