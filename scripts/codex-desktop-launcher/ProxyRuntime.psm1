@@ -1,6 +1,7 @@
 #requires -Version 7.4
 # ProxyRuntime: internal Desktop launcher module. No per-launch module state.
 Import-Module (Join-Path $PSScriptRoot 'Routing.psm1') -DisableNameChecking -ErrorAction Stop
+Import-Module (Join-Path $PSScriptRoot 'ShellRouterService.psm1') -DisableNameChecking -ErrorAction Stop
 
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'ungate-codex-common.ps1')
 
@@ -362,6 +363,34 @@ function Ensure-CodexModelShellRouter {
 
     if (-not (Test-Path -LiteralPath $Context.CodexModelShellRouterPath -PathType Leaf)) {
         throw "Codex model-shell router not found at $($Context.CodexModelShellRouterPath)."
+    }
+
+    if (Start-ShellRouterServiceIfNeeded) {
+        $health = Get-ShellRouterServiceHealth
+        Assert-ShellRouterRuntimeVersion -ScriptsRoot $Context.ScriptsRoot
+        $expectedBuild = (Get-FileHash -LiteralPath $Context.CodexModelShellRouterPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($health.build_id -ne $expectedBuild) {
+            throw 'Shell router service uses a different runtime build. Update the protected runtime after requests finish.'
+        }
+        $keysByEnv = @{}
+        foreach ($provider in (Get-ProviderDefinitions -Selection $Selection)) {
+            $providerKey = $ProviderKeys[$provider.Name]
+            if ([string]::IsNullOrWhiteSpace($providerKey)) { throw "Missing API key for model-shell route provider '$($provider.Name)'." }
+            $keysByEnv[$provider.EnvKey] = $providerKey
+        }
+        if ($Selection.MemoryEnabled) { $keysByEnv['UNGATE_MEMORY_API_KEY'] = $Selection.MemoryApiKey }
+        $serviceRoutes = @(ConvertTo-ShellRouterServiceRoutes -Routes $Routes -KeysByEnv $keysByEnv)
+        $envelope = New-ShellRouterEnvelope -Action 'config' -Routes $serviceRoutes `
+            -ToolsCachePath (Join-Path $Context.CustomCodexHome 'tool-compatibility/tools-schema-cache.json')
+        $health = Invoke-ShellRouterEnvelope -Envelope $envelope
+        $expectedShells = @($Routes | ForEach-Object { [string]$_.clientModel })
+        $actualShells = @($health.route_models | ForEach-Object { [string]$_ })
+        if ($health.status -ne 'ok' -or $actualShells.Count -ne $expectedShells.Count -or
+            (Compare-Object -ReferenceObject $expectedShells -DifferenceObject $actualShells)) {
+            throw 'Shell router service did not apply the expected model routes.'
+        }
+        Write-Host "[ungate] Codex model-shell router service ready at $($Context.CodexModelShellRouterBaseUrl) (PID $($health.pid))." -ForegroundColor Green
+        return
     }
 
     $routerPort = ([uri]$Context.CodexModelShellRouterBaseUrl).Port

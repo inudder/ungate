@@ -239,6 +239,39 @@ Describe 'Orchestration without production side effects' {
         @($script:events) | Should -Be @('stop', "transport:$($context.CustomCodexHome)", "profile:$($context.CustomCodexHome)", "launch:$($context.CustomCodexHome)")
     }
 
+    It 'defers profile changes when active requests do not drain within 30 seconds' {
+        Mock -ModuleName Launcher Get-CodexBetaProcesses { [pscustomobject]@{ Id = 12345 } }
+        Mock -ModuleName Launcher Enter-ShellRouterDrain { $null }
+        Mock -ModuleName Launcher Exit-ShellRouterDrain {}
+        Invoke-CodexDesktopLauncher -Context (New-TestContext @{Model='grok-4.7';NoLogWatch=$true}) | Should -Be 0
+        Should -Invoke -ModuleName Launcher Enter-ShellRouterDrain -Times 1 -Exactly -ParameterFilter { $TimeoutSeconds -eq 30 }
+        Should -Invoke -ModuleName Launcher Stop-CodexBeta -Times 0
+        Should -Invoke -ModuleName Launcher Initialize-CodexDesktopTransport -Times 0
+        Should -Invoke -ModuleName Launcher Initialize-CodexDesktopProfile -Times 0
+        Should -Invoke -ModuleName Launcher Start-CodexDesktopSession -Times 0
+        Should -Invoke -ModuleName Launcher Exit-ShellRouterDrain -Times 0
+    }
+
+    It 'resumes admission after preparing a drained running Beta' {
+        Mock -ModuleName Launcher Get-CodexBetaProcesses { [pscustomobject]@{ Id = 12345 } }
+        Mock -ModuleName Launcher Enter-ShellRouterDrain { 'service-drained' }
+        Mock -ModuleName Launcher Exit-ShellRouterDrain {}
+        $context = New-TestContext @{Model='grok-4.7';NoLogWatch=$true}
+        Invoke-CodexDesktopLauncher -Context $context | Should -Be 0
+        @($script:events) | Should -Be @('stop', "transport:$($context.CustomCodexHome)", "profile:$($context.CustomCodexHome)", "launch:$($context.CustomCodexHome)")
+        Should -Invoke -ModuleName Launcher Exit-ShellRouterDrain -Times 1 -Exactly -ParameterFilter { $DrainState -eq 'service-drained' }
+    }
+
+    It 'defers PrepareOnly while Beta is running with the router service installed' {
+        Mock -ModuleName Launcher Get-CodexBetaProcesses { [pscustomobject]@{ Id = 12345 } }
+        Mock -ModuleName Launcher Get-Service { [pscustomobject]@{ Status = 'Running' } } -ParameterFilter { $Name -eq 'ungate-codex-shell-router' }
+        Invoke-CodexDesktopLauncher -Context (New-TestContext @{PrepareOnly=$true}) | Should -Be 2
+        Should -Invoke -ModuleName Launcher Stop-CodexBeta -Times 0
+        Should -Invoke -ModuleName Launcher Initialize-CodexDesktopTransport -Times 0
+        Should -Invoke -ModuleName Launcher Initialize-CodexDesktopProfile -Times 0
+        Should -Invoke -ModuleName Launcher Start-CodexDesktopSession -Times 0
+    }
+
     It 'keeps profile failure terminating and does not launch' {
         Mock -ModuleName Launcher Initialize-CodexDesktopProfile { throw 'profile rejected' }
         { Invoke-CodexDesktopLauncher -Context (New-TestContext @{Model='grok-4.7'}) } | Should -Throw '*profile rejected*'
@@ -577,6 +610,7 @@ Describe 'Runtime process ownership guards' {
     BeforeEach {
         $script:context = New-TestContext
         $script:selection = Get-TestSelection (New-TestContext @{Model='grok-4.7'})
+        Mock -ModuleName ProxyRuntime Start-ShellRouterServiceIfNeeded { $false }
         Mock -ModuleName ProxyRuntime Invoke-RestMethod { @{data=@()} }
         Mock -ModuleName ProxyRuntime Test-LocalTcpListener { $true }
         Mock -ModuleName ProxyRuntime Stop-Process { throw 'Must not stop any process' }
@@ -614,6 +648,7 @@ Describe 'Transport startup failures' {
     BeforeEach {
         $script:context = New-TestContext
         $script:selection = Get-TestSelection (New-TestContext @{Model='grok-4.7'})
+        Mock -ModuleName ProxyRuntime Start-ShellRouterServiceIfNeeded { $false }
         $script:process = [pscustomobject]@{ Id=987; HasExited=$true; ExitCode=23 }
         $script:process | Add-Member -MemberType ScriptMethod -Name Refresh -Value {}
         Mock -ModuleName ProxyRuntime Test-LocalTcpListener { $false }

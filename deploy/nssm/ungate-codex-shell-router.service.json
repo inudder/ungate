@@ -1,0 +1,18 @@
+{
+  "name": "ungate-codex-shell-router",
+  "displayName": "Ungate Codex Model Shell Router",
+  "runtimePreset": "node",
+  "path": "C:\\Program Files\\nodejs\\node.exe",
+  "args": "C:\\ProgramData\\Ungate\\shell-router\\runtime\\codex-shell-router-supervisor.mjs",
+  "cwd": "C:\\ProgramData\\Ungate\\shell-router\\runtime",
+  "autoStart": true,
+  "restartOnCrash": true,
+  "managedPorts": [8319],
+  "env": {},
+  "logs": {
+    "stdout": "C:\\Users\\kalvinclein\\.codex-ungate\\logs\\codex-model-shell-router.log",
+    "stderr": ""
+  },
+  "logonMode": "localSystem",
+  "logonUser": ""
+}

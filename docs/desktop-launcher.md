@@ -19,9 +19,10 @@ Implementation lives in `scripts/codex-desktop-launcher/`.
 | Logging | Log preferences, menu, event formatting and live watch | Desktop |
 | Picker | Model selection, picker preferences and add-model wizard | Models, Logging, ToolCompatibility |
 | ProxyRuntime | Credentials, bridge/router lifecycle, provider preflight | Routing, existing common helpers |
+| ShellRouterService | Protected route envelopes, service identity, drain and runtime checks | None |
 | ToolCompatibility | Diagnostic model selection, credentials and isolated Codex runtime discovery | Models, ProxyRuntime, Desktop, Catalog |
 | Catalog | Model catalog generation, catalog/config verification | Models, Routing, Toml, Desktop |
-| Profile | Initial config, MCP transaction/rollback, shared skills, AGENTS and auth | Routing, Toml, Desktop |
+| Profile | Initial config, MCP transaction and backup, shared skills, AGENTS and auth | Routing, Toml, Desktop |
 | Launcher | Selection, transport, profile preparation and launch orchestration | Above modules, existing plugin-isolation module |
 
 Modules use explicit local imports and explicit exports; internal helpers
@@ -83,9 +84,10 @@ existing common preflight behavior.
    profile, or changing the shared router. A smaller context window or
    `max_input_tokens` limit exits `1` for a normal launch and for `PrepareOnly`.
    An unconfirmed limit is a warning, not a passed check.
-3. Discover the Beta package and close it unless `PrepareOnly`. A Beta instance that
-   refuses to close is a warning: the launcher does not open a second instance, and the
-   updated profile applies after a manual restart. Resolve provider keys, ensure the
+3. Discover the Beta package. Before closing a running Beta, drain the service and wait
+   up to 30 seconds for active router requests. If they do not finish, or Beta refuses to
+   close, warn and defer profile changes and a second launch. With the service installed,
+   `PrepareOnly` also defers profile changes while Beta is running. Resolve provider keys, ensure the
    required bridge/router, then preflight. Normal preflight has two attempts; fallback
    has one. Preflight failure remains a warning and does not skip profile preparation.
 4. Resolve the service CLI, initialize config, write the model catalog **before** MCP
@@ -104,7 +106,74 @@ Only physical blockers stop the launch: a missing Beta package or executable, an
 invalid custom config or model catalog, a missing provider key, an unavailable model
 or a failed Desktop start. Every other preparation step is a soft gate: its failure is
 printed as a warning, listed in the closing summary and the launch continues. A normal
-launch returns `0` with warnings; `PrepareOnly` returns `2`.
+launch returns `0` with warnings; `PrepareOnly` returns `2`. If the router cannot
+be prepared, a route that depends on it is not launched. If only memories need the
+router in provider fallback mode, disable memories for that launch and retain their
+saved preference. An unverified MCP write stops dependent profile preparation and
+leaves the effective config and its backup in place for forward repair.
+
+## Model-shell router service
+
+On this machine `ungate-codex-shell-router` is an automatic LocalSystem NSSM
+service listening only on `127.0.0.1:8319`. It is independent of the ordinary
+Codex profile and `codex.exe`; restarting or updating ordinary Codex does not
+require stopping this service. The service uses the installed Node and PowerShell
+executables under `C:\Program Files`. Updating Node itself may require stopping the
+router after its requests finish because the service has Node processes open.
+
+The service wrapper and router dependencies are copied to
+`C:\ProgramData\Ungate\shell-router\runtime`. Only SYSTEM and administrators
+have write access there, including to the NSSM executable. The launcher verifies
+the SCM wrapper, supervisor and listener process identities, the listener port,
+the router build and the hashes of all copied runtime files. It never stops a
+foreign listener. If the protected runtime no longer matches this repository,
+finish active requests, stop this service, run
+`pwsh -NoProfile -File scripts\install-codex-shell-router-runtime.ps1`, and
+start it again only after that command succeeds. The installer requires an
+elevated administrator and refuses to copy over a running service.
+
+`C:\ProgramData\Ungate\shell-router\config` is restricted to the user, SYSTEM
+and administrators. Route sets and keys, including `-ApiKey`, are encrypted with
+Windows DPAPI `LocalMachine` before they are written. Any principal with access
+to those files on this machine can use machine DPAPI to decrypt them; the ACL is
+therefore part of the protection. The service decrypts through a private child
+pipe, validates the complete set, keeps encrypted previous versions in `backups`,
+and switches snapshots without restarting. Requests already accepted retain
+their original snapshot. Rejected envelopes are retained in `rejected`. Missing
+or unreadable configuration produces `not_ready` and a diagnostic, without
+silently restoring a previous version. For an initial installation,
+`scripts\stage-codex-shell-router-config.ps1` stages a short-lived encrypted
+envelope; start the service promptly or let the launcher submit a new one.
+Backups are for explicit manual recovery after diagnosis, not automatic rollback.
+
+The current combined log is
+`C:\Users\kalvinclein\.codex-ungate\logs\codex-model-shell-router.log`; the
+older `.out.log` and `.err.log` files remain available. The service supervisor
+merges its router child's stdout and stderr before passing them to NSSM's stdout
+pipe. NSSM online rotation is enabled at 10 MiB and does not delete archives.
+Request records contain timestamp, model, request ID, status, duration and an
+error category; request bodies and keys are not logged. `response_completed`
+is `null` when the router did not observe a Responses stream lifecycle, rather
+than an indication that the response was incomplete. The NSSM panel reads
+the current combined log as stdout; archived files are on disk.
+
+With NSSM 2.24, setting `AppStdout` and `AppStderr` to the same online-rotated
+file can leave the wrapper running without restarting its child. For this
+service, `AppStderr` must be unset: the supervisor already merges the streams.
+The panel entry and `deploy/nssm/ungate-codex-shell-router.service.json` use
+`logs: { stdout: <path>, stderr: "" }` to record the effective configuration.
+The panel's JSON import form accepts only a single string path, so this file is
+not suitable for that form. The panel's general edit/import and backup-restore
+flows can set both paths again; after using those flows, reset `AppStderr` with
+the protected `nssm.exe` **before** restarting the service and check the
+effective settings. Panel `Start all` has its own
+documented behavior for `managedPorts` and may stop a foreign port owner; the
+launcher's foreign-listener protection does not change that panel behavior.
+
+For diagnostics, inspect `/_shell-router/health` on port 8319, the combined log,
+and the Windows Application event log from provider `nssm`. A service restart
+can recover the process and its committed route set, but cannot resume a request
+that was interrupted by the crash.
 
 The service CLI is the launcher's own copy of the CLI that ships with the Beta package,
 kept in `<beta-home>/.launcher-cli/<package-version>/` and verified by SHA-256 against
@@ -119,7 +188,7 @@ with the command that prepares it eagerly; it never blocks the launch.
 
 Except for the additive `TestTools` mode, existing public parameters, persisted file formats, model order, shell
 mapping and [routing matrix](model-routing.md) are unchanged. Normal Codex
-config remains read-only. MCP rollback is preserved. Temporarily changed
+config remains read-only. MCP backups are retained for manual recovery. Temporarily changed
 environment values are restored on failure, including removing provider
 variables that were originally absent (rather than leaving an empty value
 on newer .NET versions).
@@ -205,7 +274,7 @@ values verify instruction bytes without repeating the text in each record.
 JSON object key order is irrelevant, but model/array order is significant.
 
 Do not use the real launcher `-PrepareOnly` as a read-only check: it writes
-the target profile and can restart the model-shell router. Automated
+the target profile and can update the model-shell router configuration. Automated
 refactoring verification must not stop a working Beta instance or query live
 providers. No API rebuild or `ungate-api` service restart is needed for
 launcher-only changes.

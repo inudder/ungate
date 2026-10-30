@@ -44,7 +44,7 @@ Native `/v1/messages`, OmniRoute, and CLIProxyAPI are outside this contract.
 | Ungate Responses proxy | `http://127.0.0.1:47821` | `J:\Dev\ungate-local\apps\api` | Direct Ungate and MiniMax Responses routes |
 | CLIProxyAPI upstream | `http://127.0.0.1:8317` | `J:\Sandbox\CLIProxyAPI` | External CLIProxyAPI server and Grok upstream |
 | CLIProxy namespace bridge | `http://127.0.0.1:8318` | `J:\Dev\ungate-local\scripts\cliproxy-namespace-bridge.mjs` | Converts Codex namespace tools to flat CLIProxy function tools, rewrites `agent_message` history items to user messages, and restores responses |
-| Codex model-shell router | `http://127.0.0.1:8319` | `J:\Dev\ungate-local\scripts\codex-model-shell-router.mjs` | Selects the route, rewrites model id, and enables only the configured stream adapter |
+| Codex model-shell router | `http://127.0.0.1:8319` | Source: `J:\Dev\ungate-local\scripts\codex-model-shell-router.mjs`; protected service runtime: `C:\ProgramData\Ungate\shell-router\runtime` | Selects the route, rewrites model id, and enables only the configured stream adapter |
 | OmniRoute | `http://127.0.0.1:20128` | `%APPDATA%\omniroute` | OmniRoute provider/combo routing and call logs |
 
 ### Ungate Chat Completions usage
@@ -323,9 +323,11 @@ for the menu, validation stages and failure behavior.
   must not be inserted into direct Ungate or OmniRoute routes.
 - MiniMax tool compatibility is an `apps\api` concern and remains separate
   from the Mimo adapter.
-- The launcher starts or reuses the model-shell router for every selected
-  model, so a successful router health check does not prove that the selected
-  upstream or tool protocol is correct.
+- The launcher updates the model-shell router service for normal picker routes
+  and for fallback with memories enabled. Fallback without memories uses the
+  selected provider directly. A healthy router does not prove that the selected
+  upstream or tool protocol is correct. Service operation and log rotation are
+  described in [the launcher guide](desktop-launcher.md#model-shell-router-service).
 
 ## Bridges vs adapters
 
@@ -499,8 +501,9 @@ into this document or into diagnostic notes.
 
 ## Tool schema capture and diagnostics
 
-Normal model-shell router startup receives `CODEX_SHELL_ROUTER_TOOLS_CACHE_PATH`
-from the Desktop launcher. The router stores the latest nonempty raw Responses
+The model-shell router receives its tools cache path from the Desktop launcher:
+through its protected service configuration when installed, or through
+`CODEX_SHELL_ROUTER_TOOLS_CACHE_PATH` in legacy mode. It stores the latest nonempty raw Responses
 `tools` array before Mimo/CLIProxy conversion in
 `CustomCodexHome/tool-compatibility/tools-schema-cache.json`. Only schemas and
 source/time/hash metadata are stored; failures to cache never block inference.

@@ -469,7 +469,12 @@ function Watch-CodexActivity {
     Write-Host "`n[ungate] Streaming live Codex Beta activity in terminal (Level: $LogLevel | Keys: 1-6 switch level, Ctrl+C to detach)..." -ForegroundColor Cyan
 
     $sessionsRoot = Join-Path $CustomCodexHome 'sessions'
-    $routerLogPath = Join-Path $CustomCodexHome 'logs\codex-model-shell-router.out.log'
+    $routerService = Get-Service -Name 'ungate-codex-shell-router' -ErrorAction SilentlyContinue
+    $routerLogPath = if ($routerService) {
+        Join-Path $env:USERPROFILE '.codex-ungate\logs\codex-model-shell-router.log'
+    } else {
+        Join-Path $CustomCodexHome 'logs\codex-model-shell-router.out.log'
+    }
 
     $sessionStates = @{}
     $watchStartedUtc = [System.DateTime]::UtcNow
@@ -485,6 +490,8 @@ function Watch-CodexActivity {
 
     $routerFs = $null
     $routerSr = $null
+    $routerFileCreated = $null
+    $readRotatedFromStart = $false
 
     try {
         if (Test-Path -LiteralPath $routerLogPath -PathType Leaf) {
@@ -493,10 +500,11 @@ function Watch-CodexActivity {
                     $routerLogPath,
                     [System.IO.FileMode]::Open,
                     [System.IO.FileAccess]::Read,
-                    [System.IO.FileShare]::ReadWrite
+                    ([System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete)
                 )
                 $routerFs.Seek(0, [System.IO.SeekOrigin]::End) | Out-Null
                 $routerSr = [System.IO.StreamReader]::new($routerFs, [System.Text.Encoding]::UTF8)
+                $routerFileCreated = (Get-Item -LiteralPath $routerLogPath).CreationTimeUtc
             }
             catch { }
         }
@@ -533,6 +541,16 @@ function Watch-CodexActivity {
 
             # 1. Read router lines (skipped in Minimal mode)
             if ($LogLevel -ne 'Minimal') {
+                if ($routerSr -and (Test-Path -LiteralPath $routerLogPath -PathType Leaf)) {
+                    $currentLog = Get-Item -LiteralPath $routerLogPath -ErrorAction SilentlyContinue
+                    if ($currentLog -and $routerFileCreated -and $currentLog.CreationTimeUtc -ne $routerFileCreated) {
+                        $routerSr.Dispose()
+                        $routerFs.Dispose()
+                        $routerSr = $null
+                        $routerFs = $null
+                        $readRotatedFromStart = $true
+                    }
+                }
                 if ($routerSr) {
                     while (-not $routerSr.EndOfStream) {
                         $rLine = $routerSr.ReadLine()
@@ -553,10 +571,12 @@ function Watch-CodexActivity {
                             $routerLogPath,
                             [System.IO.FileMode]::Open,
                             [System.IO.FileAccess]::Read,
-                            [System.IO.FileShare]::ReadWrite
+                            ([System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete)
                         )
-                        $routerFs.Seek(0, [System.IO.SeekOrigin]::End) | Out-Null
+                        if (-not $readRotatedFromStart) { $routerFs.Seek(0, [System.IO.SeekOrigin]::End) | Out-Null }
                         $routerSr = [System.IO.StreamReader]::new($routerFs, [System.Text.Encoding]::UTF8)
+                        $routerFileCreated = (Get-Item -LiteralPath $routerLogPath).CreationTimeUtc
+                        $readRotatedFromStart = $false
                     }
                     catch { }
                 }

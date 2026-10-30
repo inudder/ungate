@@ -255,7 +255,6 @@ function Sync-CodexMcpServers {
     $transactionId = [guid]::NewGuid().ToString('N')
     $temporaryConfigPath = Join-Path $targetDirectory ".config.toml.$transactionId.tmp"
     $backupConfigPath = Join-Path $targetDirectory ".config.toml.$transactionId.bak"
-    $preserveBackup = $false
 
     try {
         [System.IO.File]::WriteAllText(
@@ -283,26 +282,16 @@ function Sync-CodexMcpServers {
         }
         catch {
             $validationError = $_.Exception.Message
-            try {
-                [System.IO.File]::Copy($backupConfigPath, $targetConfigPath, $true)
-            }
-            catch {
-                $preserveBackup = $true
-                throw "MCP synchronization failed and automatic recovery failed. Backup retained at $backupConfigPath."
-            }
-            throw "MCP synchronization failed; the previous Beta config was restored. $validationError"
+            throw "MCP synchronization failed after writing the Beta config; current state and backup retained at $backupConfigPath. $validationError"
         }
     }
-    finally {
-        if (Test-Path -LiteralPath $temporaryConfigPath -PathType Leaf) {
-            Remove-Item -LiteralPath $temporaryConfigPath -Force
-        }
-        if (
-            -not $preserveBackup -and
-            (Test-Path -LiteralPath $backupConfigPath -PathType Leaf)
-        ) {
-            Remove-Item -LiteralPath $backupConfigPath -Force
-        }
+    catch {
+        $failure = [InvalidOperationException]::new(
+            "MCP synchronization was not verified. Preserve the effective config, backup $backupConfigPath, and any temporary file $temporaryConfigPath for forward repair. $($_.Exception.Message)",
+            $_.Exception
+        )
+        $failure.Data['UngateMcpSyncUnverified'] = $true
+        throw $failure
     }
 
     Write-Host '[ungate] MCP servers synchronized from the default Codex home.' -ForegroundColor Green

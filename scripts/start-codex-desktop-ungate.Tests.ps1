@@ -1090,6 +1090,22 @@ Describe 'Launcher profile preparation order and logging' {
         ($result.Warnings -join ' ') | Should -BeLike '*MCP servers were not synchronized*'
     }
 
+    It 'stops profile preparation after an unverified MCP write' {
+        Mock -ModuleName Launcher Sync-CodexMcpServers {
+            $failure = [InvalidOperationException]::new('fixture MCP write was not verified')
+            $failure.Data['UngateMcpSyncUnverified'] = $true
+            throw $failure
+        }
+        {
+            & (Get-Module Launcher) {
+                param($context, $selection)
+                Initialize-CodexDesktopProfile -Context $context -Selection $selection -codexBeta ([pscustomobject]@{ExecutablePath='test.exe';BundledMarketplacePath='test';Version='1'}) -providerKeys @{} -selectedKey 'test'
+            } $script:Context $script:Selection
+        } | Should -Throw '*MCP write was not verified*'
+        Should -Invoke -ModuleName Launcher Initialize-CodexBetaPluginIsolation -Times 0
+        Should -Invoke -ModuleName Launcher Assert-UngateCodexConfig -Times 0
+    }
+
     It 'keeps preparing and reports a warning when plugin isolation fails' {
         Mock -ModuleName Launcher Initialize-CodexBetaPluginIsolation { throw 'isolated plugin store unavailable' }
         $result = & (Get-Module Launcher) {
@@ -1266,7 +1282,7 @@ enabled = true
         Should -ModuleName Profile -Not -Invoke Test-CodexMcpConfiguration
     }
 
-    It 'restores the previous Beta config when post-write validation fails' {
+    It 'retains the written Beta config and backup when post-write validation fails' {
         $homes = New-McpSyncTestHomes -Root $TestDrive
         Write-Utf8TestFile -LiteralPath $homes.SourceConfigPath -Content @'
 model = "gpt-5.4"
@@ -1293,12 +1309,13 @@ command = "npx"
             Sync-CodexMcpServers -Context $script:Context `
                 -SourceCodexHome $homes.SourceCodexHome `
                 -TargetCodexHome $homes.TargetCodexHome
-        } | Should -Throw '*previous Beta config was restored*'
+        } | Should -Throw '*current state and backup retained*'
 
         (Get-FileHash -LiteralPath $homes.TargetConfigPath -Algorithm SHA256).Hash |
-            Should -BeExactly $beforeHash
-        @(Get-ChildItem -LiteralPath $homes.TargetCodexHome -Filter '.config.toml.*').Count |
-            Should -Be 0
+            Should -Not -BeExactly $beforeHash
+        $backups = @(Get-ChildItem -LiteralPath $homes.TargetCodexHome -Filter '.config.toml.*.bak' -Force)
+        $backups.Count | Should -Be 1
+        (Get-FileHash -LiteralPath $backups[0].FullName -Algorithm SHA256).Hash | Should -BeExactly $beforeHash
     }
 
     It 'normalizes Beta-only MCP content before Codex rewrites line endings' {

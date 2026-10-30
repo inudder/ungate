@@ -111,7 +111,11 @@ Inspect logs in this order:
 2. Codex Beta desktop/app-server log (renderer and CLI bridge errors):
    `C:\Users\kalvinclein\AppData\Local\Packages\OpenAI.CodexBeta_2p2nqsd0c76g0\LocalCache\Local\Codex\Logs\YYYY\MM\DD\codex-desktop-*.log`
 3. Local model-shell router lifecycle and request timings:
-   `C:\Users\kalvinclein\.codex-ungate\logs\codex-model-shell-router.out.log`
+   `C:\Users\kalvinclein\.codex-ungate\logs\codex-model-shell-router.log`.
+   The NSSM service `ungate-codex-shell-router` runs a protected runtime on
+   `127.0.0.1:8319`; its archived logs and the older `.out.log` / `.err.log`
+   remain alongside the current log. For service updates, the NSSM combined-log
+   constraint, and panel behavior, see `docs/desktop-launcher.md#model-shell-router-service`.
 4. Grok 4.7 / CLIProxy bridge (mode 3 only):
    `C:\Users\kalvinclein\.codex-ungate\logs\cliproxy-namespace-bridge.out.log`
 5. For Mimo and other OmniRoute routes, also inspect OmniRoute request/response

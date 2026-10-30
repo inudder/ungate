@@ -233,6 +233,20 @@ Describe 'Memory transport preparation' {
         $fallback.upstreamBaseUrl | Should -Be $context.OmniRouteBaseUrl
         Should -Invoke Ensure-CodexModelShellRouter -ModuleName Launcher -Times 1
     }
+    It 'keeps the fallback provider usable when the memory router is unavailable' {
+        $context = New-MemoryTestContext @{EnableProviderFallback=$true;PrepareOnly=$true}
+        $settings = New-UngateMemorySettings; $settings.Enabled = $true
+        Write-UngateMemorySettings -Context $context -Settings $settings
+        Mock Invoke-UngateMemoryValidation { [pscustomobject]@{Valid=$true} } -ModuleName Launcher
+        Mock Ensure-CodexModelShellRouter { throw 'fixture router unavailable' } -ModuleName Launcher
+        $selection = Get-MemoryTestSelection $context
+        $result = & (Get-Module Launcher) { param($c,$s) Initialize-CodexDesktopTransport -Context $c -Selection $s } $context $selection
+        $selection.MemoryEnabled | Should -BeFalse
+        $selection.LaunchProvider.Name | Should -Be $selection.SelectedModel.ProviderName
+        $result.MemoryFailure | Should -Be 'memory_router_unavailable'
+        $result.RouterFailure | Should -BeNullOrEmpty
+        (Read-UngateMemorySettings -Context $context).Enabled | Should -BeTrue
+    }
     It 'uses independently resolved memory credentials despite an explicit main key' {
         $script:context.Options.ApiKey = 'main-credential'
         Mock Resolve-ModelApiKey { if ($ApiKey) { $ApiKey } else { 'memory-or-default-credential' } } -ModuleName Launcher

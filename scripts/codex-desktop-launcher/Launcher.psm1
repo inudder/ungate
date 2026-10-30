@@ -5,6 +5,7 @@ Import-Module (Join-Path $PSScriptRoot 'Models.psm1') -DisableNameChecking -Erro
 Import-Module (Join-Path $PSScriptRoot 'Picker.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'Routing.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'ProxyRuntime.psm1') -DisableNameChecking -ErrorAction Stop
+Import-Module (Join-Path $PSScriptRoot 'ShellRouterService.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'Catalog.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'Profile.psm1') -DisableNameChecking -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot 'Desktop.psm1') -DisableNameChecking -ErrorAction Stop
@@ -231,10 +232,28 @@ function Initialize-CodexDesktopTransport {
             }
         }
     }
+    $routerFailure = $null
     if (-not $Selection.EnableProviderFallback -or $Selection.MemoryEnabled) {
-        Ensure-CodexModelShellRouter -Context $Context -Selection $Selection `
-            -Routes (Get-CodexModelShellRoutes -Selection $Selection) `
-            -ProviderKeys $providerKeys
+        try {
+            Ensure-CodexModelShellRouter -Context $Context -Selection $Selection `
+                -Routes (Get-CodexModelShellRoutes -Selection $Selection) `
+                -ProviderKeys $providerKeys
+        } catch {
+            Write-Warning "Shell router preparation failed: $($_.Exception.Message)"
+            if ($Selection.EnableProviderFallback -and $Selection.MemoryEnabled) {
+                $Selection.MemoryEnabled = $false
+                $Selection.MemoryFailure = 'memory_router_unavailable'
+                $Selection.LaunchProvider = [pscustomobject]@{
+                    Name = $Selection.SelectedModel.ProviderName
+                    DisplayName = $Selection.SelectedModel.ProviderDisplayName
+                    ProxyBaseUrl = $Selection.SelectedModel.ProxyBaseUrl
+                    EnvKey = $Selection.SelectedModel.EnvKey
+                }
+                Write-Warning 'Launching the fallback provider without memories for this run; saved memory preferences are unchanged.'
+            } else {
+                $routerFailure = $_
+            }
+        }
     }
 
     $selectedKey = $providerKeys[$Selection.SelectedModel.ProviderName]
@@ -288,6 +307,7 @@ function Initialize-CodexDesktopTransport {
         SelectedKey = $selectedKey
         PreflightFailure = $preflightFailure
         MemoryFailure = $Selection.MemoryFailure
+        RouterFailure = $routerFailure
     }
 }
 
@@ -321,6 +341,7 @@ args = ['J:\Dev\ungate-local\scripts\ungate-patch-mcp.mjs', "--allow-root", "*"]
             -BetaOnlyMcpContent $betaOnlyMcpContent
     }
     catch {
+        if ($_.Exception.Data['UngateMcpSyncUnverified']) { throw }
         $warnings.Add("MCP servers were not synchronized: $($_.Exception.Message)")
     }
     Ensure-SharedDirectory -Context $Context -Name 'skills'
@@ -528,19 +549,41 @@ function Invoke-CodexDesktopLauncher {
         return 1
     }
     $codexBeta = Get-CodexBetaPackageInfo
-    $betaStillRunning = $false
-    if (-not $Context.Options.PrepareOnly) {
-        $betaStopped = Stop-CodexBeta -ExecutablePath $codexBeta.ExecutablePath
-        if ($betaStopped -eq $false) {
-            Write-Host (
-                '[ungate] Warning: Codex Beta is still running, so a second instance is not opened. ' +
-                'Restart Codex Beta manually to apply the updated profile.'
-            ) -ForegroundColor Yellow
-            $betaStillRunning = $true
+    $drainState = $null
+    $betaRunning = @(Get-CodexBetaProcesses -ExecutablePath $codexBeta.ExecutablePath).Count -gt 0
+    if ($betaRunning -and $Context.Options.PrepareOnly -and (Get-Service -Name 'ungate-codex-shell-router' -ErrorAction SilentlyContinue)) {
+        Write-Warning 'Codex Beta is running. Profile and router changes are deferred until it is closed.'
+        return 2
+    }
+    try {
+        if (-not $Context.Options.PrepareOnly) {
+            if ($betaRunning) {
+                try { $drainState = Enter-ShellRouterDrain -TimeoutSeconds 30 }
+                catch { Write-Warning "Could not drain the shell router: $($_.Exception.Message)" }
+                if (-not $drainState) {
+                    Write-Warning 'Active router requests did not finish; the existing Beta instance and profile are unchanged.'
+                    return 0
+                }
+            }
+            $betaStopped = Stop-CodexBeta -ExecutablePath $codexBeta.ExecutablePath
+            if ($betaStopped -eq $false) {
+                Write-Warning 'Codex Beta is still running; profile changes and the second launch are deferred.'
+                return 0
+            }
+        }
+        $transport = Initialize-CodexDesktopTransport -Context $Context -Selection $selection
+        if ($transport.RouterFailure) {
+            Write-Warning 'Desktop profile and launch were skipped because the shell router is not ready.'
+            if ($Context.Options.PrepareOnly) { return 2 }
+            return 0
+        }
+        $profile = Initialize-CodexDesktopProfile -Context $Context -Selection $selection -codexBeta $codexBeta -providerKeys $transport.ProviderKeys -selectedKey $transport.SelectedKey
+    } finally {
+        if ($drainState) {
+            try { Exit-ShellRouterDrain -DrainState $drainState }
+            catch { Write-Warning "Could not immediately resume shell router admission: $($_.Exception.Message)" }
         }
     }
-    $transport = Initialize-CodexDesktopTransport -Context $Context -Selection $selection
-    $profile = Initialize-CodexDesktopProfile -Context $Context -Selection $selection -codexBeta $codexBeta -providerKeys $transport.ProviderKeys -selectedKey $transport.SelectedKey
     $profileWarnings = @()
     if ($profile -and $profile.PSObject.Properties['Warnings']) {
         $profileWarnings = @($profile.Warnings)
@@ -561,10 +604,6 @@ function Invoke-CodexDesktopLauncher {
             return 2
         }
         Write-Host '[ungate] Preparation passed. Desktop launch skipped.' -ForegroundColor Green
-        return 0
-    }
-    if ($betaStillRunning) {
-        Write-Host '[ungate] Desktop launch skipped because Codex Beta is still running.' -ForegroundColor Yellow
         return 0
     }
     # Start the control agent before the session: Start-CodexDesktopSession blocks while streaming logs.

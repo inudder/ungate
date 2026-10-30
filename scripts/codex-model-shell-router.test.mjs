@@ -4,6 +4,84 @@ import test from 'node:test';
 
 import { createShellRouterServer, orderDeepSeekToolHistory } from './codex-model-shell-router.mjs';
 
+test('does not claim a non-streaming response is incomplete when its lifecycle was not observed', async () => {
+	const logs = [];
+	const upstream = http.createServer((_request, response) => {
+		response.writeHead(200, { 'content-type': 'application/json' });
+		response.end(JSON.stringify({ status: 'completed' }));
+	});
+	const upstreamPort = await listen(upstream);
+	const router = createShellRouterServer({
+		routes: [
+			{
+				clientModel: 'shell',
+				upstreamModel: 'fixture-model',
+				upstreamBaseUrl: `http://127.0.0.1:${upstreamPort}`,
+				apiKey: 'synthetic-key'
+			}
+		],
+		logger: (line) => logs.push(line)
+	});
+	const port = await listen(router);
+	try {
+		const response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ model: 'shell', stream: false })
+		});
+		const result = await response.json();
+		assert.equal(result.status, 'completed');
+		assert.equal(logs.length, 1);
+		assert.equal(JSON.parse(logs[0].slice(logs[0].indexOf('{'))).response_completed, null);
+	} finally {
+		router.closeAllConnections();
+		await close(router);
+		upstream.closeAllConnections();
+		await close(upstream);
+	}
+});
+
+test('logs local rejections without request content or credentials', async () => {
+	const logs = [];
+	const router = createShellRouterServer({ logger: (line) => logs.push(line) });
+	const port = await listen(router);
+	try {
+		let response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
+			method: 'POST',
+			headers: { 'x-request-id': 'fixture-request' },
+			body: 'private-body'
+		});
+		assert.equal(response.status, 503);
+		router.shellRouter.activate(
+			router.shellRouter.prepare({
+				routes: [
+					{
+						clientModel: 'shell',
+						upstreamModel: 'fixture-model',
+						upstreamBaseUrl: 'http://127.0.0.1:1',
+						apiKey: 'private-key'
+					}
+				]
+			}),
+			'fixture-revision'
+		);
+		response = await fetch(`http://127.0.0.1:${port}/private-path`, {
+			method: 'POST',
+			body: JSON.stringify({ model: 'private-body' })
+		});
+		assert.equal(response.status, 400);
+		assert.equal(logs.length, 2);
+		assert.match(logs[0], /router_not_ready/);
+		assert.match(logs[0], /fixture-request/);
+		assert.match(logs[1], /unknown_model_shell/);
+		assert.match(logs[1], /POST \/other/);
+		assert.doesNotMatch(logs.join('\n'), /private-body|private-path|private-key/);
+	} finally {
+		router.closeAllConnections();
+		await close(router);
+	}
+});
+
 for (const { state, status, category } of [
 	{ state: 'completed', status: 200, category: null },
 	{ state: 'in_progress', status: 499, category: 'client_disconnected' },

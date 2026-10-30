@@ -6,7 +6,7 @@
 		"bridge:start": "node cliproxy-namespace-bridge.mjs",
 		"bridge:test": "node --test cliproxy-namespace-bridge.test.mjs",
 		"mimo-adapter:test": "node --test mimo-responses-stream-adapter.test.mjs",
-		"shell-router:test": "node --test codex-model-shell-router.test.mjs",
+		"shell-router:test": "node --test codex-model-shell-router.test.mjs codex-model-shell-router-service.test.mjs",
 		"tool-compatibility:test": "node --test codex-tool-compatibility.test.mjs codex-tool-execution.test.mjs",
 		"capabilities:test": "node --test codex-model-capabilities.test.mjs",
 		"memory-preflight:test": "node --test codex-memory-preflight.test.mjs",

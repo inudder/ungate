@@ -352,12 +352,13 @@ function proxyRequest({
 	streaming,
 	logger,
 	sseKeepAliveMs,
-	namespaceMapping
+	namespaceMapping,
+	onComplete,
+	requestId,
+	startedAt
 }) {
 	const transport = targetUrl.protocol === 'https:' ? https : http;
-	const startedAt = Date.now();
 	const keepAlive = streaming && responsesAdapter === MIMO_RESPONSES_ADAPTER ? startSseKeepAlive(response, sseKeepAliveMs) : null;
-	const requestId = diagnosticId(request.headers['x-request-id']) ?? randomUUID();
 	headers['x-request-id'] = requestId;
 	let upstreamStatus = 502;
 	let upstreamRequestId;
@@ -370,8 +371,9 @@ function proxyRequest({
 		const responseCompleted = streamAdapter?.completed === true && !streamAdapter.failed && !errorCategory;
 		const disconnectedBeforeCompletion = disconnected && !responseCompleted;
 		const status = disconnectedBeforeCompletion ? 499 : upstreamStatus;
+		const endpoint = ['/v1/responses', '/v1/chat/completions'].includes(targetUrl.pathname) ? targetUrl.pathname : '/other';
 		logger(
-			`[${SERVICE_NAME}] ${request.method} ${targetUrl.pathname} -> ${status} (${Date.now() - startedAt}ms) ${JSON.stringify({
+			`[${SERVICE_NAME}] ${request.method} ${endpoint} -> ${status} (${Date.now() - startedAt}ms) ${JSON.stringify({
 				timestamp: new Date().toISOString(),
 				client_model: clientModel,
 				model,
@@ -379,14 +381,18 @@ function proxyRequest({
 				request_id: requestId,
 				upstream_request_id: upstreamRequestId,
 				status,
-				response_completed: responseCompleted,
+				response_completed: streamAdapter ? responseCompleted : null,
 				error_category: disconnectedBeforeCompletion ? (errorCategory ?? 'client_disconnected') : errorCategory
 			})}`
 		);
 	};
-	response.once('finish', () => logResult());
+	response.once('finish', () => {
+		logResult();
+		onComplete();
+	});
 	response.once('close', () => {
 		if (!response.writableEnded) logResult(true);
+		onComplete();
 	});
 	let downstreamDisconnected = false;
 
@@ -523,7 +529,7 @@ function proxyRequest({
 					error?.code === 'ERR_STREAM_PREMATURE_CLOSE'
 				].some(Boolean);
 				if (error && !expectedDisconnect) {
-					console.error(`[${SERVICE_NAME}] pipeline error: ${error.message}`);
+					console.error(`[${SERVICE_NAME}] pipeline_error ${diagnosticId(error.code) ?? 'stream_error'}`);
 					response.destroy(error);
 				}
 			};
@@ -574,22 +580,38 @@ function proxyRequest({
 }
 
 export function createShellRouterServer(options = {}) {
-	const cacheTools = createToolsCacheWriter(options.toolsCachePath, (message) => console.error(`[${SERVICE_NAME}] ${message}`));
-	const routes = normalizeRoutes(options.routes);
+	const makeSnapshot = (config) => ({
+		routes: normalizeRoutes(config.routes),
+		cacheTools: createToolsCacheWriter(config.toolsCachePath, () => console.error(`[${SERVICE_NAME}] tools_cache_error`))
+	});
+	let snapshot = options.routes ? makeSnapshot(options) : null;
+	let revision = options.revision ?? null;
+	let activeRequests = 0;
+	let drainUntil = 0;
+	let commandRevision = null;
+	let errorRevision = null;
+	let configError = null;
 	const buildId = options.buildId ?? 'development';
 	const maxBodyBytes = options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
 	const sseKeepAliveMs = parsePositiveInteger(options.sseKeepAliveMs, DEFAULT_SSE_KEEPALIVE_MS);
 	const logger = options.logger ?? ((message) => console.log(message));
 
-	return http.createServer(async (request, response) => {
+	const server = http.createServer(async (request, response) => {
 		const requestUrl = new URL(request.url ?? '/', 'http://shell-router.local');
+		const draining = drainUntil > Date.now();
 		if (request.method === 'GET' && requestUrl.pathname === '/_shell-router/health') {
 			const body = JSON.stringify({
-				status: 'ok',
+				status: snapshot ? 'ok' : 'not_ready',
 				service: SERVICE_NAME,
 				pid: process.pid,
 				build_id: buildId,
-				route_models: [...routes.values()].map((route) => route.clientModel)
+				route_models: snapshot ? [...snapshot.routes.values()].map((route) => route.clientModel) : [],
+				config_revision: revision,
+				command_revision: commandRevision,
+				error_revision: errorRevision,
+				config_error: configError,
+				active_requests: activeRequests,
+				draining
 			});
 			response.writeHead(200, {
 				'content-type': 'application/json; charset=utf-8',
@@ -601,9 +623,14 @@ export function createShellRouterServer(options = {}) {
 		}
 
 		if (request.method === 'GET' && requestUrl.pathname === '/v1/models') {
+			if (!snapshot) {
+				sendError(response, 503, 'router_not_ready', 'The shell router is not configured.');
+
+				return;
+			}
 			const body = JSON.stringify({
 				object: 'list',
-				data: [...routes.values()].map((route) => ({
+				data: [...snapshot.routes.values()].map((route) => ({
 					id: route.clientModel,
 					object: 'model',
 					created: 0,
@@ -624,6 +651,45 @@ export function createShellRouterServer(options = {}) {
 
 			return;
 		}
+		const startedAt = Date.now();
+		const requestId = diagnosticId(request.headers['x-request-id']) ?? randomUUID();
+		const endpoint = ['/v1/responses', '/v1/chat/completions'].includes(requestUrl.pathname) ? requestUrl.pathname : '/other';
+		const logLocalFailure = (status, category) =>
+			logger(
+				`[${SERVICE_NAME}] POST ${endpoint} -> ${status} (${Date.now() - startedAt}ms) ${JSON.stringify({
+					timestamp: new Date().toISOString(),
+					model: null,
+					request_id: requestId,
+					status,
+					error_category: category
+				})}`
+			);
+		if (!snapshot || draining) {
+			const category = draining ? 'router_draining' : 'router_not_ready';
+			logLocalFailure(503, category);
+			sendError(
+				response,
+				503,
+				category,
+				draining ? 'The shell router is temporarily draining requests.' : 'The shell router is not configured.'
+			);
+
+			return;
+		}
+
+		// Pin the complete snapshot as soon as the request is admitted. A later
+		// configuration change cannot reroute a request whose body is still arriving.
+		const requestSnapshot = snapshot;
+		activeRequests++;
+		let counted = true;
+		const finishRequest = () => {
+			if (counted) {
+				counted = false;
+				activeRequests--;
+			}
+		};
+		response.once('finish', finishRequest);
+		response.once('close', finishRequest);
 
 		try {
 			const requestBody = await readBody(request, maxBodyBytes);
@@ -634,13 +700,13 @@ export function createShellRouterServer(options = {}) {
 				throw new ShellRouterRequestError(400, 'invalid_json', 'Request body is not valid JSON.');
 			}
 			const requestedModel = typeof body.model === 'string' ? body.model.trim() : '';
-			const route = routes.get(requestedModel.toLowerCase());
+			const route = requestSnapshot.routes.get(requestedModel.toLowerCase());
 			if (!route) {
 				const requestedModelLabel = requestedModel === '' ? '(empty)' : requestedModel;
 				throw new ShellRouterRequestError(400, 'unknown_model_shell', `Unknown Codex model shell '${requestedModelLabel}'.`);
 			}
 
-			if (requestUrl.pathname === '/v1/responses') void cacheTools(body.tools, route.upstreamModel);
+			if (requestUrl.pathname === '/v1/responses') void requestSnapshot.cacheTools(body.tools, route.upstreamModel);
 			let namespaceMapping = null;
 			if (route.responsesAdapter === MIMO_RESPONSES_ADAPTER && requestUrl.pathname === '/v1/responses') {
 				const flattened = flattenMimoResponsesRequest(body);
@@ -677,6 +743,8 @@ export function createShellRouterServer(options = {}) {
 				headers['accept-encoding'] = 'identity';
 			}
 
+			response.removeListener('finish', finishRequest);
+			response.removeListener('close', finishRequest);
 			proxyRequest({
 				request,
 				response,
@@ -689,17 +757,47 @@ export function createShellRouterServer(options = {}) {
 				logger,
 				responsesAdapter: route.responsesAdapter && requestUrl.pathname === '/v1/responses' ? route.responsesAdapter : null,
 				sseKeepAliveMs,
-				namespaceMapping
+				namespaceMapping,
+				onComplete: finishRequest,
+				requestId,
+				startedAt
 			});
 		} catch (error) {
+			finishRequest();
 			if (error instanceof ShellRouterRequestError) {
+				logLocalFailure(error.statusCode, error.code);
 				sendError(response, error.statusCode, error.code, error.message);
 
 				return;
 			}
+			logLocalFailure(400, 'invalid_request');
 			sendError(response, 400, 'invalid_request', error instanceof Error ? error.message : String(error));
 		}
 	});
+
+	server.shellRouter = {
+		prepare: makeSnapshot,
+		activate(next, nextRevision) {
+			snapshot = next;
+			revision = nextRevision;
+			configError = null;
+			errorRevision = null;
+		},
+		command(action, nextRevision, leaseMs = 60000) {
+			if (action === 'drain') drainUntil = Date.now() + Math.min(Math.max(leaseMs, 1000), 120000);
+			else if (action === 'resume') drainUntil = 0;
+			else throw new Error('invalid_command');
+			commandRevision = nextRevision;
+			configError = null;
+			errorRevision = null;
+		},
+		fail(nextRevision, code) {
+			errorRevision = nextRevision;
+			configError = code;
+		}
+	};
+
+	return server;
 }
 
 function routesFromEnvironment() {
@@ -747,11 +845,13 @@ if (isMainModule()) {
 	for (const signal of ['SIGINT', 'SIGTERM']) {
 		process.once(signal, () => server.close(() => process.exit(0)));
 	}
-	process.on('uncaughtException', (err) => {
-		console.error(`[${SERVICE_NAME}] uncaughtException:`, err);
+	process.on('uncaughtException', () => {
+		console.error(`[${SERVICE_NAME}] uncaught_exception`);
+		process.exit(1);
 	});
-	process.on('unhandledRejection', (reason) => {
-		console.error(`[${SERVICE_NAME}] unhandledRejection:`, reason);
+	process.on('unhandledRejection', () => {
+		console.error(`[${SERVICE_NAME}] unhandled_rejection`);
+		process.exit(1);
 	});
 }
 
