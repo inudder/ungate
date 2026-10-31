@@ -121,8 +121,7 @@ function Test-LocalTcpListener {
     )
     $ErrorActionPreference = 'Stop'
 
-    $listeners = [System.Net.NetworkInformation.IPGlobalProperties]::GetIPGlobalProperties().GetActiveTcpListeners()
-    return @($listeners | Where-Object { $_.Port -eq $Port }).Count -gt 0
+    return @(Get-LocalTcpPortListeners -Port $Port).Count -gt 0
 }
 
 function Test-CliProxyBridgeProcessIdentity {

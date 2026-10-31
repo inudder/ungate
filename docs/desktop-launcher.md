@@ -196,6 +196,19 @@ finish active requests, stop this service, run
 start it again only after that command succeeds. The installer requires an
 elevated administrator and refuses to copy over a running service.
 
+After a Windows restart, NetTCPIP can report a reachable service endpoint with
+raw CIM TCP `State=0` (displayed as a blank state), so `-State Listen`, netstat
+and the panel's detected-listener column may omit it. The launcher also accepts
+that state for an endpoint with an unspecified remote address and port zero,
+while still requiring the health PID to own the endpoint and verifying the
+protected NSSM, supervisor and router process chain. The same endpoint check
+refuses to start a stopped service over a foreign owner, including a wildcard
+bind. NSSM's running status alone is not a readiness check; use the router health
+endpoint. The panel can show the supervisor PID rather than the router child PID.
+The compatibility bridge on port 8318 uses the same TCP endpoint discovery, so a
+working bridge with state zero is reused instead of spawning a duplicate that
+fails with `EADDRINUSE`.
+
 `C:\ProgramData\Ungate\shell-router\config` is restricted to the user, SYSTEM
 and administrators. Route sets and keys, including `-ApiKey`, are encrypted with
 Windows DPAPI `LocalMachine` before they are written. Any principal with access

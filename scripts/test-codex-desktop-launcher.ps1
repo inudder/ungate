@@ -8,6 +8,7 @@ $testPaths = @(
     (Join-Path $PSScriptRoot 'start-codex-desktop-ungate.Tests.ps1'),
     (Join-Path $moduleRoot 'tests/Launcher.Tests.ps1'),
     (Join-Path $moduleRoot 'tests/RouterCredentials.Tests.ps1'),
+    (Join-Path $moduleRoot 'tests/ShellRouterService.Tests.ps1'),
     (Join-Path $moduleRoot 'tests/OmniRouteContextLimit.Tests.ps1'),
     (Join-Path $moduleRoot 'tests/Management.Tests.ps1'),
     (Join-Path $moduleRoot 'tests/Registry.Tests.ps1'),

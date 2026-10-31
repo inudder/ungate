@@ -32,6 +32,24 @@ function Get-ShellRouterServiceHealth {
     catch { return $null }
 }
 
+function Get-LocalTcpPortListeners {
+    param([Parameter(Mandatory)][int]$Port)
+    # After Windows boot, a working service listener can have raw CIM State=0,
+    # which NetTCPIP exposes as null and excludes from -State Listen queries.
+    # Require an unconnected endpoint; identity checks still verify health PID
+    # ownership and the protected NSSM/supervisor/router process tree.
+    $connections = @(Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue)
+    foreach ($connection in $connections) {
+        if ($connection.RemotePort -ne 0 -or $connection.RemoteAddress -notin @('0.0.0.0', '::')) { continue }
+        $state = $connection.State
+        if ($null -eq $state) {
+            $cimProperties = $connection.PSObject.Properties['CimInstanceProperties']
+            if ($cimProperties) { $state = $cimProperties.Value['State'].Value }
+        }
+        if ($null -ne $state -and [string]$state -in @('Listen', '2', '0')) { $connection }
+    }
+}
+
 function Assert-ShellRouterServiceIdentity {
     param([Parameter(Mandatory)][object]$Health)
     $serviceName = Get-ShellRouterServiceName
@@ -39,7 +57,7 @@ function Assert-ShellRouterServiceIdentity {
     if (-not $service -or $service.State -ne 'Running') { throw 'Shell router service is not running.' }
     $expectedNssm = Join-Path (Get-ShellRouterServiceRoot) 'runtime\nssm.exe'
     if ([string]$service.PathName -ine $expectedNssm) { throw 'Shell router NSSM does not use the protected runtime.' }
-    $listeners = @(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort (Get-ShellRouterPort) -State Listen -ErrorAction SilentlyContinue)
+    $listeners = @(Get-LocalTcpPortListeners -Port (Get-ShellRouterPort) | Where-Object LocalAddress -eq '127.0.0.1')
     if ($listeners.Count -ne 1 -or [int]$listeners[0].OwningProcess -ne [int]$Health.pid -or
         $Health.service -ne 'codex-model-shell-router') { throw 'Port 8319 is not owned by the expected shell router.' }
     $process = Get-CimInstance Win32_Process -Filter "ProcessId=$([int]$Health.pid)" -ErrorAction Stop
@@ -175,7 +193,7 @@ function Start-ShellRouterServiceIfNeeded {
     $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
     if (-not $service) { return $false }
     if ($service.Status -ne 'Running') {
-        if (@(Get-NetTCPConnection -LocalPort (Get-ShellRouterPort) -State Listen -ErrorAction SilentlyContinue).Count -gt 0) {
+        if (@(Get-LocalTcpPortListeners -Port (Get-ShellRouterPort)).Count -gt 0) {
             throw 'Port 8319 is occupied; refusing to start the shell router service.'
         }
         Start-Service -Name $serviceName -ErrorAction Stop
@@ -224,6 +242,6 @@ function Exit-ShellRouterDrain {
 }
 
 Export-ModuleMember -Function @('Get-ShellRouterServiceRoot','Assert-ShellRouterConfigProtection',
-    'Get-ShellRouterServiceHealth','Assert-ShellRouterServiceIdentity','Assert-ShellRouterRuntimeVersion','New-ShellRouterEnvelope',
+    'Get-LocalTcpPortListeners','Get-ShellRouterServiceHealth','Assert-ShellRouterServiceIdentity','Assert-ShellRouterRuntimeVersion','New-ShellRouterEnvelope',
     'ConvertTo-ShellRouterServiceRoutes','Write-ShellRouterEnvelope','Invoke-ShellRouterEnvelope',
     'Start-ShellRouterServiceIfNeeded','Enter-ShellRouterDrain','Exit-ShellRouterDrain')
