@@ -50,7 +50,7 @@ function localRequest(url, body, signal) {
 			{
 				method: body === undefined ? 'GET' : 'POST',
 				signal,
-				headers: body === undefined ? {} : { 'content-type': 'application/json' }
+				headers: body === undefined ? {} : { 'content-type': 'application/json', session_id: `output-probe-${randomUUID()}` }
 			},
 			resolve
 		);

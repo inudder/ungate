@@ -97,6 +97,55 @@ const SSE_TERMINAL_FAILURES = new Map([
 	['error', 'stream_error']
 ]);
 
+// OmniRoute can append a synthetic missing-marker error after a valid token-limit
+// terminal. Keep the incomplete result and every genuine upstream failure.
+class OpenCodeTerminalGuard extends Transform {
+	constructor() {
+		super();
+		this.decoder = new StringDecoder('utf8');
+		this.pending = '';
+		this.tokenLimitReached = false;
+	}
+
+	_transform(chunk, encoding, callback) {
+		this.pending = (this.pending + this.decoder.write(chunk)).replace(/\r\n/g, '\n');
+		let end;
+		while ((end = this.pending.indexOf('\n\n')) >= 0) {
+			const block = this.pending.slice(0, end + 2);
+			this.pending = this.pending.slice(end + 2);
+			let duplicate = false;
+			try {
+				const data = block
+					.split('\n')
+					.filter((line) => line.startsWith('data:'))
+					.map((line) => line.slice(5).trimStart())
+					.join('\n');
+				const event = JSON.parse(data);
+				duplicate =
+					this.tokenLimitReached &&
+					event.type === 'response.failed' &&
+					event.response?.error?.code === 'server_error' &&
+					event.response.error.message === 'Upstream stream ended without a terminal marker';
+				if (event.type === 'response.incomplete' && event.response?.incomplete_details?.reason === 'max_output_tokens')
+					this.tokenLimitReached = true;
+			} catch {
+				/* Non-JSON SSE comments and markers pass through. */
+			}
+			if (!duplicate) this.push(block);
+		}
+		if (this.pending.length > 1024 * 1024) {
+			this.push(this.pending);
+			this.pending = '';
+		}
+		callback();
+	}
+
+	_flush(callback) {
+		this.push(this.pending + this.decoder.end());
+		callback();
+	}
+}
+
 // Passes an unadapted SSE stream through unchanged and records whether it reached
 // response.completed. Codex closes the socket right after that event, so without this a
 // finished turn was logged as 499 client_disconnected. Only each line's head is retained.
@@ -257,11 +306,49 @@ function routeRejectsEncryptedSchemaKeyword(route) {
 	return /gemini/i.test(route.upstreamModel);
 }
 
-function prepareArgonResponsesRequest(body) {
+// OpenCode's Go gateway returns HTTP 503 "Endpoint is unavailable" for a whole
+// conversation once its history contains two tool calls that share one call_id,
+// and the poisoned conversation keeps failing on every later request. The model
+// occasionally reuses an earlier call id, so rename the later call and its
+// output consistently instead of forwarding an ambiguous history. Deterministic
+// per history order: the same input always gets the same names.
+function normalizeOpenCodeToolCallIds(body) {
+	if (!Array.isArray(body.input)) return;
+	const seen = new Set();
+	const renames = [];
+	for (const item of body.input) {
+		if (!item || typeof item !== 'object' || typeof item.call_id !== 'string' || item.call_id === '') continue;
+		const type = typeof item.type === 'string' ? item.type : '';
+		if (type.endsWith('_output')) {
+			const index = renames.findIndex((entry) => entry.from === item.call_id);
+			if (index >= 0) {
+				item.call_id = renames[index].to;
+				renames.splice(index, 1);
+			}
+			continue;
+		}
+		if (!seen.has(item.call_id)) {
+			seen.add(item.call_id);
+			continue;
+		}
+		const base = item.call_id.slice(0, 48);
+		let suffix = 1;
+		let candidate = `${base}_${suffix}`;
+		while (seen.has(candidate)) {
+			suffix++;
+			candidate = `${base}_${suffix}`;
+		}
+		seen.add(candidate);
+		renames.push({ from: item.call_id, to: candidate });
+		item.call_id = candidate;
+	}
+}
+
+function prepareArgonResponsesRequest(body, outputBudget = 32768) {
 	// Avoid relying on the upstream default: the observed incomplete response had
 	// exactly 8192 output tokens. Preserve any explicit caller budget.
-	if (body.max_output_tokens == null && body.max_tokens == null) {
-		body.max_output_tokens = 32768;
+	if (body.max_output_tokens == null && body.max_tokens == null && body.max_completion_tokens == null) {
+		body.max_output_tokens = outputBudget;
 	}
 	if (!Array.isArray(body.input)) return;
 	// OmniRoute's Chat conversion turns agent_message into assistant history or
@@ -535,9 +622,10 @@ function proxyRequest({
 			};
 			try {
 				if (!response.destroyed && !response.writableEnded) {
-					const streamPipeline = streamAdapter
-						? pipeline(upstreamResponse, streamAdapter, response, onPipelineError)
-						: pipeline(upstreamResponse, response, onPipelineError);
+					const transforms = [];
+					if (observePassthrough && model.startsWith('opencode-go-api/')) transforms.push(new OpenCodeTerminalGuard());
+					if (streamAdapter) transforms.push(streamAdapter);
+					const streamPipeline = pipeline(upstreamResponse, ...transforms, response, onPipelineError);
 					void streamPipeline;
 				}
 			} catch (error) {
@@ -727,11 +815,20 @@ export function createShellRouterServer(options = {}) {
 				stripEncryptedSchemaKeywords(body.tools);
 			}
 			if (requestUrl.pathname === '/v1/responses' && /(?:^|\/)gemini-4-argon$/i.test(route.upstreamModel)) {
-				prepareArgonResponsesRequest(body);
+				prepareArgonResponsesRequest(body, route.upstreamModel.startsWith('opencode-go-api/') ? 65536 : 32768);
+			}
+			if (requestUrl.pathname === '/v1/responses' && route.upstreamModel.startsWith('opencode-go-api/')) {
+				normalizeOpenCodeToolCallIds(body);
 			}
 			const upstreamBody = Buffer.from(JSON.stringify(body));
 			const targetUrl = new URL(`${requestUrl.pathname}${requestUrl.search}`, route.upstreamUrl);
 			const headers = copyHeaders(request.headers);
+			if (route.upstreamModel.startsWith('opencode-go-api/') && !headers['x-opencode-session']) {
+				const session = headers.session_id ?? headers['session-id'] ?? headers['x-session-id'];
+				if (typeof session === 'string' && session.trim() && session.length <= 256 && !/[\u0000-\u001f\u007f]/u.test(session)) {
+					headers['x-opencode-session'] = session.trim();
+				}
+			}
 			headers.host = targetUrl.host;
 			headers.authorization = `Bearer ${route.apiKey}`;
 			headers['content-length'] = upstreamBody.length;

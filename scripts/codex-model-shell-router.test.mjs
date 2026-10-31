@@ -41,6 +41,50 @@ test('does not claim a non-streaming response is incomplete when its lifecycle w
 	}
 });
 
+test('OpenCode keeps token-limit incomplete and removes only the gateway duplicate missing-marker failure', async () => {
+	const incomplete =
+		'data: {"type":"response.incomplete","response":{"status":"incomplete","incomplete_details":{"reason":"max_output_tokens"}}}\n\n';
+	const duplicate =
+		'data: {"type":"response.failed","response":{"status":"failed","error":{"code":"server_error","message":"Upstream stream ended without a terminal marker"}}}\n\n';
+	const realFailure =
+		'data: {"type":"response.failed","response":{"status":"failed","error":{"code":"quota_exceeded","message":"quota"}}}\n\n';
+	const upstream = http.createServer(async (request, response) => {
+		for await (const chunk of request) void chunk;
+		response.writeHead(200, { 'content-type': 'text/event-stream' });
+		const body = incomplete + duplicate + realFailure;
+		response.write(body.slice(0, 51));
+		response.end(body.slice(51));
+	});
+	const upstreamPort = await listen(upstream);
+	const router = createShellRouterServer({
+		logger: () => {},
+		routes: ['opencode-go-api/gemini-4-argon', 'apikey-fan/gemini-4-argon'].map((model) => ({
+			clientModel: model,
+			upstreamModel: model,
+			upstreamBaseUrl: `http://127.0.0.1:${upstreamPort}`,
+			apiKey: 'fixture'
+		}))
+	});
+	const port = await listen(router);
+	try {
+		for (const model of ['opencode-go-api/gemini-4-argon', 'apikey-fan/gemini-4-argon']) {
+			const result = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json', session_id: 'fixture' },
+				body: JSON.stringify({ model, stream: true })
+			});
+			const body = await result.text();
+			assert.ok(body.includes(incomplete));
+			assert.ok(body.includes(realFailure));
+			assert.equal(body.includes(duplicate), model.startsWith('apikey-fan/'));
+			assert.ok(!body.includes('response.completed'));
+		}
+	} finally {
+		await close(router);
+		await close(upstream);
+	}
+});
+
 test('logs local rejections without request content or credentials', async () => {
 	const logs = [];
 	const router = createShellRouterServer({ logger: (line) => logs.push(line) });
@@ -537,6 +581,127 @@ test('Argon preserves parent and child agent messages across the OmniRoute Chat 
 			assert.ok(text.includes(history.at(-1).recipient));
 			if (delegated) assert.match(text, /Please check the missing error handler/);
 		}
+	} finally {
+		await close(router);
+		await close(upstream);
+	}
+});
+
+test('forwards distinct Codex sessions and explicit output budgets to OpenCode Go only', async () => {
+	const seen = [];
+	const upstream = http.createServer(async (request, response) => {
+		const chunks = [];
+		for await (const chunk of request) chunks.push(chunk);
+		seen.push({ headers: request.headers, body: JSON.parse(Buffer.concat(chunks).toString('utf8')) });
+		response.writeHead(200, { 'content-type': 'application/json' });
+		response.end('{"status":"completed","output":[]}');
+	});
+	const upstreamPort = await listen(upstream);
+	const router = createShellRouterServer({
+		routes: [
+			{
+				clientModel: 'go',
+				upstreamModel: 'opencode-go-api/gemini-4-argon',
+				upstreamBaseUrl: `http://127.0.0.1:${upstreamPort}`,
+				apiKey: 'fixture'
+			},
+			{
+				clientModel: 'other',
+				upstreamModel: 'apikey-fan/gemini-4-argon',
+				upstreamBaseUrl: `http://127.0.0.1:${upstreamPort}`,
+				apiKey: 'fixture'
+			}
+		]
+	});
+	const port = await listen(router);
+	try {
+		for (const [model, session, budget] of [
+			['go', 'chat-one', undefined],
+			['go', 'chat-two', 32],
+			['other', 'chat-three', undefined]
+		]) {
+			const body = { model, input: 'hello', stream: false };
+			if (budget) body.max_completion_tokens = budget;
+			const response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json', session_id: session },
+				body: JSON.stringify(body)
+			});
+			assert.equal(response.status, 200);
+			await response.json();
+		}
+		assert.equal(seen[0].headers['x-opencode-session'], 'chat-one');
+		assert.equal(seen[1].headers['x-opencode-session'], 'chat-two');
+		assert.equal(seen[2].headers['x-opencode-session'], undefined);
+		assert.equal(seen[0].body.max_output_tokens, 65536);
+		assert.equal(seen[1].body.max_completion_tokens, 32);
+		assert.equal(seen[1].body.max_output_tokens, undefined);
+		assert.equal(seen[2].body.max_output_tokens, 32768);
+	} finally {
+		await close(router);
+		await close(upstream);
+	}
+});
+
+test('renames duplicate OpenCode Go tool call ids so the upstream history stays unambiguous', async () => {
+	const seen = [];
+	const upstream = http.createServer(async (request, response) => {
+		const chunks = [];
+		for await (const chunk of request) chunks.push(chunk);
+		seen.push(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+		response.writeHead(200, { 'content-type': 'application/json' });
+		response.end('{"status":"completed","output":[]}');
+	});
+	const upstreamPort = await listen(upstream);
+	const router = createShellRouterServer({
+		routes: [
+			{
+				clientModel: 'go',
+				upstreamModel: 'opencode-go-api/gemini-4-argon',
+				upstreamBaseUrl: `http://127.0.0.1:${upstreamPort}`,
+				apiKey: 'fixture'
+			},
+			{
+				clientModel: 'other',
+				upstreamModel: 'apikey-fan/gemini-4-argon',
+				upstreamBaseUrl: `http://127.0.0.1:${upstreamPort}`,
+				apiKey: 'fixture'
+			}
+		]
+	});
+	const port = await listen(router);
+	// A model can reuse an earlier call id; the pair stays consistent, so rename
+	// both the duplicate call and its output while the first pair keeps its id.
+	const input = [
+		{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'run twice' }] },
+		{ type: 'custom_tool_call', call_id: 'call_313566', name: 'exec', input: 'first' },
+		{ type: 'custom_tool_call_output', call_id: 'call_313566', output: [{ type: 'input_text', text: 'one' }] },
+		{ type: 'function_call', call_id: 'call_unique', name: 'wait', arguments: '{}' },
+		{ type: 'function_call_output', call_id: 'call_unique', output: 'waited' },
+		{ type: 'custom_tool_call', call_id: 'call_313566', name: 'exec', input: 'second' },
+		{ type: 'custom_tool_call_output', call_id: 'call_313566', output: [{ type: 'input_text', text: 'two' }] }
+	];
+	try {
+		for (const model of ['go', 'other']) {
+			const response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json', session_id: 'fixture-session' },
+				body: JSON.stringify({ model, stream: false, input })
+			});
+			assert.equal(response.status, 200);
+			await response.json();
+		}
+		assert.deepEqual(
+			seen[0].input.map((item) => item.call_id),
+			[undefined, 'call_313566', 'call_313566', 'call_unique', 'call_unique', 'call_313566_1', 'call_313566_1']
+		);
+		assert.equal(seen[0].input[5].name, 'exec');
+		assert.equal(seen[0].input[6].output[0].text, 'two');
+		// The apikey-fan Argon route keeps its history byte for byte.
+		assert.deepEqual(
+			seen[1].input.map((item) => item.call_id),
+			[undefined, 'call_313566', 'call_313566', 'call_unique', 'call_unique', 'call_313566', 'call_313566']
+		);
 	} finally {
 		await close(router);
 		await close(upstream);

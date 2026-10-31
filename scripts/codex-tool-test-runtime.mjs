@@ -311,6 +311,10 @@ export class CodexTestRuntime {
 		await this.onProgress();
 		if (this.ledger.errors.length) throw new DiagnosticError('invalid_calls', this.ledger.errors.join(' '));
 		const encoded = JSON.stringify(body);
+		const forwardedHeaders = { 'content-type': 'application/json', 'content-length': Buffer.byteLength(encoded) };
+		for (const name of ['session_id', 'session-id', 'x-session-id', 'x-opencode-session', 'x-session-affinity']) {
+			if (typeof request.headers[name] === 'string') forwardedHeaders[name] = request.headers[name];
+		}
 		await new Promise((resolve, reject) => {
 			const upstream = http.request(
 				`${this.baseUrl}/v1/responses`,
@@ -318,7 +322,7 @@ export class CodexTestRuntime {
 					method: 'POST',
 					agent: false,
 					signal: AbortSignal.any([this.signal, AbortSignal.timeout(this.requestTimeoutMs)].filter(Boolean)),
-					headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(encoded) }
+					headers: forwardedHeaders
 				},
 				(incoming) => {
 					response.writeHead(incoming.statusCode, { 'content-type': incoming.headers['content-type'] ?? 'text/event-stream' });
@@ -347,7 +351,7 @@ export class CodexTestRuntime {
 							if (data && data !== '[DONE]') {
 								try {
 									const event = JSON.parse(data);
-									terminal ||= event.type === 'response.completed';
+									terminal ||= event.type === 'response.completed' && event.response?.status === 'completed';
 									this.ledger.event(event);
 								} catch {
 									this.ledger.errors.push('Invalid SSE JSON.');
@@ -373,7 +377,11 @@ export class CodexTestRuntime {
 							);
 						} else this.onProgress().then(resolve, reject);
 					});
-					incoming.once('error', reject);
+					incoming.once('error', (error) => {
+						if (error.code === 'ECONNRESET' && response.destroyed && terminal && !buffer.trim())
+							this.onProgress().then(resolve, reject);
+						else reject(error);
+					});
 				}
 			);
 			response.once('close', () => {

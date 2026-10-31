@@ -242,17 +242,17 @@
       "SupportsParallelToolCalls": false,
       "ResponsesAdapter": "mimo-textual-tools",
       "TruncationPolicy": {
-        "mode": "bytes",
-        "limit": 10000
+        "limit": 10000,
+        "mode": "bytes"
       },
       "SupportedReasoningLevels": [
         {
-          "description": "Disable Thinking",
-          "effort": "none"
+          "effort": "none",
+          "description": "Disable Thinking"
         },
         {
-          "description": "Enabled Thinking",
-          "effort": "high"
+          "effort": "high",
+          "description": "Enabled Thinking"
         }
       ],
       "InputModalities": [
@@ -289,20 +289,20 @@
       "TruncationPolicy": null,
       "SupportedReasoningLevels": [
         {
-          "description": "Disable Thinking",
-          "effort": "none"
+          "effort": "none",
+          "description": "Disable Thinking"
         },
         {
-          "description": "Low Thinking",
-          "effort": "low"
+          "effort": "low",
+          "description": "Low Thinking"
         },
         {
-          "description": "High Thinking",
-          "effort": "high"
+          "effort": "high",
+          "description": "High Thinking"
         },
         {
-          "description": "Max Thinking",
-          "effort": "max"
+          "effort": "max",
+          "description": "Max Thinking"
         }
       ],
       "InputModalities": [
@@ -315,9 +315,6 @@
       "Description": "DeepSeek V4 Flash through the local OmniRoute proxy on port 20128.",
       "UpstreamModel": "deepseek/deepseek-v4-flash",
       "Aliases": [
-        "deepseek-flash",
-        "deepseek/deepseek-flash",
-        "ds/deepseek-flash",
         "ds/deepseek-v4-flash"
       ],
       "TransportDescription": "the local OmniRoute proxy",
@@ -341,24 +338,74 @@
       "TruncationPolicy": null,
       "SupportedReasoningLevels": [
         {
-          "description": "Disable Thinking",
-          "effort": "none"
+          "effort": "none",
+          "description": "Disable Thinking"
         },
         {
-          "description": "Low Thinking",
-          "effort": "low"
+          "effort": "low",
+          "description": "Low Thinking"
         },
         {
-          "description": "High Thinking",
-          "effort": "high"
+          "effort": "high",
+          "description": "High Thinking"
         },
         {
-          "description": "Max Thinking",
-          "effort": "max"
+          "effort": "max",
+          "description": "Max Thinking"
         }
       ],
       "InputModalities": [
         "text"
+      ]
+    },
+    {
+      "Slug": "deepseek-flash",
+      "DisplayName": "DeepSeek V4.1 Flash (OmniRoute)",
+      "Description": "DeepSeek V4.1 Flash through the local OmniRoute proxy on port 20128.",
+      "UpstreamModel": "deepseek/deepseek-flash",
+      "Aliases": [
+        "ds/deepseek-flash"
+      ],
+      "TransportDescription": "the local OmniRoute proxy",
+      "IdentitySha256": "a2ad9ccee0fc6f51ef4cfb95a5f284600f26713ab3b23e3b21e7d229a095bc04",
+      "DefaultReasoningLevel": "high",
+      "Priority": 10,
+      "SupportsImageDetailOriginal": true,
+      "WebSearchToolType": "text_and_image",
+      "ProviderName": "omniroute",
+      "ProviderDisplayName": "OmniRoute",
+      "ProxyBaseUrl": "http://127.0.0.1:20128",
+      "EnvKey": "OMNIROUTE_API_KEY",
+      "RequiresUngate": false,
+      "ContextWindow": 1048576,
+      "MaxContextWindow": 1048576,
+      "AutoCompactTokenLimit": null,
+      "EffectiveContextWindowPercent": null,
+      "SupportsReasoningSummaries": true,
+      "SupportsParallelToolCalls": true,
+      "ResponsesAdapter": "deepseek-responses",
+      "TruncationPolicy": null,
+      "SupportedReasoningLevels": [
+        {
+          "effort": "none",
+          "description": "Disable Thinking"
+        },
+        {
+          "effort": "low",
+          "description": "Low Thinking"
+        },
+        {
+          "effort": "high",
+          "description": "High Thinking"
+        },
+        {
+          "effort": "max",
+          "description": "Max Thinking"
+        }
+      ],
+      "InputModalities": [
+        "text",
+        "image"
       ]
     },
     {
@@ -370,7 +417,7 @@
       "TransportDescription": "the local OmniRoute proxy",
       "IdentitySha256": "e81e1be2a9e40fb71e013669c16120473f04eabc1f25c41d5e5110f0b24673dd",
       "DefaultReasoningLevel": "high",
-      "Priority": 10,
+      "Priority": 11,
       "SupportsImageDetailOriginal": false,
       "WebSearchToolType": "text",
       "ProviderName": "omniroute",
@@ -389,6 +436,37 @@
       "SupportedReasoningLevels": null,
       "InputModalities": [
         "text"
+      ]
+    },
+    {
+      "Slug": "opencode-go-api/gemini-4-argon",
+      "DisplayName": "Gemini 4 Argon (OpenCode Go)",
+      "Description": "Gemini 4 Argon (OpenCode Go) maps to upstream model 'opencode-go-api/gemini-4-argon' through the local OmniRoute proxy.",
+      "UpstreamModel": "opencode-go-api/gemini-4-argon",
+      "Aliases": null,
+      "TransportDescription": "the local OmniRoute proxy",
+      "IdentitySha256": "d2db1ec9f4c5c8ba96715245ae901623c20e78af02b82b2eefe1f5e358dc9604",
+      "DefaultReasoningLevel": "high",
+      "Priority": 12,
+      "SupportsImageDetailOriginal": false,
+      "WebSearchToolType": "text_and_image",
+      "ProviderName": "omniroute",
+      "ProviderDisplayName": "OmniRoute",
+      "ProxyBaseUrl": "http://127.0.0.1:20128",
+      "EnvKey": "OMNIROUTE_API_KEY",
+      "RequiresUngate": false,
+      "ContextWindow": 1048576,
+      "MaxContextWindow": 1048576,
+      "AutoCompactTokenLimit": null,
+      "EffectiveContextWindowPercent": null,
+      "SupportsReasoningSummaries": false,
+      "SupportsParallelToolCalls": true,
+      "ResponsesAdapter": null,
+      "TruncationPolicy": null,
+      "SupportedReasoningLevels": null,
+      "InputModalities": [
+        "text",
+        "image"
       ]
     }
   ],

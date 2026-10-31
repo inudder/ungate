@@ -440,9 +440,9 @@ Describe 'Complete preparation on disposable profiles' {
 
     It 'writes and validates the complete <Mode> profile without live services' -ForEach @(
         @{Mode='router';Options=@{PrepareOnly=$true;Model='grok-4.7'};Memory=$false;ExpectedProvider='ungate_model_shell_router';ExpectedCount=7;ExpectedHidden=1;ExpectedModel='gpt-5.5'},
-        @{Mode='fallback';Options=@{PrepareOnly=$true;EnableProviderFallback=$true};Memory=$false;ExpectedProvider='omniroute';ExpectedCount=12;ExpectedHidden=0;ExpectedModel='codex-fallback'},
+        @{Mode='fallback';Options=@{PrepareOnly=$true;EnableProviderFallback=$true};Memory=$false;ExpectedProvider='omniroute';ExpectedCount=14;ExpectedHidden=0;ExpectedModel='codex-fallback'},
         @{Mode='memory-router';Options=@{PrepareOnly=$true;Model='grok-4.7'};Memory=$true;ExpectedProvider='ungate_model_shell_router';ExpectedCount=8;ExpectedHidden=2;ExpectedModel='gpt-5.5'},
-        @{Mode='memory-fallback';Options=@{PrepareOnly=$true;EnableProviderFallback=$true};Memory=$true;ExpectedProvider='ungate_model_shell_router';ExpectedCount=13;ExpectedHidden=1;ExpectedModel='codex-fallback'}
+        @{Mode='memory-fallback';Options=@{PrepareOnly=$true;EnableProviderFallback=$true};Memory=$true;ExpectedProvider='ungate_model_shell_router';ExpectedCount=15;ExpectedHidden=1;ExpectedModel='codex-fallback'}
     ) {
         $context = New-TestContext $Options $Mode
         $context.DefaultCodexHome = $script:sourceHome
@@ -568,6 +568,18 @@ Describe 'Transport preparation policies' {
 }
 
 Describe 'Desktop OmniRoute preflight remains distinct' {
+    It 'sends a separate session identifier when probing OpenCode Go' {
+        Mock -ModuleName ProxyRuntime Invoke-RestMethod {
+            param($Uri)
+            if ($Uri -like '*/api/health/ping') { return @{status='ok'} }
+            return @{data=@(@{id='opencode-go-api/gemini-4-argon'})}
+        }
+        Mock -ModuleName ProxyRuntime Invoke-WebRequest { @{StatusCode=200;Content='{"id":"response-test"}'} }
+        Invoke-DesktopOmniRoutePreflight -Key 'test' -Model 'opencode-go-api/gemini-4-argon' -ProxyBaseUrl 'http://test'
+        Should -Invoke -ModuleName ProxyRuntime Invoke-WebRequest -Times 1 -Exactly -ParameterFilter {
+            $Headers['x-opencode-session'] -like 'omniroute-preflight-*'
+        }
+    }
     It 'requires live inference for a qualified provider omitted from discovery (HTTP <Status>)' -ForEach @(200, 500) {
         $script:probeStatus = $_
         Mock -ModuleName ProxyRuntime Invoke-RestMethod {

@@ -592,11 +592,16 @@ function Invoke-DesktopOmniRoutePreflight {
         store = $false
     } | ConvertTo-Json -Compress
 
+    $preflightHeaders = @{ Authorization = "Bearer $Key" }
+    if ($effectiveModel -like 'opencode-go-api/*') {
+        $preflightHeaders['x-opencode-session'] = 'omniroute-preflight-' + [guid]::NewGuid().ToString('n')
+        $preflightHeaders['User-Agent'] = 'Codex-Beta-OmniRoute-Preflight/1.0'
+    }
     try {
         $response = Invoke-WebRequest `
             -Method Post `
             -Uri "$ProxyBaseUrl/v1/responses" `
-            -Headers @{ Authorization = "Bearer $Key" } `
+            -Headers $preflightHeaders `
             -ContentType 'application/json' `
             -Body $body `
             -TimeoutSec 60 `

@@ -77,7 +77,13 @@ function localRequest(url, { body, signal, onResponse } = {}) {
 				method: body ? 'POST' : 'GET',
 				signal,
 				agent: false,
-				headers: body ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) } : {}
+				headers: body
+					? {
+							'content-type': 'application/json',
+							'content-length': Buffer.byteLength(body),
+							session_id: `tool-probe-${randomUUID()}`
+						}
+					: {}
 			},
 			(response) => {
 				if (onResponse) onResponse(response, resolve, reject);

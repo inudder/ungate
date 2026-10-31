@@ -234,9 +234,9 @@ Describe 'Custom launcher model registry' {
     It 'creates the template registry when none exists' {
         $definitions = @(Get-UngateModelDefinitions -Context $script:Context)
 
-        $definitions | Should -HaveCount 11
+        $definitions | Should -HaveCount 13
         $definitions[0].Slug | Should -BeExactly 'ungate-opus-4-8'
-        $definitions[-1].Slug | Should -BeExactly 'apikey-fan/gemini-4-argon'
+        $definitions[-1].Slug | Should -BeExactly 'opencode-go-api/gemini-4-argon'
     }
 
     It 'appends custom models after the template with the next priorities' {
@@ -253,13 +253,13 @@ Describe 'Custom launcher model registry' {
 
         $definitions = @(Get-UngateModelDefinitions -Context $script:Context -SkipOverrides)
 
-        $definitions | Should -HaveCount 13
-        $definitions[11].Slug | Should -BeExactly 'ungate-opus-5'
-        $definitions[11].Priority | Should -Be 11
-        $definitions[12].Slug | Should -BeExactly 'custom-text-model'
-        $definitions[12].Priority | Should -Be 12
-        @($definitions[12].InputModalities) | Should -Be @('text')
-        $definitions[12].WebSearchToolType | Should -BeExactly 'text'
+        $definitions | Should -HaveCount 15
+        $definitions[13].Slug | Should -BeExactly 'ungate-opus-5'
+        $definitions[13].Priority | Should -Be 13
+        $definitions[14].Slug | Should -BeExactly 'custom-text-model'
+        $definitions[14].Priority | Should -Be 14
+        @($definitions[14].InputModalities) | Should -Be @('text')
+        $definitions[14].WebSearchToolType | Should -BeExactly 'text'
     }
 
     It 'rejects an existing, empty, or whitespace model ID' {
@@ -352,7 +352,7 @@ Describe 'Custom launcher model registry' {
         Test-Path -LiteralPath (Join-Path $customHome 'ungate-models.json') | Should -BeFalse
         $registry = Get-Content -LiteralPath $registryPath -Raw -Encoding utf8 |
             ConvertFrom-Json -Depth 20
-        @($registry.models) | Should -HaveCount 12
+        @($registry.models) | Should -HaveCount 14
         @($registry.models)[-1].slug | Should -BeExactly 'ungate-opus-5'
         @($registry.models)[-1].upstreamModel | Should -BeExactly 'claude-opus-5'
     }
@@ -462,7 +462,10 @@ env_key = "OMNIROUTE_API_KEY"
             $definition.MaxContextWindow | Should -Be 1000000
             $definition.EffectiveContextWindowPercent | Should -BeNullOrEmpty
         }
-        @($definitions | Where-Object ContextWindow -EQ 1048576).Count | Should -Be 0
+        # The OpenCode Go and DeepSeek V4.1 catalog entries declare the binary
+        # 1,048,576 value; every other built-in keeps the decimal 1,000,000 window.
+        @($definitions | Where-Object ContextWindow -EQ 1048576 | ForEach-Object Slug | Sort-Object) |
+            Should -Be @('deepseek-flash', 'opencode-go-api/gemini-4-argon')
     }
 
     It 'rejects launch parameters combined with AddModel before writing the registry' {

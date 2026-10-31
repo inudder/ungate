@@ -143,6 +143,7 @@ Never store either secret in this repository or in diagnostic output.
 | — | DeepSeek V4 Pro (OmniRoute) | `deepseek/deepseek-v4-pro` | OmniRoute `20128` | `deepseek-responses` adapter; 1M context window (official DeepSeek) |
 | — | DeepSeek V4 Flash (OmniRoute) | `deepseek/deepseek-v4-flash` | OmniRoute `20128` | `deepseek-responses` adapter; 1M context window (official DeepSeek) |
 | — | Gemini 4 Argon (OmniRoute) | `apikey-fan/gemini-4-argon` | OmniRoute `20128` | No route-specific stream adapter; the shell router drops `encrypted` tool-schema keywords and normalizes continuation requests; 1M context window |
+| — | Gemini 4 Argon (OpenCode Go) | `opencode-go-api/gemini-4-argon` | Router `8319` -> OmniRoute `20128` -> OpenCode Go Responses | Context 1048576; default output budget 65536; forwards the Codex conversation session; no separate registry adapter |
 | 9 | Provider fallback (opt-in) | `codex-fallback` | OmniRoute `20128` | Fallback policy chooses the configured upstream; verify the generated route before debugging a provider |
 
 Mode 8 only opens the Desktop model picker. Mode 10 adds a model definition;
@@ -157,6 +158,54 @@ Gemini 4 Argon is the first Desktop picker slot, in place of MiniMax M3, or
 `-Model apikey-fan/gemini-4-argon`. MiniMax M3 stays in the registry and is not
 in the picker.
 
+OpenCode Go Argon was registered on 2026-10-31 in both the runtime registry
+and template, and added as the sixth picker entry. Select it with
+`-Model opencode-go-api/gemini-4-argon`. The apikey-fan entry remains available.
+The Go node uses base `https://opencode.ai/inference/go`, API type `responses`,
+and path `/openai/v1/responses`. Its earlier Chat route completed the first
+tool call but returned upstream 503 on tool-result continuation; the identical
+continuation completed through native Responses. The codex-local allowlist
+now includes the OpenCode connection while retaining chat/models-only access.
+
+The [live OpenCode Go catalog](https://opencode.ai/inference/go/v1/models),
+checked 2026-10-31, advertises context 1048576, maximum output 65536, image
+input and reasoning low/medium/high for `gemini-4-argon`. The launcher selects
+high and declares image input. The router supplies max_output_tokens=65536
+only when no explicit budget alias exists. The maximum is advertised capacity;
+no full 65536-token generation or full-context input was generated. The limit
+probe passed default High generation, an explicit 32-token incomplete terminal,
+and acceptance of 65536, with a current receipt under the Beta home's
+`output-limits/reports/2026-10-31T11-42-11-833Z_8e7673d8-9c6a-45b6-9b64-8f56ca2aeb1b.json`.
+The actual launcher preflight returned 0. The real Codex tool test accepted all
+12 schemas and passed exec-files and exec-wait including continuation; see
+`tool-compatibility/reports/2026-10-31T11-41-56-794Z-bd5a5d74-24a4-4f1f-8340-f4669bfa5109.json`.
+Question and web-search execution remain unverified because the saved schema
+snapshot differs from the current test runtime. Preserve that distinction.
+The overall tool-check exit was 2: all six collaboration tools were called and
+executed, but the scenario's final result/postcondition was not confirmed.
+Do not report complete tool compatibility from the successful exec/wait checks.
+
+Go requests need a stable session per conversation. The router forwards
+Codex session_id/session-id/x-session-id as x-opencode-session only for this
+provider. Diagnostic calls carry their own session, and the functional test
+gateway retains the real Codex session headers. A valid completed terminal
+followed by the client's normal disconnect is accepted by the test gateway;
+premature disconnect remains a failure. For Go streams only, the router also
+retains a valid max_output_tokens incomplete terminal while dropping OmniRoute's
+exact redundant missing-terminal-marker error; genuine failures still pass.
+
+OpenCode's Go gateway answers HTTP 503 `Endpoint is unavailable` for every
+request of a conversation whose history carries two tool calls with the same
+`call_id`. The model can reuse an earlier id, and Codex replays that history
+unchanged, so the conversation stays broken until the history is rewritten.
+For `opencode-go-api/*` Responses requests the router renames each later
+duplicate call id together with its matching `*_output` item, deterministically
+per history order, while the first occurrence keeps its id; other routes keep
+their history byte for byte. Observed on 2026-10-31: a `custom_tool_call`
+reused `call_313566` from eleven minutes earlier, the next request and every
+retry returned 503, while a fresh conversation and the same history with
+unique ids completed.
+
 Argon keeps its declared 1M context and default Codex compaction policy.
 On 2026-10-30, read-only management API and database checks found no Argon
 input/context/output override in OmniRoute; its Gemini context fallback is
@@ -167,7 +216,7 @@ An optional registry `autoCompactTokenLimit` is emitted as the catalog's
 `auto_compact_token_limit`, but is not set for Argon without a confirmed
 route limit. Changing it takes effect when Beta next loads the catalog.
 
-For Argon `/v1/responses` requests, the router supplies `max_output_tokens: 32768`
+For apikey-fan Argon `/v1/responses` requests, the router supplies `max_output_tokens: 32768`
 when the caller has no explicit output budget. The observed failure first
 produced `response.incomplete` at exactly 8192 output tokens. When Codex resumes
 with a trailing assistant message, the router preserves that message and appends

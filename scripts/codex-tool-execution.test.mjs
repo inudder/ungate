@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { EventEmitter, once } from 'node:events';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { PassThrough } from 'node:stream';
@@ -9,7 +10,7 @@ import test from 'node:test';
 
 import { classifyError, individualTools, reportExitCode } from './codex-tool-compatibility.mjs';
 import { compareContracts, filterTools, TOOL_PURPOSES, ToolLedger } from './codex-tool-test-contract.mjs';
-import { DiagnosticError, RpcClient, stopOwnedChild } from './codex-tool-test-runtime.mjs';
+import { CodexTestRuntime, DiagnosticError, RpcClient, stopOwnedChild } from './codex-tool-test-runtime.mjs';
 import { evaluateCalls, initialToolResults, runFunctionalChecks } from './codex-tool-test-scenarios.mjs';
 
 const definitions = [
@@ -29,6 +30,55 @@ const definitions = [
 	},
 	{ type: 'web_search' }
 ];
+
+test('diagnostic gateway preserves the Codex session and accepts disconnect only after completed', async () => {
+	for (const completed of [true, false]) {
+		let session;
+		const upstream = http.createServer(async (request, response) => {
+			session = request.headers.session_id;
+			for await (const chunk of request) void chunk;
+			response.writeHead(200, { 'content-type': 'text/event-stream' });
+			response.write(
+				completed
+					? 'data: {"type":"response.completed","response":{"status":"completed"}}\n\n'
+					: 'data: {"type":"response.created"}\n\n'
+			);
+		});
+		await new Promise((resolve) => upstream.listen({ host: '127.0.0.1', port: 0, exclusive: true }, resolve));
+		const runtime = new CodexTestRuntime({
+			baseUrl: `http://127.0.0.1:${upstream.address().port}`,
+			snapshot: { tools: [] },
+			names: []
+		});
+		runtime.token = 'fixture';
+		let finish;
+		const outcome = new Promise((resolve) => {
+			finish = resolve;
+		});
+		const gateway = http.createServer((request, response) => {
+			runtime.proxy(request, response).then(() => finish(null), finish);
+		});
+		await new Promise((resolve) => gateway.listen({ host: '127.0.0.1', port: 0, exclusive: true }, resolve));
+		try {
+			const request = http.request(
+				`http://127.0.0.1:${gateway.address().port}/v1/responses`,
+				{ method: 'POST', headers: { authorization: 'Bearer fixture', session_id: 'fixture-chat' } },
+				(response) => {
+					response.once('data', () => response.destroy());
+				}
+			);
+			request.end('{"tools":[],"input":[]}');
+			const error = await outcome;
+			assert.equal(session, 'fixture-chat');
+			if (completed) assert.equal(error, null);
+			else assert.ok(error);
+		} finally {
+			gateway.closeAllConnections();
+			upstream.closeAllConnections();
+			await Promise.all([new Promise((resolve) => gateway.close(resolve)), new Promise((resolve) => upstream.close(resolve))]);
+		}
+	}
+});
 
 function call(ledger, name, { input = 'text(1)', args = {}, output = 'ok', id = `${name}-${ledger.calls.size}` } = {}) {
 	let item;

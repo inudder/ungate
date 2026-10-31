@@ -1,19 +1,177 @@
 ﻿<?xml version="1.0" encoding="utf-8" standalone="no"?>
-<test-results xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="nunit_schema_2.5.xsd" name="Pester" total="6" errors="0" failures="0" not-run="0" inconclusive="0" ignored="0" skipped="0" invalid="0" date="2026-07-23" time="22:05:38">
-  <environment cwd="J:\Dev\ungate-local" os-version="10.0.26200" platform="Microsoft Windows 11 Pro|C:\Windows|\Device\Harddisk0\Partition3" user-domain="pc" user="kalvinclein" clr-version="10.0.9" machine-name="PC" nunit-version="2.5.8.0" />
+<test-results xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="nunit_schema_2.5.xsd" name="Pester" total="71" errors="0" failures="3" not-run="0" inconclusive="0" ignored="0" skipped="0" invalid="0" date="2026-10-31" time="15:38:12">
+  <environment user-domain="pc" os-version="10.0.26300" cwd="J:\Dev\ungate-local" platform="Microsoft Windows 11 Pro|C:\Windows|\Device\Harddisk0\Partition3" nunit-version="2.5.8.0" clr-version="10.0.14" user="kalvinclein" machine-name="PC" />
   <culture-info current-culture="ru-RU" current-uiculture="en-US" />
-  <test-suite type="TestFixture" name="Pester" executed="True" result="Success" success="True" time="0.8632" asserts="0" description="Pester">
+  <test-suite type="TestFixture" name="Pester" executed="True" result="Failure" success="False" time="12.8404" asserts="0" description="Pester">
     <results>
-      <test-suite type="TestFixture" name="J:\Dev\ungate-local\scripts\start-codex-desktop-ungate.Tests.ps1" executed="True" result="Success" success="True" time="0.8632" asserts="0" description="J:\Dev\ungate-local\scripts\start-codex-desktop-ungate.Tests.ps1">
+      <test-suite type="TestFixture" name="J:\Dev\ungate-local\scripts\codex-desktop-launcher\tests\Launcher.Tests.ps1" executed="True" result="Failure" success="False" time="12.8404" asserts="0" description="J:\Dev\ungate-local\scripts\codex-desktop-launcher\tests\Launcher.Tests.ps1">
         <results>
-          <test-suite type="TestFixture" name="Sync-CodexMcpServers" executed="True" result="Success" success="True" time="0.4583" asserts="0" description="Sync-CodexMcpServers">
+          <test-suite type="TestFixture" name="Module boundaries and stable model contracts" executed="True" result="Failure" success="False" time="2.2751" asserts="0" description="Module boundaries and stable model contracts">
             <results>
-              <test-case description="mirrors nested MCP tables and preserves isolated settings" name="Sync-CodexMcpServers.mirrors nested MCP tables and preserves isolated settings" time="0.1963" asserts="0" success="True" result="Success" executed="True" />
-              <test-case description="does not rewrite a config whose MCP table family already matches" name="Sync-CodexMcpServers.does not rewrite a config whose MCP table family already matches" time="0.1037" asserts="0" success="True" result="Success" executed="True" />
-              <test-case description="treats a source without MCP tables as an authoritative empty set" name="Sync-CodexMcpServers.treats a source without MCP tables as an authoritative empty set" time="0.0149" asserts="0" success="True" result="Success" executed="True" />
-              <test-case description="does not modify Beta config when source validation fails" name="Sync-CodexMcpServers.does not modify Beta config when source validation fails" time="0.0371" asserts="0" success="True" result="Success" executed="True" />
-              <test-case description="does not modify Beta config when the source config is missing" name="Sync-CodexMcpServers.does not modify Beta config when the source config is missing" time="0.0295" asserts="0" success="True" result="Success" executed="True" />
-              <test-case description="restores the previous Beta config when post-write validation fails" name="Sync-CodexMcpServers.restores the previous Beta config when post-write validation fails" time="0.0328" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="imports in a clean process without launch, network, profile writes or environment changes" name="Module boundaries and stable model contracts.imports in a clean process without launch, network, profile writes or environment changes" time="0.5201" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="parses every module and has no per-launch script/global variables or module-level execution" name="Module boundaries and stable model contracts.parses every module and has no per-launch script/global variables or module-level execution" time="0.3502" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="resolves helper paths independently of the current working directory" name="Module boundaries and stable model contracts.resolves helper paths independently of the current working directory" time="0.0269" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="preserves all builtin model fields and exact identity bytes from the monolith" name="Module boundaries and stable model contracts.preserves all builtin model fields and exact identity bytes from the monolith" time="0.2259" asserts="0" success="False" result="Failure" executed="True">
+                <failure>
+                  <message>Expected strings to be the same, but they were different.
+Expected length: 11323
+Actual length:   12427
+Strings differ at index 8621.
+Expected: '...":"deepseek/deepseek-v4-pro","WebSearchToolType":"text"},{"Aliases":[{"Length":14},{"Length":23},...'
+But was:  '...":"deepseek/deepseek-v4-pro","WebSearchToolType":"text"},{"Aliases":[{"Length":20}],"AutoCompactT...'
+           ----------------------------------------------------------------------------------^</message>
+                  <stack-trace>at (ConvertTo-CanonicalObject $actual | ConvertTo-Json -Depth 30 -Compress) | Should -BeExactly (ConvertTo-CanonicalObject $expected | ConvertTo-Json -Depth 30 -Compress), J:\Dev\ungate-local\scripts\codex-desktop-launcher\tests\Launcher.Tests.ps1:112</stack-trace>
+                </failure>
+              </test-case>
+              <test-case description="keeps route boundaries and shell mappings for Ungate, Grok and Mimo" name="Module boundaries and stable model contracts.keeps route boundaries and shell mappings for Ungate, Grok and Mimo" time="0.0421" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="routes Desktop background requests to the launch model by default and to a saved custom model" name="Module boundaries and stable model contracts.routes Desktop background requests to the launch model by default and to a saved custom model" time="0.2635" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="does not remap background requests in provider fallback mode" name="Module boundaries and stable model contracts.does not remap background requests in provider fallback mode" time="0.0015" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="preserves managed provider TOML and unrelated tables" name="Module boundaries and stable model contracts.preserves managed provider TOML and unrelated tables" time="0.0532" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="distinguishes omitted Model from explicitly passing the default" name="Module boundaries and stable model contracts.distinguishes omitted Model from explicitly passing the default" time="0.2854" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="uses the first picker model when the omitted default was removed" name="Module boundaries and stable model contracts.uses the first picker model when the omitted default was removed" time="0.26" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="rejects unknown and disabled models without preparing a profile" name="Module boundaries and stable model contracts.rejects unknown and disabled models without preparing a profile" time="0.1284" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="selects fallback from the menu without leaking it into later selections" name="Module boundaries and stable model contracts.selects fallback from the menu without leaking it into later selections" time="0.0929" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="Orchestration without production side effects" executed="True" result="Success" success="True" time="7.5956" asserts="0" description="Orchestration without production side effects">
+            <results>
+              <test-case description="prepares without closing or launching Desktop and returns zero" name="Orchestration without production side effects.prepares without closing or launching Desktop and returns zero" time="0.1936" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="returns two after preparing with a preflight warning" name="Orchestration without production side effects.returns two after preparing with a preflight warning" time="0.0846" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="keeps output-budget warnings soft and returns two only for preparation" name="Orchestration without production side effects.keeps output-budget warnings soft and returns two only for preparation" time="1.8905" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="continues normal launch when output-budget inspection throws" name="Orchestration without production side effects.continues normal launch when output-budget inspection throws" time="0.9525" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="closes Desktop before transport preparation and launches after profile preparation" name="Orchestration without production side effects.closes Desktop before transport preparation and launches after profile preparation" time="0.9644" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="defers profile changes when active requests do not drain within 30 seconds" name="Orchestration without production side effects.defers profile changes when active requests do not drain within 30 seconds" time="0.0748" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="resumes admission after preparing a drained running Beta" name="Orchestration without production side effects.resumes admission after preparing a drained running Beta" time="0.9085" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="defers PrepareOnly while Beta is running with the router service installed" name="Orchestration without production side effects.defers PrepareOnly while Beta is running with the router service installed" time="0.0451" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="keeps profile failure terminating and does not launch" name="Orchestration without production side effects.keeps profile failure terminating and does not launch" time="0.043" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="runs two complete preparations with independent contexts in one process" name="Orchestration without production side effects.runs two complete preparations with independent contexts in one process" time="0.0939" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="returns one and leaves the running Beta untouched when the OmniRoute context limit is smaller" name="Orchestration without production side effects.returns one and leaves the running Beta untouched when the OmniRoute context limit is smaller" time="0.0324" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="returns one from PrepareOnly when the OmniRoute context limit is smaller" name="Orchestration without production side effects.returns one from PrepareOnly when the OmniRoute context limit is smaller" time="0.0326" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="Soft preparation gates do not stop the launcher" executed="True" result="Success" success="True" time="8.8242" asserts="0" description="Soft preparation gates do not stop the launcher">
+            <results>
+              <test-case description="launches Desktop and returns zero when preparation produced warnings" name="Soft preparation gates do not stop the launcher.launches Desktop and returns zero when preparation produced warnings" time="1.1482" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="returns two from PrepareOnly when preparation produced warnings" name="Soft preparation gates do not stop the launcher.returns two from PrepareOnly when preparation produced warnings" time="0.0385" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="does not open a second instance when Codex Beta stays running" name="Soft preparation gates do not stop the launcher.does not open a second instance when Codex Beta stays running" time="0.0382" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="Local memories remain disabled" executed="True" result="Success" success="True" time="9.0046" asserts="0" description="Local memories remain disabled">
+            <results>
+              <test-case description="disables inherited memory settings without modifying the normal profile" name="Local memories remain disabled.disables inherited memory settings without modifying the normal profile" time="0.0619" asserts="0" success="True" result="Success" executed="True" />
+              <test-suite type="ParameterizedTest" name="Local memories remain disabled.disables existing settings and preserves comments and &lt;Name&gt; line endings on repeated preparation" executed="True" result="Success" success="True" time="0.1158" asserts="0" description="disables existing settings and preserves comments and &lt;Name&gt; line endings on repeated preparation">
+                <results>
+                  <test-case description="disables existing settings and preserves comments and LF line endings on repeated preparation" name="Local memories remain disabled.disables existing settings and preserves comments and LF line endings on repeated preparation" time="0.0644" asserts="0" success="True" result="Success" executed="True" />
+                  <test-case description="disables existing settings and preserves comments and CRLF line endings on repeated preparation" name="Local memories remain disabled.disables existing settings and preserves comments and CRLF line endings on repeated preparation" time="0.0514" asserts="0" success="True" result="Success" executed="True" />
+                </results>
+              </test-suite>
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="Complete preparation on disposable profiles" executed="True" result="Failure" success="False" time="10.714" asserts="0" description="Complete preparation on disposable profiles">
+            <results>
+              <test-case description="keeps cross-module authentication copy failures terminating" name="Complete preparation on disposable profiles.keeps cross-module authentication copy failures terminating" time="0.0385" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="checks /v1/models only for the launched model provider" name="Complete preparation on disposable profiles.checks /v1/models only for the launched model provider" time="0.148" asserts="0" success="True" result="Success" executed="True" />
+              <test-suite type="ParameterizedTest" name="Complete preparation on disposable profiles.writes and validates the complete &lt;Mode&gt; profile without live services" executed="True" result="Failure" success="False" time="0.7291" asserts="0" description="writes and validates the complete &lt;Mode&gt; profile without live services">
+                <results>
+                  <test-case description="writes and validates the complete router profile without live services" name="Complete preparation on disposable profiles.writes and validates the complete router profile without live services" time="0.2351" asserts="0" success="True" result="Success" executed="True" />
+                  <test-case description="writes and validates the complete fallback profile without live services" name="Complete preparation on disposable profiles.writes and validates the complete fallback profile without live services" time="0.1673" asserts="0" success="False" result="Failure" executed="True">
+                    <failure>
+                      <message>Expected 12, but got 13.</message>
+                      <stack-trace>at $catalog.models.Count | Should -Be $ExpectedCount, J:\Dev\ungate-local\scripts\codex-desktop-launcher\tests\Launcher.Tests.ps1:471</stack-trace>
+                    </failure>
+                  </test-case>
+                  <test-case description="writes and validates the complete memory-router profile without live services" name="Complete preparation on disposable profiles.writes and validates the complete memory-router profile without live services" time="0.1658" asserts="0" success="True" result="Success" executed="True" />
+                  <test-case description="writes and validates the complete memory-fallback profile without live services" name="Complete preparation on disposable profiles.writes and validates the complete memory-fallback profile without live services" time="0.1609" asserts="0" success="False" result="Failure" executed="True">
+                    <failure>
+                      <message>Expected 13, but got 14.</message>
+                      <stack-trace>at $catalog.models.Count | Should -Be $ExpectedCount, J:\Dev\ungate-local\scripts\codex-desktop-launcher\tests\Launcher.Tests.ps1:471</stack-trace>
+                    </failure>
+                  </test-case>
+                </results>
+              </test-suite>
+              <test-suite type="ParameterizedTest" name="Complete preparation on disposable profiles.rejects a &lt;Problem&gt; memory entry in the catalog loaded by Codex" executed="True" result="Success" success="True" time="0.7877" asserts="0" description="rejects a &lt;Problem&gt; memory entry in the catalog loaded by Codex">
+                <results>
+                  <test-case description="rejects a visible memory entry in the catalog loaded by Codex" name="Complete preparation on disposable profiles.rejects a visible memory entry in the catalog loaded by Codex" time="0.2056" asserts="0" success="True" result="Success" executed="True" />
+                  <test-case description="rejects a renamed memory entry in the catalog loaded by Codex" name="Complete preparation on disposable profiles.rejects a renamed memory entry in the catalog loaded by Codex" time="0.1988" asserts="0" success="True" result="Success" executed="True" />
+                  <test-case description="rejects a missing memory entry in the catalog loaded by Codex" name="Complete preparation on disposable profiles.rejects a missing memory entry in the catalog loaded by Codex" time="0.1913" asserts="0" success="True" result="Success" executed="True" />
+                  <test-case description="rejects a duplicated memory entry in the catalog loaded by Codex" name="Complete preparation on disposable profiles.rejects a duplicated memory entry in the catalog loaded by Codex" time="0.192" asserts="0" success="True" result="Success" executed="True" />
+                </results>
+              </test-suite>
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="Transport preparation policies" executed="True" result="Success" success="True" time="10.8722" asserts="0" description="Transport preparation policies">
+            <results>
+              <test-case description="retries normal preflight once and retains failure as a warning" name="Transport preparation policies.retries normal preflight once and retains failure as a warning" time="0.0633" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="does not retry fallback preflight or start the shell router in fallback mode" name="Transport preparation policies.does not retry fallback preflight or start the shell router in fallback mode" time="0.0505" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="passes an explicit key only to the selected provider" name="Transport preparation policies.passes an explicit key only to the selected provider" time="0.0428" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="Desktop OmniRoute preflight remains distinct" executed="True" result="Success" success="True" time="10.9463" asserts="0" description="Desktop OmniRoute preflight remains distinct">
+            <results>
+              <test-case description="sends a separate session identifier when probing OpenCode Go" name="Desktop OmniRoute preflight remains distinct.sends a separate session identifier when probing OpenCode Go" time="0.0227" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="still rejects an unknown unqualified model before inference" name="Desktop OmniRoute preflight remains distinct.still rejects an unknown unqualified model before inference" time="0.0055" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="probes the unprefixed Mimo route when discovery only lists its native alias" name="Desktop OmniRoute preflight remains distinct.probes the unprefixed Mimo route when discovery only lists its native alias" time="0.0083" asserts="0" success="True" result="Success" executed="True" />
+              <test-suite type="ParameterizedTest" name="Desktop OmniRoute preflight remains distinct.requires live inference for a qualified provider omitted from discovery (HTTP &lt;Status&gt;)" executed="True" result="Success" success="True" time="0.0234" asserts="0" description="requires live inference for a qualified provider omitted from discovery (HTTP &lt;Status&gt;)">
+                <results>
+                  <test-case description="requires live inference for a qualified provider omitted from discovery (HTTP $null)" name="Desktop OmniRoute preflight remains distinct.requires live inference for a qualified provider omitted from discovery (HTTP $null)" time="0.0153" asserts="0" success="True" result="Success" executed="True" />
+                  <test-case description="requires live inference for a qualified provider omitted from discovery (HTTP $null)" name="Desktop OmniRoute preflight remains distinct.requires live inference for a qualified provider omitted from discovery (HTTP $null)" time="0.0081" asserts="0" success="True" result="Success" executed="True" />
+                </results>
+              </test-suite>
+              <test-suite type="ParameterizedTest" name="Desktop OmniRoute preflight remains distinct.uses a discovered DeepSeek alias and 512 output tokens" executed="True" result="Success" success="True" time="0.0129" asserts="0" description="uses a discovered DeepSeek alias and 512 output tokens">
+                <results>
+                  <test-case description="uses a discovered DeepSeek alias and 512 output tokens" name="Desktop OmniRoute preflight remains distinct.uses a discovered DeepSeek alias and 512 output tokens()" time="0.0072" asserts="0" success="True" result="Success" executed="True" />
+                  <test-case description="uses a discovered DeepSeek alias and 512 output tokens" name="Desktop OmniRoute preflight remains distinct.uses a discovered DeepSeek alias and 512 output tokens()" time="0.0057" asserts="0" success="True" result="Success" executed="True" />
+                </results>
+              </test-suite>
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="Runtime process ownership guards" executed="True" result="Success" success="True" time="11.1201" asserts="0" description="Runtime process ownership guards">
+            <results>
+              <test-case description="refuses an unrelated HTTP service on the bridge port" name="Runtime process ownership guards.refuses an unrelated HTTP service on the bridge port" time="0.0611" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="refuses a stale bridge whose reported PID belongs to another command" name="Runtime process ownership guards.refuses a stale bridge whose reported PID belongs to another command" time="0.0382" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="refuses an unidentified listener on the router port" name="Runtime process ownership guards.refuses an unidentified listener on the router port" time="0.0403" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="refuses a router PID with mismatching process identity" name="Runtime process ownership guards.refuses a router PID with mismatching process identity" time="0.0329" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="Transport startup failures" executed="True" result="Success" success="True" time="11.6387" asserts="0" description="Transport startup failures">
+            <results>
+              <test-case description="reports a bridge process that exits during startup" name="Transport startup failures.reports a bridge process that exits during startup" time="0.3813" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="reports a router process that exits during startup" name="Transport startup failures.reports a router process that exits during startup" time="0.0529" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="stops only its newly launched bridge after a failed readiness check" name="Transport startup failures.stops only its newly launched bridge after a failed readiness check" time="0.0435" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="stops only its newly launched router after a route readiness mismatch" name="Transport startup failures.stops only its newly launched router after a route readiness mismatch" time="0.0394" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="Desktop package launch fallback" executed="True" result="Success" success="True" time="11.673" asserts="0" description="Desktop package launch fallback">
+            <results>
+              <test-case description="does not enter MSIX fallback after a successful direct launch" name="Desktop package launch fallback.does not enter MSIX fallback after a successful direct launch" time="0.0165" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="passes the same environment and package to the MSIX fallback" name="Desktop package launch fallback.passes the same environment and package to the MSIX fallback" time="0.0106" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="retains both direct and MSIX errors when fallback fails" name="Desktop package launch fallback.retains both direct and MSIX errors when fallback fails" time="0.0061" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="Desktop package launch helper" executed="True" result="Success" success="True" time="12.0973" asserts="0" description="Desktop package launch helper">
+            <results>
+              <test-case description="launches with the environment and quoted arguments from the pipe payload" name="Desktop package launch helper.launches with the environment and quoted arguments from the pipe payload" time="0.417" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="Desktop performance configuration" executed="True" result="Success" success="True" time="12.1094" asserts="0" description="Desktop performance configuration">
+            <results>
+              <test-case description="provides anti-throttling flags and V8 heap expansion without experimental zero-copy" name="Desktop performance configuration.provides anti-throttling flags and V8 heap expansion without experimental zero-copy" time="0.0025" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="passes performance arguments and optimizes priority on direct launch" name="Desktop performance configuration.passes performance arguments and optimizes priority on direct launch" time="0.0084" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="Session logging precedence" executed="True" result="Success" success="True" time="12.2536" asserts="0" description="Session logging precedence">
+            <results>
+              <test-case description="honors NoLogWatch before explicit logging and does not rewrite settings" name="Session logging precedence.honors NoLogWatch before explicit logging and does not rewrite settings" time="0.0444" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="uses the explicit log level instead of saved settings" name="Session logging precedence.uses the explicit log level instead of saved settings" time="0.0411" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="uses saved settings when explicit LogLevel is empty" name="Session logging precedence.uses saved settings when explicit LogLevel is empty" time="0.0305" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="does not watch when logging is Off" name="Session logging precedence.does not watch when logging is Off" time="0.0267" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="Environment restoration on failure" executed="True" result="Success" success="True" time="12.3513" asserts="0" description="Environment restoration on failure">
+            <results>
+              <test-case description="restores CODEX_HOME and provider keys after config validation throws" name="Environment restoration on failure.restores CODEX_HOME and provider keys after config validation throws" time="0.074" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="restores CODEX_HOME when MCP CLI execution fails" name="Environment restoration on failure.restores CODEX_HOME when MCP CLI execution fails" time="0.0155" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="reports sandbox readiness without running the Codex CLI" name="Environment restoration on failure.reports sandbox readiness without running the Codex CLI" time="0.0062" asserts="0" success="True" result="Success" executed="True" />
             </results>
           </test-suite>
         </results>

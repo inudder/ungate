@@ -9,6 +9,15 @@
       "source": "https://api-docs.deepseek.com/api/create-chat-completion",
       "checkedAt": "2026-10-30T12:00:00Z",
       "note": "Includes thinking. Local verification: J:/Tools/omniroute/omniroute-context.md section 24. This is a documented maximum, not a measured full-length response."
+    },
+    {
+      "transport": "omniroute",
+      "model": "opencode-go-api/gemini-4-argon",
+      "upstreamBaseUrl": "http://127.0.0.1:20128",
+      "maximum": 65536,
+      "source": "https://opencode.ai/inference/go/v1/models",
+      "checkedAt": "2026-10-31T08:35:00Z",
+      "note": "Live OpenCode Go catalog: gemini-4-argon limit.output=65536, context=1048576. This is advertised capacity, not a full-length generation measurement."
     }
   ]
 }

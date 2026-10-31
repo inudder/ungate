@@ -117,12 +117,33 @@
       "displayName": "DeepSeek V4 Flash (OmniRoute)",
       "description": "DeepSeek V4 Flash through the local OmniRoute proxy on port 20128.",
       "upstreamModel": "deepseek/deepseek-v4-flash",
-      "aliases": ["deepseek-flash", "deepseek/deepseek-flash", "ds/deepseek-flash", "ds/deepseek-v4-flash"],
+      "aliases": ["ds/deepseek-v4-flash"],
       "transport": "omniroute",
       "defaultReasoningLevel": "high",
       "supportsImageInput": false,
       "contextWindow": 1000000,
       "maxContextWindow": 1000000,
+      "supportsReasoningSummaries": true,
+      "supportsParallelToolCalls": true,
+      "responsesAdapter": "deepseek-responses",
+      "supportedReasoningLevels": [
+        { "effort": "none", "description": "Disable Thinking" },
+        { "effort": "low", "description": "Low Thinking" },
+        { "effort": "high", "description": "High Thinking" },
+        { "effort": "max", "description": "Max Thinking" }
+      ]
+    },
+    {
+      "slug": "deepseek-flash",
+      "displayName": "DeepSeek V4.1 Flash (OmniRoute)",
+      "description": "DeepSeek V4.1 Flash through the local OmniRoute proxy on port 20128.",
+      "upstreamModel": "deepseek/deepseek-flash",
+      "aliases": ["ds/deepseek-flash"],
+      "transport": "omniroute",
+      "defaultReasoningLevel": "high",
+      "supportsImageInput": true,
+      "contextWindow": 1048576,
+      "maxContextWindow": 1048576,
       "supportsReasoningSummaries": true,
       "supportsParallelToolCalls": true,
       "responsesAdapter": "deepseek-responses",
@@ -146,6 +167,20 @@
       "supportsParallelToolCalls": true,
       "contextWindow": 1000000,
       "maxContextWindow": 1000000
+    },
+    {
+      "slug": "opencode-go-api/gemini-4-argon",
+      "displayName": "Gemini 4 Argon (OpenCode Go)",
+      "upstreamModel": "opencode-go-api/gemini-4-argon",
+      "aliases": [],
+      "transport": "omniroute",
+      "defaultReasoningLevel": "high",
+      "supportsImageInput": true,
+      "supportsImageDetailOriginal": false,
+      "supportsReasoningSummaries": false,
+      "supportsParallelToolCalls": true,
+      "contextWindow": 1048576,
+      "maxContextWindow": 1048576
     }
   ]
 }
