@@ -5,7 +5,11 @@ Import-Module (Join-Path $PSScriptRoot 'ServiceCli.psm1') -DisableNameChecking -
 
 function Get-CodexCliExecutable {
     param(
-        [Parameter(Mandatory)][psobject]$Context
+        [Parameter(Mandatory)][psobject]$Context,
+        # Optional MSIX package that the launcher starts. When supplied, the shared staging
+        # directory is filtered by a CLI byte-identical to the package copy, so a second
+        # installed package cannot satisfy the lookup with its own build.
+        [psobject]$PackageInfo
     )
     $ErrorActionPreference = 'Stop'
 
@@ -57,18 +61,52 @@ function Get-CodexCliExecutable {
         }
     }
 
+    # The staging root %LOCALAPPDATA%\OpenAI\Codex\bin is shared by every installed Codex
+    # package: the stable build stages its own CLI there while Beta stages a different one.
+    # Ordering by LastWriteTime therefore resolves to whichever package ran last, and picking
+    # the foreign CLI silently breaks version-bound service commands. When the package being
+    # launched is known, accept only a staging copy byte-identical to the package CLI.
     $localCodexBin = Join-Path $env:LOCALAPPDATA 'OpenAI\Codex\bin'
+    $packageCliPath = $null
+    if ($null -ne $PackageInfo -and $PackageInfo.PSObject.Properties['InstallLocation']) {
+        $packageInstallLocation = [string]$PackageInfo.InstallLocation
+        if (-not [string]::IsNullOrWhiteSpace($packageInstallLocation)) {
+            $packageCliCandidate = Join-Path $packageInstallLocation 'app\resources\codex.exe'
+            if (Test-Path -LiteralPath $packageCliCandidate -PathType Leaf) {
+                $packageCliPath = $packageCliCandidate
+            }
+        }
+    }
     if (Test-Path -LiteralPath $localCodexBin) {
-        $localNativeCandidates = Get-ChildItem `
-            -LiteralPath $localCodexBin `
-            -Recurse `
-            -Filter 'codex.exe' `
-            -File `
-            -ErrorAction SilentlyContinue |
-            Sort-Object LastWriteTime -Descending |
-            Select-Object -First 5
-        foreach ($localNativeCandidate in $localNativeCandidates) {
-            $candidatePaths.Add($localNativeCandidate.FullName)
+        $localNativeCandidates = @(
+            Get-ChildItem `
+                -LiteralPath $localCodexBin `
+                -Recurse `
+                -Filter 'codex.exe' `
+                -File `
+                -ErrorAction SilentlyContinue |
+                Sort-Object LastWriteTime -Descending
+        )
+        if ($packageCliPath) {
+            $expectedLength = (Get-Item -LiteralPath $packageCliPath).Length
+            $expectedHash = $null
+            foreach ($localNativeCandidate in $localNativeCandidates) {
+                if ($localNativeCandidate.Length -ne $expectedLength) {
+                    continue
+                }
+                if ($null -eq $expectedHash) {
+                    $expectedHash = Get-CodexFileSha256 -Path $packageCliPath
+                }
+                if ($expectedHash -and (Get-CodexFileSha256 -Path $localNativeCandidate.FullName) -eq $expectedHash) {
+                    $candidatePaths.Add($localNativeCandidate.FullName)
+                    break
+                }
+            }
+        }
+        else {
+            foreach ($localNativeCandidate in ($localNativeCandidates | Select-Object -First 5)) {
+                $candidatePaths.Add($localNativeCandidate.FullName)
+            }
         }
     }
 
@@ -108,7 +146,7 @@ function Resolve-CodexServiceCli {
         return $serviceCli
     }
 
-    $fallbackCli = Get-CodexCliExecutable -Context $Context
+    $fallbackCli = Get-CodexCliExecutable -Context $Context -PackageInfo $PackageInfo
     if (-not $fallbackCli) {
         Write-Host `
             '[ungate] Warning: no Codex CLI is available for service commands.' `

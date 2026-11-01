@@ -349,7 +349,7 @@ args = ['J:\Dev\ungate-local\scripts\ungate-patch-mcp.mjs', "--allow-root", "*"]
     Sync-CodexGlobalInstructions -Context $Context
     Sync-CodexAuthentication -Context $Context
     try {
-        $codexExecutable = Get-CodexCliExecutable -Context $Context
+        $codexExecutable = Get-CodexCliExecutable -Context $Context -PackageInfo $codexBeta
         if (-not $codexExecutable) {
             throw 'Codex CLI is required to prepare the isolated Codex Beta plugin store.'
         }
