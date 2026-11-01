@@ -1,4 +1,5 @@
 import { logger } from 'src/utils/logger';
+import { COMPLETION_TOKEN_FLOOR } from 'src/utils/output-tokens';
 
 import { getProvider } from '../auth';
 import { config } from '../config';
@@ -163,7 +164,7 @@ export function buildMiniMaxRequestBody(body: OpenAIChatRequest): Record<string,
 				include_usage: true
 			}
 		}),
-		max_completion_tokens: body.max_completion_tokens ?? body.max_tokens ?? 4096,
+		max_completion_tokens: body.max_completion_tokens ?? body.max_tokens ?? COMPLETION_TOKEN_FLOOR,
 		temperature: body.temperature,
 		top_p: body.top_p,
 		...(thinking && { thinking }),

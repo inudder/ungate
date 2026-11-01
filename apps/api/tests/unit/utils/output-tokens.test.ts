@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { openaiToAnthropic } from 'src/adapter/openai-to-anthropic';
 import { CompletionModelRouting } from 'src/orchestration/openai';
-import { resolveMaxOutputTokens } from 'src/utils/output-tokens';
+import { COMPLETION_TOKEN_FLOOR, resolveMaxOutputTokens } from 'src/utils/output-tokens';
 
 import type { ModelMappingConfig } from '@ungate/shared';
 import type { OpenAIChatRequest } from 'src/types/openai';
@@ -59,5 +59,32 @@ describe('model output caps on upstream requests', () => {
 
 		expect(body.model).toBe('MiniMax-M3');
 		expect(body.max_completion_tokens).toBe(64_000);
+	});
+
+	it('sends the MiniMax mapped cap when the client omits a limit', () => {
+		const body = CompletionModelRouting.buildMiniMaxBody(
+			request(),
+			mapping({ provider: 'minimax', upstreamModel: 'MiniMax-M3', maxOutputTokens: 128_000 })
+		);
+
+		expect(body.max_completion_tokens).toBe(128_000);
+	});
+
+	it('applies the completion floor when a MiniMax model has no mapped cap', () => {
+		const body = CompletionModelRouting.buildMiniMaxBody(
+			request(),
+			mapping({ provider: 'minimax', upstreamModel: 'MiniMax-M3' })
+		);
+
+		expect(body.max_completion_tokens).toBe(COMPLETION_TOKEN_FLOOR);
+	});
+
+	it('keeps a client limit for a MiniMax model without a mapped cap', () => {
+		const body = CompletionModelRouting.buildMiniMaxBody(
+			request({ max_tokens: 2_000 }),
+			mapping({ provider: 'minimax', upstreamModel: 'MiniMax-M3' })
+		);
+
+		expect(body.max_completion_tokens).toBe(2_000);
 	});
 });

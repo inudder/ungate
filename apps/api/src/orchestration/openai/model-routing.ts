@@ -1,16 +1,20 @@
 import { openaiToAnthropic } from 'src/adapter/openai-to-anthropic';
 import { ResponsesModelResolver } from 'src/proxy/responses-input-normalizer/resolve-model';
-import { resolveMaxOutputTokens } from 'src/utils/output-tokens';
+import { COMPLETION_TOKEN_FLOOR, resolveMaxOutputTokens } from 'src/utils/output-tokens';
 import { logReasoningSelection, resolveReasoningEffort, withReasoningSelection } from 'src/utils/reasoning-effort';
 
 import type { ModelMappingConfig } from '@ungate/shared';
 import type { OpenAIChatRequest } from 'src/types/openai';
 
-/** Without a configured cap the MiniMax client keeps its own fallback for omitted limits. */
+/**
+ * Applies the mapped MiniMax output cap, or the app-wide completion floor when no cap is
+ * configured. Always supplying a budget keeps the MiniMax client from falling back to a tiny
+ * hardcoded limit that reasoning models exhaust before emitting any content.
+ */
 function miniMaxOutputCap(body: OpenAIChatRequest, cap: number | null | undefined): Partial<OpenAIChatRequest> {
-	if (!cap) return {};
-
-	return { max_completion_tokens: resolveMaxOutputTokens(body.max_completion_tokens ?? body.max_tokens, cap, cap) };
+	return {
+		max_completion_tokens: resolveMaxOutputTokens(body.max_completion_tokens ?? body.max_tokens, cap, COMPLETION_TOKEN_FLOOR)
+	};
 }
 
 const MINIMAX_ADD_FILE_INSTRUCTION = [

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { buildMiniMaxRequestBody, normalizeMiniMaxUpstreamResponse, proxyMiniMaxRequest } from 'src/proxy/minimax-client';
+import { COMPLETION_TOKEN_FLOOR } from 'src/utils/output-tokens';
 
 import type { OpenAIChatRequest, OpenAITool } from 'src/types/openai';
 
@@ -75,6 +76,18 @@ describe('minimax-client', () => {
 
 		expect(body).not.toHaveProperty('tools');
 		expect(body).not.toHaveProperty('tool_choice');
+	});
+
+	it('applies the completion floor when no output limit is supplied', () => {
+		expect(buildMiniMaxRequestBody(request([]))).toMatchObject({
+			max_completion_tokens: COMPLETION_TOKEN_FLOOR
+		});
+	});
+
+	it('keeps a client-supplied output limit', () => {
+		expect(buildMiniMaxRequestBody({ ...request([]), max_tokens: 2_048 })).toMatchObject({
+			max_completion_tokens: 2_048
+		});
 	});
 
 	it('maps MiniMax reasoning effort none to disabled thinking', () => {

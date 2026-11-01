@@ -1,6 +1,6 @@
 import { ModelMappings } from 'src/database/model-mappings';
 import { CodexInputUtils } from 'src/proxy/codex-input-utils';
-import { resolveMaxOutputTokens } from 'src/utils/output-tokens';
+import { COMPLETION_TOKEN_FLOOR, resolveMaxOutputTokens } from 'src/utils/output-tokens';
 import { normalizeReasoningEffort } from 'src/utils/reasoning-effort';
 
 import { flattenResponsesNamespaceTools } from './responses-namespace-tools';
@@ -14,8 +14,6 @@ import type {
 	OpenAIResponsesRequest,
 	OpenAITool
 } from 'src/types/openai';
-
-const RESPONSES_COMPLETION_TOKEN_FLOOR = 8192;
 
 export type ResponsesRequestValidationErrorCode = 'empty_input';
 
@@ -59,9 +57,9 @@ function normalizeMaxCompletionTokens(maxOutputTokens: number | undefined, model
 	const requested =
 		maxOutputTokens === undefined || !Number.isFinite(maxOutputTokens) || maxOutputTokens <= 0
 			? undefined
-			: Math.max(Math.floor(maxOutputTokens), RESPONSES_COMPLETION_TOKEN_FLOOR);
+			: Math.max(Math.floor(maxOutputTokens), COMPLETION_TOKEN_FLOOR);
 
-	return resolveMaxOutputTokens(requested, modelCap, RESPONSES_COMPLETION_TOKEN_FLOOR);
+	return resolveMaxOutputTokens(requested, modelCap, COMPLETION_TOKEN_FLOOR);
 }
 
 function normalizeTool(tool: OpenAIResponsesFunctionTool | OpenAITool): OpenAITool {
