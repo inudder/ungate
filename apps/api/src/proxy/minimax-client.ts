@@ -18,6 +18,12 @@ interface MiniMaxResponseBody {
 		output_tokens?: number;
 		prompt_tokens?: number;
 		completion_tokens?: number;
+		prompt_tokens_details?: {
+			cached_tokens?: number;
+		};
+		completion_tokens_details?: {
+			reasoning_tokens?: number;
+		};
 	};
 }
 
@@ -26,13 +32,39 @@ interface MiniMaxResponseNormalization {
 	bodyJson?: unknown;
 	inputTokens?: number;
 	outputTokens?: number;
+	cachedTokens?: number;
 }
 
-function getMiniMaxReasoning(body: OpenAIChatRequest):
+const MINIMAX_M31_FLASH_PATTERN = /minimax[-_ ]?m3\.?1[-_ ]?flash/i;
+const MINIMAX_M31_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+
+type MiniMaxReasoningEffort = (typeof MINIMAX_M31_EFFORTS)[number];
+
+function isMiniMaxM31Flash(model: string): boolean {
+	return MINIMAX_M31_FLASH_PATTERN.test(model.trim());
+}
+
+/** MiniMax-M3.1-Flash always thinks and rejects `none`; the shallowest supported depth is `low`. */
+function normalizeMiniMaxReasoningEffort(effort: string): MiniMaxReasoningEffort {
+	const normalized = effort.toLowerCase();
+
+	if (normalized === 'minimal') {
+		return 'low';
+	}
+
+	return MINIMAX_M31_EFFORTS.find((candidate) => candidate === normalized) ?? 'low';
+}
+
+function getMiniMaxReasoning(
+	body: OpenAIChatRequest,
+	model: string
+):
 	| {
 			clientEffort: string;
 			upstreamType: 'disabled' | 'adaptive';
 			thinking: { type: 'disabled' | 'adaptive' };
+			/** Only MiniMax-M3.1-Flash exposes thinking depth through `reasoning_effort`. */
+			reasoningEffort?: MiniMaxReasoningEffort;
 	  }
 	| undefined {
 	const clientEffort = body.reasoning?.effort ?? body.reasoning_effort;
@@ -42,10 +74,28 @@ function getMiniMaxReasoning(body: OpenAIChatRequest):
 	}
 
 	if (clientEffort === 'none') {
+		if (isMiniMaxM31Flash(model)) {
+			return {
+				clientEffort,
+				upstreamType: 'adaptive',
+				thinking: { type: 'adaptive' },
+				reasoningEffort: 'low'
+			};
+		}
+
 		return {
 			clientEffort,
 			upstreamType: 'disabled',
 			thinking: { type: 'disabled' }
+		};
+	}
+
+	if (isMiniMaxM31Flash(model)) {
+		return {
+			clientEffort,
+			upstreamType: 'adaptive',
+			thinking: { type: 'adaptive' },
+			reasoningEffort: normalizeMiniMaxReasoningEffort(clientEffort)
 		};
 	}
 
@@ -135,7 +185,8 @@ export async function normalizeMiniMaxUpstreamResponse(
 				response,
 				bodyJson,
 				inputTokens: bodyJson.usage?.prompt_tokens ?? bodyJson.usage?.input_tokens,
-				outputTokens: bodyJson.usage?.completion_tokens ?? bodyJson.usage?.output_tokens
+				outputTokens: bodyJson.usage?.completion_tokens ?? bodyJson.usage?.output_tokens,
+				cachedTokens: bodyJson.usage?.prompt_tokens_details?.cached_tokens ?? 0
 			};
 		}
 	} catch {
@@ -153,7 +204,8 @@ export function buildMiniMaxRequestBody(body: OpenAIChatRequest): Record<string,
 			return Boolean(tool.function?.name?.trim() && parameters && typeof parameters === 'object' && !Array.isArray(parameters));
 		}) ?? [];
 	const hasTools = tools.length > 0;
-	const thinking = getMiniMaxReasoning(body)?.thinking;
+	const reasoning = getMiniMaxReasoning(body, body.model);
+	const thinking = reasoning?.thinking;
 
 	return {
 		model: body.model,
@@ -168,6 +220,7 @@ export function buildMiniMaxRequestBody(body: OpenAIChatRequest): Record<string,
 		temperature: body.temperature,
 		top_p: body.top_p,
 		...(thinking && { thinking }),
+		...(reasoning?.reasoningEffort && { reasoning_effort: reasoning.reasoningEffort }),
 		...(hasTools && { tools }),
 		...(hasTools &&
 			body.tool_choice && {
@@ -207,11 +260,13 @@ export async function proxyMiniMaxRequest(body: OpenAIChatRequest): Promise<{
 	}
 
 	const minimaxBody = buildMiniMaxRequestBody(body);
-	const reasoning = getMiniMaxReasoning(body);
+	const reasoning = getMiniMaxReasoning(body, body.model);
 
 	logger.log(
 		reasoning
-			? `[MiniMax] thinking: client=${reasoning.clientEffort}, upstream=${reasoning.upstreamType}`
+			? `[MiniMax] thinking: client=${reasoning.clientEffort}, upstream=${reasoning.upstreamType}${
+					reasoning.reasoningEffort ? `, depth=${reasoning.reasoningEffort}` : ''
+				}`
 			: '[MiniMax] thinking: not provided'
 	);
 
@@ -240,6 +295,7 @@ export async function proxyMiniMaxRequest(body: OpenAIChatRequest): Promise<{
 				reverseToolMapping: {},
 				inputTokens: normalized.inputTokens,
 				outputTokens: normalized.outputTokens,
+				cacheReadTokens: normalized.cachedTokens,
 				bodyJson: normalized.bodyJson
 			}
 		};

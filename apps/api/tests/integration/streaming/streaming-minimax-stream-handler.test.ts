@@ -92,6 +92,48 @@ describe('streaming-minimax-stream-handler', () => {
 		expect(output).toContain('"finish_reason":"tool_calls"');
 	});
 
+	it('forwards native MiniMax reasoning_content deltas', async () => {
+		const response = createResponseWithSse([
+			'data: {"choices":[{"delta":{"reasoning_content":"step one"}}]}',
+			'data: {"choices":[{"delta":{"content":"answer"},"finish_reason":"stop"}],"usage":{"prompt_tokens":4,"completion_tokens":2,"total_tokens":6}}',
+			'data: [DONE]'
+		]);
+
+		const { stream } = MiniMaxStreamHandler.createStreamResponse(response, 'mm4', 'MiniMax-M3.1-Flash', {
+			model: 'MiniMax-M3.1-Flash',
+			source: 'minimax',
+			startTime: Date.now(),
+			reverseToolMapping: {}
+		});
+
+		const output = await readStream(stream);
+		expect(output).toContain('"reasoning_content":"step one"');
+		expect(output).toContain('"content":"answer"');
+	});
+
+	it('passes cached prompt tokens from the usage chunk through to telemetry', async () => {
+		const response = createResponseWithSse([
+			'data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":100,"completion_tokens":2,"total_tokens":102,"prompt_tokens_details":{"cached_tokens":64}}}',
+			'data: [DONE]'
+		]);
+
+		const { stream } = MiniMaxStreamHandler.createStreamResponse(response, 'mm5', 'MiniMax-M3.1-Flash', {
+			model: 'MiniMax-M3.1-Flash',
+			source: 'minimax',
+			startTime: Date.now(),
+			reverseToolMapping: {}
+		});
+
+		const output = await readStream(stream);
+
+		expect(output).toContain('"cached_tokens":64');
+		expect(recordMock).toHaveBeenCalledTimes(1);
+
+		const [record, cacheReadTokens] = recordMock.mock.calls[0] as [{ inputTokens: number; outputTokens: number }, number];
+		expect(record).toMatchObject({ inputTokens: 100, outputTokens: 2 });
+		expect(cacheReadTokens).toBe(64);
+	});
+
 	it('throws when upstream response has no body', () => {
 		expect(() =>
 			MiniMaxStreamHandler.createStreamResponse(new Response(null), 'mm3', 'minimax-model', {

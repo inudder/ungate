@@ -120,6 +120,36 @@ describe('minimax-client', () => {
 		expect(omittedBody).not.toHaveProperty('thinking');
 	});
 
+	it('forwards MiniMax-M3.1-Flash thinking depth as reasoning_effort', () => {
+		const body = buildMiniMaxRequestBody({
+			...request([]),
+			model: 'MiniMax-M3.1-Flash',
+			reasoning: { effort: 'max' }
+		});
+
+		expect(body).toMatchObject({ thinking: { type: 'adaptive' }, reasoning_effort: 'max' });
+	});
+
+	it('clamps MiniMax-M3.1-Flash reasoning effort none to the low depth', () => {
+		const body = buildMiniMaxRequestBody({
+			...request([]),
+			model: 'MiniMax-M3.1-Flash',
+			reasoning_effort: 'none'
+		});
+
+		expect(body).toMatchObject({ thinking: { type: 'adaptive' }, reasoning_effort: 'low' });
+	});
+
+	it('does not send reasoning_effort to other MiniMax models', () => {
+		const body = buildMiniMaxRequestBody({
+			...request([]),
+			reasoning: { effort: 'xhigh' }
+		});
+
+		expect(body).toMatchObject({ thinking: { type: 'adaptive' } });
+		expect(body).not.toHaveProperty('reasoning_effort');
+	});
+
 	it('preserves data URL images and converts auto detail to MiniMax default', () => {
 		const body = buildMiniMaxRequestBody({
 			...request([]),
@@ -193,6 +223,26 @@ describe('minimax-client', () => {
 		expect(result.response).toBe(response);
 		expect(result.inputTokens).toBe(2);
 		expect(result.outputTokens).toBe(3);
+	});
+
+	it('reads cached prompt tokens from a non-stream MiniMax response', async () => {
+		const response = new Response(
+			JSON.stringify({
+				base_resp: { status_code: 0 },
+				usage: {
+					prompt_tokens: 10,
+					completion_tokens: 2,
+					prompt_tokens_details: { cached_tokens: 6 }
+				}
+			}),
+			{ status: 200, headers: { 'content-type': 'application/json' } }
+		);
+
+		const result = await normalizeMiniMaxUpstreamResponse(response, false);
+
+		expect(result.inputTokens).toBe(10);
+		expect(result.outputTokens).toBe(2);
+		expect(result.cachedTokens).toBe(6);
 	});
 
 	it('reads OpenAI-compatible usage fields from a non-stream response', async () => {

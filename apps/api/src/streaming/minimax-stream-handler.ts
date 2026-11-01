@@ -20,6 +20,7 @@ interface MiniMaxStreamEvent {
 	choices?: {
 		delta?: {
 			content?: string | null;
+			reasoning_content?: string | null;
 			role?: string;
 			tool_calls?: MiniMaxToolCallDelta[];
 		};
@@ -29,6 +30,21 @@ interface MiniMaxStreamEvent {
 		prompt_tokens?: number;
 		completion_tokens?: number;
 		total_tokens?: number;
+		prompt_tokens_details?: {
+			cached_tokens?: number;
+		};
+		completion_tokens_details?: {
+			reasoning_tokens?: number;
+		};
+	};
+}
+
+interface MiniMaxStreamUsage {
+	prompt_tokens: number;
+	completion_tokens: number;
+	total_tokens: number;
+	prompt_tokens_details?: {
+		cached_tokens: number;
 	};
 }
 
@@ -50,11 +66,7 @@ function buildChunk(
 	})}\n\n`;
 }
 
-function buildUsageChunk(
-	streamId: string,
-	modelName: string,
-	usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
-): string {
+function buildUsageChunk(streamId: string, modelName: string, usage: MiniMaxStreamUsage): string {
 	return `data: ${JSON.stringify({
 		id: `chatcmpl-${streamId}`,
 		object: 'chat.completion.chunk',
@@ -177,13 +189,7 @@ export class MiniMaxStreamHandler {
 				let sentStart = false;
 				let finishReason: 'stop' | 'length' | 'tool_calls' | null = null;
 				let sawDone = false;
-				let usage:
-					| {
-							prompt_tokens: number;
-							completion_tokens: number;
-							total_tokens: number;
-					  }
-					| undefined;
+				let usage: MiniMaxStreamUsage | undefined;
 				let streamState: MiniMaxStreamState = 'content';
 				let pendingTag = '';
 
@@ -235,11 +241,21 @@ export class MiniMaxStreamHandler {
 									const promptTokens = event.usage.prompt_tokens ?? context.inputTokens ?? 0;
 									const completionTokens = event.usage.completion_tokens;
 									const totalTokens = event.usage.total_tokens ?? promptTokens + completionTokens;
+									const cachedTokens = event.usage.prompt_tokens_details?.cached_tokens;
 									usage = {
 										prompt_tokens: promptTokens,
 										completion_tokens: completionTokens,
-										total_tokens: totalTokens
+										total_tokens: totalTokens,
+										...(cachedTokens !== undefined && {
+											prompt_tokens_details: { cached_tokens: cachedTokens }
+										})
 									};
+								}
+
+								const reasoningDelta = choice?.delta?.reasoning_content;
+								if (reasoningDelta) {
+									context.thinking?.reasoningDelta(reasoningDelta);
+									safeEnqueue(buildChunk(streamId, modelName, { reasoning_content: reasoningDelta }));
 								}
 
 								const toolCallDeltas = choice?.delta?.tool_calls;
@@ -312,15 +328,18 @@ export class MiniMaxStreamHandler {
 						safeEnqueue(buildUsageChunk(streamId, modelName, usage));
 					}
 
-					CompletionRequestTelemetry.record({
-						model: modelName,
-						source: 'minimax',
-						inputTokens: usage?.prompt_tokens ?? 0,
-						outputTokens: usage?.completion_tokens ?? 0,
-						stream: true,
-						latencyMs: Date.now() - context.startTime,
-						thinking: context.thinking
-					});
+					CompletionRequestTelemetry.record(
+						{
+							model: modelName,
+							source: 'minimax',
+							inputTokens: usage?.prompt_tokens ?? 0,
+							outputTokens: usage?.completion_tokens ?? 0,
+							stream: true,
+							latencyMs: Date.now() - context.startTime,
+							thinking: context.thinking
+						},
+						usage?.prompt_tokens_details?.cached_tokens ?? 0
+					);
 
 					safeEnqueue('data: [DONE]\n\n');
 				} catch (error) {

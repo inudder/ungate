@@ -79,7 +79,8 @@ const reasoningOptions: { label: string; value: ModelMappingConfig['reasoningBud
 	{ label: 'Low', value: 'low' },
 	{ label: 'Medium', value: 'medium' },
 	{ label: 'High', value: 'high' },
-	{ label: 'XHigh', value: 'xhigh' }
+	{ label: 'XHigh', value: 'xhigh' },
+	{ label: 'Max', value: 'max' }
 ];
 
 function withSortOrder(items: ModelMappingConfig[]): ModelMappingConfig[] {
@@ -660,7 +661,7 @@ $effect(() => {
 								step="1"
 								value={model.contextWindow ?? ''}
 								oninput={(event) => updateModelAtIndex(index, 'contextWindow', tokenLimitValue(event))}
-								placeholder="1000000" />
+								placeholder="Not set" />
 							<span class="text-xs text-surface-400">
 								{model.contextWindow ? `${formatTokenLimit(model.contextWindow)}. ` : ''}Reported to clients in /v1/models. Leave
 								empty if unknown.</span>
@@ -675,7 +676,7 @@ $effect(() => {
 								step="1"
 								value={model.maxOutputTokens ?? ''}
 								oninput={(event) => updateModelAtIndex(index, 'maxOutputTokens', tokenLimitValue(event))}
-								placeholder="128000" />
+								placeholder="Not set" />
 							<span class="text-xs text-surface-400">
 								{model.maxOutputTokens ? `${formatTokenLimit(model.maxOutputTokens)}. ` : ''}Sent when the client omits a limit;
 								larger client values are capped to it. Empty keeps the proxy fallback.</span>

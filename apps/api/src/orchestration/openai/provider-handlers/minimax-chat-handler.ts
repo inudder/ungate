@@ -44,15 +44,21 @@ export class MiniMaxChatHandler {
 		const openaiResponse = context.bodyJson ?? responseJson;
 		const latencyMs = Date.now() - context.startTime;
 
-		CompletionRequestTelemetry.recordAndApplyProxyHeaders(reply, latencyMs, {
-			model: String(context.model ?? minimaxBody.model),
-			source: context.source,
-			inputTokens: context.inputTokens ?? 0,
-			outputTokens: context.outputTokens ?? 0,
-			stream: false,
+		CompletionRequestTelemetry.recordAndApplyProxyHeaders(
+			reply,
 			latencyMs,
-			thinking: context.thinking
-		});
+			{
+				model: String(context.model ?? minimaxBody.model),
+				source: context.source,
+				inputTokens: context.inputTokens ?? 0,
+				outputTokens: context.outputTokens ?? 0,
+				stream: false,
+				latencyMs,
+				thinking: context.thinking
+			},
+			context.cacheReadTokens,
+			context.cacheCreationTokens
+		);
 
 		return reply.send(openaiResponse);
 	}
