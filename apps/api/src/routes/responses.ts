@@ -186,16 +186,22 @@ async function sendResponsesJson(
 	const synthesized = ResponsesNonStreamSynthesizer.synthesize(json, model, requestId);
 	const latencyMs = Date.now() - context.startTime;
 
-	CompletionRequestTelemetry.recordAndApplyProxyHeaders(reply, latencyMs, {
-		model: context.model,
-		source: context.source,
-		inputTokens: context.inputTokens ?? synthesized.usage.input_tokens,
-		outputTokens: context.outputTokens ?? synthesized.usage.output_tokens,
-		stream: false,
+	CompletionRequestTelemetry.recordAndApplyProxyHeaders(
+		reply,
 		latencyMs,
-		reasoningTokens: context.reasoningTokens,
-		thinking: context.thinking
-	});
+		{
+			model: context.model,
+			source: context.source,
+			inputTokens: context.inputTokens ?? synthesized.usage.input_tokens,
+			outputTokens: context.outputTokens ?? synthesized.usage.output_tokens,
+			stream: false,
+			latencyMs,
+			reasoningTokens: context.reasoningTokens,
+			thinking: context.thinking
+		},
+		context.cacheReadTokens,
+		context.cacheCreationTokens
+	);
 
 	return reply.send(restoreResponsesNamespaceValue(synthesized, namespaceToolMapping));
 }
